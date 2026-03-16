@@ -415,14 +415,13 @@ impl CompactionStrategy for Strategy {
             }
         }
 
-        // Intra-L0 compaction: merge overlapping L0 runs into a single run within L0
+        // Intra-L0 compaction: merge multiple L0 runs into a single run within L0
         // when table count is below the L0→L1 threshold
         {
             let first_level = version.l0();
 
             if first_level.run_count() > 1
                 && first_level.table_count() < usize::from(self.l0_threshold)
-                && !first_level.is_disjoint()
                 && !version.level_is_busy(0, state.hidden_set())
             {
                 return Choice::Merge(CompactionInput {

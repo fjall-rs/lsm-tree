@@ -115,6 +115,49 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
 }
 
 #[test]
+fn leveled_intra_l0_preserves_newer_run_ordering() -> crate::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let tree = Config::new(
+        dir.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    // Flush 2 overlapping memtables (below l0_threshold=4)
+    tree.insert("key", "old_1", 0);
+    tree.flush_active_memtable(0)?;
+    tree.insert("key", "old_2", 1);
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(2, tree.l0_run_count());
+
+    // Intra-L0 compaction merges the 2 runs
+    let strategy = Arc::new(
+        Strategy::default()
+            .with_l0_threshold(4)
+            .with_table_target_size(128 * 1024 * 1024),
+    );
+    tree.compact(strategy, 0)?;
+    assert_eq!(1, tree.l0_run_count());
+
+    // Flush a newer memtable AFTER compaction — this run must be searched first
+    tree.insert("key", "newest", 2);
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(2, tree.l0_run_count());
+
+    // The newest flush must win: merged (older) run is appended, newer run is at front
+    assert_eq!(
+        tree.get("key", u64::MAX)?.as_deref(),
+        Some(b"newest".as_slice()),
+        "newer L0 run must be found before merged (older) run"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn leveled_l0_reached_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let tree = Config::new(
