@@ -115,28 +115,22 @@ impl IntegrityReport {
 }
 
 /// Computes a streaming XXH3 128-bit checksum for a file without loading it entirely into memory.
+///
+/// Uses `BufReader` so the caller does not need to manage a read buffer.
 fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
-    use std::io::Read;
+    use std::io::BufRead;
 
-    let mut reader = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::with_capacity(64 * 1024, std::fs::File::open(path)?);
     let mut hasher = xxhash_rust::xxh3::Xxh3Default::new();
-    let mut buf = vec![0u8; 64 * 1024];
 
     loop {
-        let n = match reader.read(&mut buf) {
-            Ok(n) => n,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        if n == 0 {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
             break;
         }
-        // Safety: Read::read guarantees n <= buf.len(), so get(..n) always
-        // returns Some. We use .get() instead of direct indexing to satisfy
-        // the crate-wide #[deny(clippy::indexing_slicing)] lint.
-        if let Some(chunk) = buf.get(..n) {
-            hasher.update(chunk);
-        }
+        hasher.update(chunk);
+        let n = chunk.len();
+        reader.consume(n);
     }
 
     Ok(Checksum::from_raw(hasher.digest128()))
