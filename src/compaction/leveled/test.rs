@@ -1,5 +1,5 @@
 use super::*;
-use crate::{AbstractTree, Config, SequenceNumberCounter};
+use crate::{AbstractTree, Config, SequenceNumberCounter, MAX_SEQNO};
 use std::sync::Arc;
 use test_log::test;
 
@@ -91,15 +91,15 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
 
     // All data must still be readable with correct values
     for i in 0..3u8 {
-        assert!(tree.get([b'k', i].as_slice(), u64::MAX)?.is_some());
+        assert!(tree.get([b'k', i].as_slice(), MAX_SEQNO)?.is_some());
     }
     // Latest visible versions should be the last written values
     assert_eq!(
-        tree.get("a", u64::MAX)?.as_deref(),
+        tree.get("a", MAX_SEQNO)?.as_deref(),
         Some([b'v', 2].as_slice()),
     );
     assert_eq!(
-        tree.get("z", u64::MAX)?.as_deref(),
+        tree.get("z", MAX_SEQNO)?.as_deref(),
         Some([b'v', 2].as_slice()),
     );
 
@@ -149,7 +149,7 @@ fn leveled_intra_l0_preserves_newer_run_ordering() -> crate::Result<()> {
 
     // The newest flush must win: merged (older) run is appended, newer run is at front
     assert_eq!(
-        tree.get("key", u64::MAX)?.as_deref(),
+        tree.get("key", MAX_SEQNO)?.as_deref(),
         Some(b"newest".as_slice()),
         "newer L0 run must be found before merged (older) run"
     );
