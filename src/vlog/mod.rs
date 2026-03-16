@@ -17,6 +17,10 @@ use crate::{
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
     Checksum, DescriptorTable, TreeId,
 };
+
+/// Metadata is a small serialized struct (integers + key range); 1 MiB is
+/// extremely generous and prevents OOM from a corrupted section length.
+const MAX_METADATA_SIZE: usize = 1_024 * 1_024;
 use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
@@ -92,6 +96,14 @@ pub fn recover_blob_files(
 
                 let metadata_len = usize::try_from(metadata_section.len())
                     .map_err(|_| crate::Error::Unrecoverable)?;
+
+                if metadata_len > MAX_METADATA_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: metadata_len as u64,
+                        limit: MAX_METADATA_SIZE as u64,
+                    });
+                }
+
                 let metadata_slice =
                     crate::file::read_exact(&file, metadata_section.pos(), metadata_len)?;
 
