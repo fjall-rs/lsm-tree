@@ -10,17 +10,16 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 
-/// Safety cap on the maximum blob value size (256 MiB), applied to both
-/// the decompressed output and the total on-disk read (via `max_total_read_size`,
-/// which adds header + key overhead on top).
+/// Safety cap on blob value size (256 MiB).
 ///
-/// This is intentionally stricter than the on-disk format limit (`u32::MAX`)
-/// to guard against decompression bombs and OOM from crafted/malicious files.
-/// Write-side enforcement of the same limit is tracked in issue #266.
+/// Enforced on this reader and on the write path to prevent producing
+/// or accepting blobs that are unreasonably large. Other internal
+/// readers (e.g., scanner used by compaction/GC) may impose different
+/// constraints.
 ///
-/// NOTE: This constant is intentionally duplicated in `table::block`
-/// (as `u32`) rather than shared, because blocks and blobs are independent
-/// storage formats that may diverge in the future. Keep values in sync manually.
+/// NOTE: Intentionally duplicated in `vlog::blob_file::writer` and
+/// `table::block` rather than shared, because blocks and blobs are
+/// independent storage formats that may diverge in the future.
 const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
@@ -250,11 +249,19 @@ mod tests {
             .use_target_size(u64::MAX)
             .use_compression(CompressionType::Lz4);
 
-        // write_raw lets us set an arbitrary uncompressed_len in the header
-        let handle = writer.write_raw(b"k", 0, b"value", u32::MAX).unwrap();
+        // Write a valid blob, then byte-patch real_val_len in the on-disk header.
+        // The checksum covers (key + raw_data), NOT the header fields, so
+        // tampering real_val_len alone won't break the checksum.
+        let handle = writer.write_raw(b"k", 0, b"value", 5).unwrap();
 
         let blob_file = writer.finish().unwrap();
         let blob_file = blob_file.first().unwrap();
+
+        // Patch real_val_len at handle.offset + magic(4) + checksum(16) + seqno(8) + key_len(2) = +30
+        let mut raw = std::fs::read(&blob_file.0.path).unwrap();
+        let real_val_len_offset = handle.offset as usize + 30;
+        raw[real_val_len_offset..real_val_len_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&blob_file.0.path, &raw).unwrap();
 
         let file = File::open(&blob_file.0.path).unwrap();
         let reader = Reader::new(blob_file, &file);
@@ -408,6 +415,37 @@ mod tests {
             Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn blob_reader_rejects_oversized_real_val_len() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"a", 0, b"abcdef")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Byte-patch real_val_len in the blob header
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        let real_val_len_offset = handle.offset as usize + 4 + 16 + 8 + 2;
+        let oversize = (MAX_DECOMPRESSION_SIZE as u32) + 1;
+        raw[real_val_len_offset..real_val_len_offset + 4].copy_from_slice(&oversize.to_le_bytes());
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"a", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
         Ok(())
     }
 
