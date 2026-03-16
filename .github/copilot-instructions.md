@@ -23,6 +23,7 @@ This is a **maintained fork** of [fjall-rs/lsm-tree](https://github.com/fjall-rs
 - **Clippy:** Code must pass `cargo clippy --all-features -- -D warnings`. Use `#[expect(...)]` (not `#[allow(...)]`) for justified suppressions — `#[expect]` warns if the suppression becomes unnecessary.
 - **Casts:** Prefer `TryFrom`/`TryInto` for fallible conversions. `as` casts are acceptable for infallible cases (e.g., `u32` to `u64`) with `#[expect(clippy::cast_possible_truncation)]` and a reason.
 - **Feature gates:** Code behind `#[cfg(feature = "...")]` must compile with any combination of features. Variables used only in feature-gated branches must also be feature-gated.
+- **Definite initialization:** `let x: T;` without a default value is valid Rust — the compiler tracks initialization per control-flow path and does not drop uninitialized bindings; do not flag this as a bug when the variable is only used in paths that initialize it.
 
 ## Testing Standards
 

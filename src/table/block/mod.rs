@@ -57,21 +57,44 @@ impl Block {
             uncompressed_length: data.len() as u32,
         };
 
-        let data = match compression {
+        // `compressed_buf` keeps the compressed data alive so `payload` can borrow it.
+        // NOTE: Uses Option<Vec<u8>> (not Cow) to match upstream's lz4 pattern and
+        // minimize merge conflict surface. Only declared when a compression feature
+        // is enabled; the match arms always initialize it before use.
+        #[cfg(any(feature = "lz4", feature = "zstd"))]
+        let compressed_buf: Option<Vec<u8>>;
+
+        let payload: &[u8] = match compression {
             CompressionType::None => data,
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => &lz4_flex::compress(data),
+            CompressionType::Lz4 => {
+                compressed_buf = Some(lz4_flex::compress(data));
+
+                #[expect(clippy::expect_used, reason = "compressed_buf was just assigned")]
+                compressed_buf.as_ref().expect("just assigned")
+            }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(level) => {
+                compressed_buf = Some(
+                    zstd::bulk::compress(data, level)
+                        .map_err(|e| crate::Error::Io(std::io::Error::other(e)))?,
+                );
+
+                #[expect(clippy::expect_used, reason = "compressed_buf was just assigned")]
+                compressed_buf.as_ref().expect("just assigned")
+            }
         };
 
         #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
         {
-            header.data_length = data.len() as u32;
-            header.checksum = Checksum::from_raw(crate::hash::hash128(data));
+            header.data_length = payload.len() as u32;
+            header.checksum = Checksum::from_raw(crate::hash::hash128(payload));
         }
 
         header.encode_into(&mut writer)?;
-        writer.write_all(data)?;
+        writer.write_all(payload)?;
 
         log::trace!(
             "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
@@ -119,6 +142,21 @@ impl Block {
                 }
 
                 Slice::from(buf)
+            }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => {
+                // NOTE: size cap validation for uncompressed_length is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
+                let decompressed =
+                    zstd::bulk::decompress(&raw_data, header.uncompressed_length as usize)
+                        .map_err(|_| crate::Error::Decompress(compression))?;
+
+                if decompressed.len() != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
+
+                Slice::from(decompressed)
             }
         };
 
@@ -178,6 +216,23 @@ impl Block {
 
                 Slice::from(decompressed)
             }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => {
+                #[expect(clippy::indexing_slicing)]
+                let raw_data = &buf[Header::serialized_len()..];
+
+                // NOTE: size cap validation for uncompressed_length is in PR #7
+                let decompressed =
+                    zstd::bulk::decompress(raw_data, header.uncompressed_length as usize)
+                        .map_err(|_| crate::Error::Decompress(compression))?;
+
+                if decompressed.len() != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
+
+                Slice::from(decompressed)
+            }
         };
 
         Ok(Self { header, data: buf })
@@ -189,7 +244,85 @@ mod tests {
     use super::*;
     use test_log::test;
 
-    // TODO: Block::from_file roundtrips
+    #[test]
+    fn block_from_file_roundtrip_uncompressed() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::None)?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::None)?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_roundtrip_lz4() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Lz4)?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::Lz4)?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn block_from_file_roundtrip_zstd() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Zstd(3))?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::Zstd(3))?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
 
     #[test]
     fn block_roundtrip_uncompressed() -> crate::Result<()> {
@@ -267,5 +400,89 @@ mod tests {
             Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
             Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
         }
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn zstd_corrupted_uncompressed_length_triggers_decompress_error() {
+        use crate::coding::Encode;
+        use std::io::Cursor;
+
+        let payload: &[u8] = b"hello world";
+
+        let compressed = zstd::bulk::compress(payload, 3).expect("zstd compress failed");
+
+        let data_length = compressed.len() as u32;
+        let uncompressed_length_corrupted = payload.len() as u32 + 1;
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&compressed));
+
+        let header = Header {
+            data_length,
+            uncompressed_length: uncompressed_length_corrupted,
+            checksum,
+            block_type: BlockType::Data,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(&compressed);
+
+        let mut cursor = Cursor::new(buf);
+        let result = Block::from_reader(&mut cursor, CompressionType::Zstd(3));
+
+        match result {
+            Err(crate::Error::Decompress(CompressionType::Zstd(_))) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
+            Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn block_roundtrip_zstd() -> crate::Result<()> {
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::Zstd(3),
+        )?;
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3))?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn block_roundtrip_zstd_large_data() -> crate::Result<()> {
+        let data = vec![0xABu8; 64 * 1024]; // 64KB
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            &data,
+            BlockType::Data,
+            CompressionType::Zstd(3),
+        )?;
+
+        // Verify compression actually reduced size
+        assert!(
+            writer.len() < data.len(),
+            "zstd should compress repeated data"
+        );
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3))?;
+            assert_eq!(&*block.data, &data[..]);
+        }
+
+        Ok(())
     }
 }
