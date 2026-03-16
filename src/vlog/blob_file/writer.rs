@@ -24,6 +24,17 @@ use std::{
 /// blobs are independent storage formats that may diverge in the future.
 const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 
+/// Returns `Err(DecompressedSizeTooLarge)` if `len > MAX_DECOMPRESSION_SIZE`.
+fn check_size_cap(len: usize) -> crate::Result<()> {
+    if len > MAX_DECOMPRESSION_SIZE {
+        return Err(crate::Error::DecompressedSizeTooLarge {
+            declared: len as u64,
+            limit: MAX_DECOMPRESSION_SIZE as u64,
+        });
+    }
+    Ok(())
+}
+
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
 
 pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
@@ -120,19 +131,8 @@ impl Writer {
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
 
-        if uncompressed_len as usize > MAX_DECOMPRESSION_SIZE {
-            return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: u64::from(uncompressed_len),
-                limit: MAX_DECOMPRESSION_SIZE as u64,
-            });
-        }
-
-        if value.len() > MAX_DECOMPRESSION_SIZE {
-            return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: value.len() as u64,
-                limit: MAX_DECOMPRESSION_SIZE as u64,
-            });
-        }
+        check_size_cap(uncompressed_len as usize)?;
+        check_size_cap(value.len())?;
 
         // Perform compression before mutating writer state, so an error
         // leaves the writer consistent. Post-compression output is also
@@ -145,12 +145,7 @@ impl Writer {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
                 let compressed = lz4_flex::compress(value);
-                if compressed.len() > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: compressed.len() as u64,
-                        limit: MAX_DECOMPRESSION_SIZE as u64,
-                    });
-                }
+                check_size_cap(compressed.len())?;
                 std::borrow::Cow::Owned(compressed)
             }
 
@@ -158,12 +153,7 @@ impl Writer {
             CompressionType::Zstd(level) => {
                 let compressed =
                     zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?;
-                if compressed.len() > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: compressed.len() as u64,
-                        limit: MAX_DECOMPRESSION_SIZE as u64,
-                    });
-                }
+                check_size_cap(compressed.len())?;
                 std::borrow::Cow::Owned(compressed)
             }
         };
@@ -352,5 +342,20 @@ mod tests {
         let result = writer.write_raw(b"key", 0, value, value.len() as u32);
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         Ok(())
+    }
+
+    #[test]
+    fn check_size_cap_rejects_over_limit() {
+        let result = super::check_size_cap(MAX_DECOMPRESSION_SIZE + 1);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+    }
+
+    #[test]
+    fn check_size_cap_accepts_at_limit() {
+        assert!(super::check_size_cap(MAX_DECOMPRESSION_SIZE).is_ok());
+        assert!(super::check_size_cap(0).is_ok());
     }
 }
