@@ -164,6 +164,15 @@ impl Writer {
             CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
         };
 
+        // Post-compression cap check — LZ4 can expand incompressible data slightly,
+        // so the compressed output may exceed the cap even if the input was within it.
+        if value.len() > MAX_BLOB_VALUE_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: value.len() as u64,
+                limit: MAX_BLOB_VALUE_SIZE as u64,
+            });
+        }
+
         let checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
             hasher.update(key);

@@ -38,6 +38,15 @@ impl<'a> Reader<'a> {
 
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
+        // Cap-check the on-disk value size BEFORE allocating the read buffer.
+        // vhandle.on_disk_size comes from the value log index and could be corrupted.
+        if vhandle.on_disk_size as usize > MAX_BLOB_VALUE_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(vhandle.on_disk_size),
+                limit: MAX_BLOB_VALUE_SIZE as u64,
+            });
+        }
+
         let value = crate::file::read_exact(
             self.file,
             vhandle.offset,

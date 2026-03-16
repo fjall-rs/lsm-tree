@@ -76,6 +76,9 @@ impl Block {
             uncompressed_length: data.len() as u32,
         };
 
+        // NOTE: `let compressed;` is deliberate delayed initialization — Rust allows
+        // this because the variable is only read inside the Lz4 arm where it IS assigned.
+        // In the None arm the variable is never touched, so no UB or compile error.
         let compressed;
         let data = match compression {
             CompressionType::None => data,
@@ -181,6 +184,16 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
+        // Cap-check the on-disk size BEFORE allocating the read buffer.
+        // handle.size() comes from the segment index which could be corrupted.
+        let max_on_disk = MAX_DECOMPRESSION_SIZE as usize + Header::serialized_len();
+        if handle.size() as usize > max_on_disk {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(handle.size()),
+                limit: max_on_disk as u64,
+            });
+        }
+
         let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
         let header = Header::decode_from(&mut &buf[..])?;
