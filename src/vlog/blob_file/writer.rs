@@ -14,6 +14,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Safety cap on blob value size (256 MiB).
+///
+/// Enforced on the write path to prevent producing blobs that are
+/// unreasonably large. The reader applies its own copy of this limit.
+///
+/// NOTE: Intentionally duplicated in `table::block` (as `u32`) and
+/// `vlog::blob_file::reader` rather than shared, because blocks and
+/// blobs are independent storage formats that may diverge in the future.
+const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
+
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
 
 pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
@@ -110,18 +120,62 @@ impl Writer {
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
 
-        // Compress before any state mutation or I/O, so a zstd failure
-        // doesn't leave a partial record in the writer.
+        if uncompressed_len as usize > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(uncompressed_len),
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
+        // Perform all size validations (including compression) before
+        // mutating writer state, so an error leaves the writer consistent.
         let value = match &self.compression {
-            CompressionType::None => std::borrow::Cow::Borrowed(value),
+            CompressionType::None => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+                std::borrow::Cow::Borrowed(value)
+            }
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
+            CompressionType::Lz4 => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+                let compressed = lz4_flex::compress(value);
+                if compressed.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: compressed.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+                std::borrow::Cow::Owned(compressed)
+            }
 
             #[cfg(feature = "zstd")]
-            CompressionType::Zstd(level) => std::borrow::Cow::Owned(
-                zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?,
-            ),
+            CompressionType::Zstd(level) => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+                let compressed =
+                    zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?;
+                if compressed.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: compressed.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+                std::borrow::Cow::Owned(compressed)
+            }
         };
 
         // Ensure the compressed value length fits in u32 before we write it
@@ -207,6 +261,8 @@ impl Writer {
     ///
     /// Will return `Err` if an IO error occurs.
     ///
+    /// Will return `Err(Error::DecompressedSizeTooLarge { .. })` if the value exceeds the 256 MiB limit.
+    ///
     /// # Panics
     ///
     /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
@@ -243,5 +299,69 @@ impl Writer {
         let checksum = checksum.checksum();
 
         Ok((metadata, checksum))
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blob_write_rejects_oversized_value() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let mut writer = Writer::new(&path, 0, 0)?;
+
+        let oversize = MAX_DECOMPRESSION_SIZE as u32 + 1;
+        let result = writer.write_raw(b"key", 0, b"small-on-disk", oversize);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_accepts_max_size_value() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let mut writer = Writer::new(&path, 0, 0)?;
+
+        let at_limit = MAX_DECOMPRESSION_SIZE as u32;
+        let result = writer.write_raw(b"key", 0, b"small-on-disk", at_limit);
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_rejects_oversized_value_none_compression() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let mut writer = Writer::new(&path, 0, 0)?;
+
+        let oversize_value = vec![0u8; MAX_DECOMPRESSION_SIZE + 1];
+        let result = writer.write_raw(b"key", 0, &oversize_value, MAX_DECOMPRESSION_SIZE as u32);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_write_rejects_oversized_value_lz4_compression() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let mut writer = Writer::new(&path, 0, 0)?.use_compression(CompressionType::Lz4);
+
+        let oversize_value = vec![0u8; MAX_DECOMPRESSION_SIZE + 1];
+        let result = writer.write_raw(b"key", 0, &oversize_value, MAX_DECOMPRESSION_SIZE as u32);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+        Ok(())
     }
 }
