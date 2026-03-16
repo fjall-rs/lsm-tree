@@ -440,3 +440,158 @@ fn range_tombstone_prefix_iteration_with_sst() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+// --- Test P: Compaction with MultiWriter rotation preserves RTs across tables ---
+#[test]
+fn range_tombstone_survives_compaction_with_rotation() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    // Use small target_size to force MultiWriter rotation during compaction
+    let tree = Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    // Insert enough data to produce multiple tables on compaction
+    for i in 0u8..20 {
+        let key = format!("key_{i:03}");
+        let val = "x".repeat(4000);
+        tree.insert(key.as_bytes(), val.as_bytes(), u64::from(i));
+    }
+    // Range tombstone covering a subset
+    tree.remove_range("key_005", "key_015", 50);
+    tree.flush_active_memtable(0)?;
+
+    // Force compaction with small target_size to trigger rotation
+    tree.major_compact(1024, 0)?;
+
+    // After compaction: keys inside [key_005, key_015) should be suppressed
+    assert_eq!(None, tree.get("key_005", 51)?);
+    assert_eq!(None, tree.get("key_010", 51)?);
+    assert_eq!(None, tree.get("key_014", 51)?);
+
+    // Keys outside range should survive
+    assert!(tree.get("key_000", 51)?.is_some());
+    assert!(tree.get("key_015", 51)?.is_some());
+    assert!(tree.get("key_019", 51)?.is_some());
+
+    Ok(())
+}
+
+// --- Test Q: Table-skip optimization triggers for fully-covered tables ---
+#[test]
+fn range_tombstone_table_skip_optimization() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Create a table with keys a-c
+    tree.insert("a", "1", 1);
+    tree.insert("b", "2", 2);
+    tree.insert("c", "3", 3);
+    tree.flush_active_memtable(0)?;
+
+    // Create a range tombstone that fully covers the table's key range
+    // with higher seqno than any key in the table
+    tree.remove_range("a", "d", 100);
+
+    // The table [a,c] is fully covered by [a,d)@100 (100 > max_seqno=3)
+    // Table-skip should allow skipping the entire table during iteration
+    let keys = collect_keys(&tree, 101)?;
+    assert!(keys.is_empty());
+
+    // Reverse iteration should also skip
+    let keys = collect_keys_rev(&tree, 101)?;
+    assert!(keys.is_empty());
+
+    Ok(())
+}
+
+// --- Test R: BlobTree range tombstone support ---
+#[test]
+fn range_tombstone_blob_tree() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(
+        lsm_tree::KvSeparationOptions::default()
+            .separation_threshold(1)
+            .compression(lsm_tree::CompressionType::None),
+    ))
+    .open()?;
+
+    tree.insert("a", "value_a", 1);
+    tree.insert("b", "value_b", 2);
+    tree.insert("c", "value_c", 3);
+
+    // Range tombstone in BlobTree
+    tree.remove_range("a", "c", 10);
+
+    assert_eq!(None, tree.get("a", 11)?);
+    assert_eq!(None, tree.get("b", 11)?);
+    assert_eq!(Some("value_c".as_bytes().into()), tree.get("c", 11)?);
+
+    // Flush and verify persistence
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(None, tree.get("a", 11)?);
+    assert_eq!(None, tree.get("b", 11)?);
+    assert_eq!(Some("value_c".as_bytes().into()), tree.get("c", 11)?);
+
+    Ok(())
+}
+
+// --- Test S: Invalid interval silently returns 0 ---
+#[test]
+fn range_tombstone_invalid_interval() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    tree.insert("a", "1", 1);
+
+    // start >= end — should be silently ignored
+    let size = tree.remove_range("z", "a", 10);
+    assert_eq!(0, size);
+
+    // Equal start and end — also invalid
+    let size = tree.remove_range("a", "a", 10);
+    assert_eq!(0, size);
+
+    // Data should still be visible
+    assert_eq!(Some("1".as_bytes().into()), tree.get("a", 11)?);
+
+    Ok(())
+}
+
+// --- Test T: Multiple compaction rounds preserve range tombstones ---
+#[test]
+fn range_tombstone_multiple_compaction_rounds() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Round 1: data + RT + flush + compact
+    tree.insert("a", "1", 1);
+    tree.insert("b", "2", 2);
+    tree.insert("c", "3", 3);
+    tree.remove_range("a", "c", 10);
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(64_000_000, 0)?;
+
+    // Round 2: add more data + flush + compact again
+    tree.insert("d", "4", 11);
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(64_000_000, 0)?;
+
+    // RT should survive both compaction rounds
+    assert_eq!(None, tree.get("a", 12)?);
+    assert_eq!(None, tree.get("b", 12)?);
+    assert_eq!(Some("3".as_bytes().into()), tree.get("c", 12)?);
+    assert_eq!(Some("4".as_bytes().into()), tree.get("d", 12)?);
+
+    Ok(())
+}
