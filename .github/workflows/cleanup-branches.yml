@@ -1,0 +1,40 @@
+name: Cleanup release-plz branches
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete stale release-plz branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branches = await github.paginate(
+              github.rest.repos.listBranches,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+            const stale = branches
+              .filter(b => b.name.startsWith("release-plz-"))
+              .map(b => b.name);
+            stale.sort().reverse();
+            const toDelete = stale.slice(1);
+            for (const branch of toDelete) {
+              try {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `heads/${branch}`
+                });
+                core.info(`Deleted: ${branch}`);
+              } catch (e) {
+                core.info(`Skip ${branch}: ${e.message}`);
+              }
+            }
+            core.info(`Cleaned ${toDelete.length} of ${stale.length} release-plz branches`);
