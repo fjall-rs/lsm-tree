@@ -121,7 +121,7 @@ pub struct Iter {
 impl Iter {
     #[expect(
         clippy::too_many_arguments,
-        reason = "iterator requires full context for block loading"
+        reason = "cfg(metrics) adds an extra parameter"
     )]
     pub fn new(
         table_id: GlobalTableId,

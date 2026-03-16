@@ -25,15 +25,16 @@ use crate::{
 };
 use std::fs::File;
 
-/// Safety cap on block size for on-disk reads and decompressed output (256 MiB).
+/// Safety cap on block payload size (256 MiB).
 ///
-/// Intentionally stricter than the on-disk format limit (`u32::MAX`) to guard
-/// against decompression bombs and OOM from crafted/malicious SST files.
-/// Write-side enforcement of the same limit is tracked in issue #266.
+/// Enforced on both write and read paths to prevent producing or accepting
+/// blocks that are unreasonably large. Intentionally stricter than the
+/// on-disk format limit (`u32::MAX`) to guard against decompression bombs
+/// and OOM from crafted/malicious SST files.
 ///
-/// NOTE: This constant is intentionally duplicated in `vlog::blob_file::reader`
-/// (as `usize`) rather than shared, because blocks and blobs are independent
-/// storage formats that may diverge in the future. Keep values in sync manually.
+/// NOTE: Intentionally duplicated in `vlog::blob_file` (writer as `usize`,
+/// reader as `usize`) rather than shared, because blocks and blobs are
+/// independent storage formats that may diverge in the future.
 const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
 
 /// A block on disk
@@ -59,6 +60,13 @@ impl Block {
         block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Header> {
+        if data.len() > MAX_DECOMPRESSION_SIZE as usize {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: data.len() as u64,
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let mut header = Header {
             block_type,
             checksum: Checksum::from_raw(0), // <-- NOTE: Is set later on
@@ -686,6 +694,26 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn block_write_rejects_oversized_payload() {
+        // write_into checks data.len() before reading the payload,
+        // so a dangling slice avoids a 256 MiB heap allocation in CI.
+        #[expect(unsafe_code)]
+        let oversized: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::NonNull::<u8>::dangling().as_ptr(),
+                MAX_DECOMPRESSION_SIZE as usize + 1,
+            )
+        };
+        let mut sink = std::io::sink();
+        let result =
+            Block::write_into(&mut sink, oversized, BlockType::Data, CompressionType::None);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
     }
 
     #[test]
