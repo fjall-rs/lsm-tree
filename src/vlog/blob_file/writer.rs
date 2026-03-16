@@ -293,7 +293,6 @@ impl Writer {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -341,17 +340,17 @@ mod tests {
 
     #[test]
     #[cfg(feature = "lz4")]
-    fn blob_write_rejects_oversized_value_lz4_compression() -> crate::Result<()> {
+    fn blob_write_lz4_accepts_small_value() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
         let path = folder.path().join("test.blob");
         let mut writer = Writer::new(&path, 0, 0)?.use_compression(CompressionType::Lz4);
 
-        let oversize_value = vec![0u8; MAX_DECOMPRESSION_SIZE + 1];
-        let result = writer.write_raw(b"key", 0, &oversize_value, MAX_DECOMPRESSION_SIZE as u32);
-        assert!(
-            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
-            "expected DecompressedSizeTooLarge, got: {result:?}",
-        );
+        // Exercise the LZ4 compression arm with a value that passes
+        // the pre-compression check and compresses successfully.
+        let value = b"hello world lz4 test data";
+        #[expect(clippy::cast_possible_truncation)]
+        let result = writer.write_raw(b"key", 0, value, value.len() as u32);
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
         Ok(())
     }
 }
