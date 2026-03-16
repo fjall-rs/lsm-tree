@@ -127,27 +127,21 @@ impl Writer {
             });
         }
 
-        // Perform all size validations (including compression) before
-        // mutating writer state, so an error leaves the writer consistent.
+        if value.len() > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: value.len() as u64,
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
+        // Perform compression before mutating writer state, so an error
+        // leaves the writer consistent. Post-compression size is also
+        // checked against the cap.
         let value = match &self.compression {
-            CompressionType::None => {
-                if value.len() > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: value.len() as u64,
-                        limit: MAX_DECOMPRESSION_SIZE as u64,
-                    });
-                }
-                std::borrow::Cow::Borrowed(value)
-            }
+            CompressionType::None => std::borrow::Cow::Borrowed(value),
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if value.len() > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: value.len() as u64,
-                        limit: MAX_DECOMPRESSION_SIZE as u64,
-                    });
-                }
                 let compressed = lz4_flex::compress(value);
                 if compressed.len() > MAX_DECOMPRESSION_SIZE {
                     return Err(crate::Error::DecompressedSizeTooLarge {
@@ -160,12 +154,6 @@ impl Writer {
 
             #[cfg(feature = "zstd")]
             CompressionType::Zstd(level) => {
-                if value.len() > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: value.len() as u64,
-                        limit: MAX_DECOMPRESSION_SIZE as u64,
-                    });
-                }
                 let compressed =
                     zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?;
                 if compressed.len() > MAX_DECOMPRESSION_SIZE {
