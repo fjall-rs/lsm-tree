@@ -14,6 +14,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Safety cap on blob value size (256 MiB).
+///
+/// Enforced on the write path to prevent producing blobs that are
+/// unreasonably large. Mirrors the block-level cap in `table::block`
+/// but is intentionally independent — blocks and blobs are separate
+/// storage formats that may diverge in the future.
+const MAX_BLOB_VALUE_SIZE: usize = 256 * 1024 * 1024;
+
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
 
 pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
@@ -106,6 +114,13 @@ impl Writer {
         value: &[u8],
         uncompressed_len: u32,
     ) -> crate::Result<u32> {
+        if value.len() > MAX_BLOB_VALUE_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: value.len() as u64,
+                limit: MAX_BLOB_VALUE_SIZE as u64,
+            });
+        }
+
         assert!(!key.is_empty());
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());

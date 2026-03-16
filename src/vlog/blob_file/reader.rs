@@ -15,6 +15,13 @@ use std::{
     io::{Cursor, Read, Seek},
 };
 
+/// Safety cap on blob value size (256 MiB).
+///
+/// Enforced on the read path to prevent allocating unreasonably large
+/// decompression buffers from crafted/malicious blob files. Mirrors the
+/// write-side cap in `writer` but is intentionally independent.
+const MAX_BLOB_VALUE_SIZE: usize = 256 * 1024 * 1024;
+
 /// Reads a single blob from a blob file
 pub struct Reader<'a> {
     blob_file: &'a BlobFile,
@@ -53,6 +60,13 @@ impl<'a> Reader<'a> {
 
         #[allow(unused, reason = "only used in feature flagged branch")]
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
+
+        if real_val_len > MAX_BLOB_VALUE_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: real_val_len as u64,
+                limit: MAX_BLOB_VALUE_SIZE as u64,
+            });
+        }
 
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
 

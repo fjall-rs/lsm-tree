@@ -25,6 +25,18 @@ use crate::{
 };
 use std::fs::File;
 
+/// Safety cap on block payload size (256 MiB).
+///
+/// Enforced on both write and read paths to prevent producing or accepting
+/// blocks that are unreasonably large. Intentionally stricter than the
+/// on-disk format limit (`u32::MAX`) to guard against decompression bombs
+/// and OOM from crafted/malicious SST files.
+///
+/// NOTE: Intentionally duplicated in `vlog::blob_file` (writer as `usize`,
+/// reader as `usize`) rather than shared, because blocks and blobs are
+/// independent storage formats that may diverge in the future.
+const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
+
 /// A block on disk
 ///
 /// Consists of a fixed-size header and some bytes (the data/payload).
@@ -48,6 +60,13 @@ impl Block {
         block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Header> {
+        if data.len() > MAX_DECOMPRESSION_SIZE as usize {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: data.len() as u64,
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let mut header = Header {
             block_type,
             checksum: Checksum::from_raw(0), // <-- NOTE: Is set later on
@@ -101,6 +120,13 @@ impl Block {
             );
         })?;
 
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let data = match compression {
             CompressionType::None => raw_data,
 
@@ -147,6 +173,13 @@ impl Block {
                 header.checksum,
             );
         })?;
+
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
 
         let buf = match compression {
             CompressionType::None => {
@@ -227,5 +260,83 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn write_rejects_oversized_payload() {
+        // Verify that write_into rejects payloads exceeding MAX_DECOMPRESSION_SIZE.
+        // We cannot allocate 256 MiB+ in tests, so we lower the threshold check
+        // indirectly: just verify the error variant is returned for the constant.
+        let oversized = vec![0u8; MAX_DECOMPRESSION_SIZE as usize + 1];
+        let mut buf = vec![];
+        let result =
+            Block::write_into(&mut buf, &oversized, BlockType::Data, CompressionType::None);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got {:?}",
+            result.as_ref().err(),
+        );
+    }
+
+    #[test]
+    fn read_rejects_corrupted_uncompressed_length() {
+        use crate::coding::Encode;
+
+        // Build a valid header with an oversized uncompressed_length, then
+        // append minimal data. The header self-checksum is computed correctly
+        // so the size cap check (not header checksum) must reject it.
+        let data = b"hello";
+        let data_checksum = crate::hash::hash128(data);
+
+        let header = Header {
+            block_type: BlockType::Data,
+            checksum: Checksum::from_raw(data_checksum),
+            #[expect(clippy::cast_possible_truncation)]
+            data_length: data.len() as u32,
+            uncompressed_length: MAX_DECOMPRESSION_SIZE + 1,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(data);
+
+        let mut reader = &buf[..];
+        let result = Block::from_reader(&mut reader, CompressionType::None);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got {:?}",
+            result.as_ref().err(),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn lz4_corrupted_uncompressed_length_triggers_size_cap() {
+        use crate::coding::Encode;
+
+        // Build a valid header with an oversized uncompressed_length
+        // pointing at LZ4 compressed data. The size cap check must fire
+        // BEFORE decompression is attempted (avoiding OOM).
+        let payload = b"hello world hello world hello world";
+        let compressed = lz4_flex::compress(payload);
+        let data_checksum = crate::hash::hash128(&compressed);
+
+        let header = Header {
+            block_type: BlockType::Data,
+            checksum: Checksum::from_raw(data_checksum),
+            #[expect(clippy::cast_possible_truncation)]
+            data_length: compressed.len() as u32,
+            uncompressed_length: MAX_DECOMPRESSION_SIZE + 1,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(&compressed);
+
+        let mut cursor = &buf[..];
+        let result = Block::from_reader(&mut cursor, CompressionType::Lz4);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got {:?}",
+            result.as_ref().err(),
+        );
     }
 }
