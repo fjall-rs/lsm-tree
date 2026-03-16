@@ -571,6 +571,14 @@ impl Table {
         let range_tombstones = if let Some(rt_handle) = regions.range_tombstones {
             log::trace!("Loading range tombstone block, with rt_ptr={rt_handle:?}");
             let block = Block::from_file(&file, rt_handle, crate::CompressionType::None)?;
+
+            if block.header.block_type != BlockType::RangeTombstone {
+                return Err(crate::Error::InvalidTag((
+                    "BlockType",
+                    block.header.block_type.into(),
+                )));
+            }
+
             Self::decode_range_tombstones(&block)?
         } else {
             Vec::new()
