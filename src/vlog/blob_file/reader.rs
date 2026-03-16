@@ -99,6 +99,20 @@ impl<'a> Reader<'a> {
 
                 UserValue::from(buf)
             }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => {
+                // NOTE: size cap validation for real_val_len is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
+                let decompressed = zstd::bulk::decompress(&raw_data, real_val_len)
+                    .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
+
+                if decompressed.len() != real_val_len {
+                    return Err(crate::Error::Decompress(self.blob_file.0.meta.compression));
+                }
+
+                UserValue::from(decompressed)
+            }
         };
 
         Ok(value)
@@ -199,6 +213,76 @@ mod tests {
             Ok(_) => panic!("expected Error::Decompress, but got Ok"),
             Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
         }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn blob_reader_zstd_corrupted_real_val_len_triggers_decompress_error() -> crate::Result<()> {
+        use byteorder::WriteBytesExt;
+
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Zstd(3));
+
+        let handle = writer.write(b"a", 0, b"abcdef")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Tamper the real_val_len field in the blob file.
+        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + ...
+        // RealValLen is at offset 30 from the blob start.
+        let real_val_len_offset = handle.offset + 4 + 16 + 8 + 2;
+
+        {
+            use std::io::{Seek, Write};
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&blob_file.0.path)?;
+            file.seek(std::io::SeekFrom::Start(real_val_len_offset))?;
+            // Write a corrupted value: original len + 1
+            file.write_u32::<LittleEndian>(b"abcdef".len() as u32 + 1)?;
+            file.flush()?;
+        }
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        match reader.get(b"a", &handle) {
+            Err(crate::Error::Decompress(_)) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok"),
+            Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn blob_reader_roundtrip_zstd() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Zstd(3));
+
+        let handle0 = writer.write(b"a", 0, b"abcdef")?;
+        let handle1 = writer.write(b"b", 0, b"ghi")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
+        assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
 
         Ok(())
     }
