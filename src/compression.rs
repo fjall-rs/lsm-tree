@@ -34,8 +34,9 @@ pub enum CompressionType {
     /// Recommended for cold/archival data where compression ratio
     /// matters more than raw speed.
     // NOTE: Uses i32 (not a validated newtype) to match upstream's public API and
-    // the zstd crate's compress(data, level: i32) signature. Validation happens at
-    // construction (CompressionType::zstd()) and deserialization (Decode::decode_from).
+    // the zstd crate's compress(data, level: i32) signature. Validated levels are
+    // produced by CompressionType::zstd() and Decode::decode_from; direct construction
+    // via CompressionType::Zstd(level) must uphold the 1..=22 invariant.
     #[cfg(feature = "zstd")]
     Zstd(i32),
 }
@@ -104,9 +105,12 @@ impl Encode for CompressionType {
             #[cfg(feature = "zstd")]
             Self::Zstd(level) => {
                 writer.write_u8(3)?;
-                // Level is validated at construction (CompressionType::zstd()) or
-                // deserialization (Decode::decode_from). Encoding in-memory values
-                // must remain infallible for encode_into_vec() safety.
+                // Catch invalid levels in debug builds (e.g. direct Zstd(999) construction).
+                // Not a runtime error — encoding must stay infallible for encode_into_vec().
+                debug_assert!(
+                    (1..=22).contains(level),
+                    "zstd level {level} outside valid range 1..=22"
+                );
                 #[expect(
                     clippy::cast_possible_truncation,
                     reason = "level range 1..=22 fits i8"
