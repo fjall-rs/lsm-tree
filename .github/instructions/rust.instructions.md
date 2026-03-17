@@ -72,7 +72,7 @@ These are not actionable review findings. Do not raise them:
 
 ## Testing Standards
 
-- Test naming: `fn <what>_<condition>_<expected>()` or `fn test_<scenario>()`
+- Test naming: `fn <what>_<condition>_<expected>()` (sole exception: `src/compaction/leveled/test.rs` may use `fn test_<scenario>()`)
 - Corruption tests: tamper the relevant on-disk field (checksum, block header, segment metadata) and assert the expected error
 - Use same serialization as production (e.g., `lz4_flex::compress` not `compress_prepend_size`)
 - Use `tempfile::tempdir()` for test directories — ensures cleanup even on panic
