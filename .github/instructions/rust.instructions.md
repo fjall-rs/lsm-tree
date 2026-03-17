@@ -68,6 +68,7 @@ These are not actionable review findings. Do not raise them:
 - No `unwrap()` / `expect()` on I/O paths — use `?` propagation
 - `expect()` is acceptable for programmer invariants (e.g., lock poisoning, `const` construction) with reason
 - Code must pass `cargo clippy --all-features -- -D warnings`
+- Treat unused imports as actionable issues (they trigger clippy warnings and will fail `-D warnings` builds; do not classify them as purely cosmetic).
 
 ## Testing Standards
 
