@@ -152,14 +152,12 @@ impl MultiWriter {
                     }
                 }
             } else {
-                // Flush mode: write all overlapping RTs without clipping so they
-                // cover keys in older SSTs outside this memtable's key range.
+                // Flush mode: write ALL RTs without clipping so they cover keys
+                // in older SSTs outside this memtable's key range. No overlap
+                // filter — an RT disjoint from this table's KV range (e.g.,
+                // delete_range on keys only in older SSTs) must still be persisted.
                 for rt in tombstones {
-                    if rt.start.as_ref() <= last_key.as_ref()
-                        && rt.end.as_ref() > first_key.as_ref()
-                    {
-                        writer.write_range_tombstone(rt.clone());
-                    }
+                    writer.write_range_tombstone(rt.clone());
                 }
             }
         } else {
