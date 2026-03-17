@@ -13,6 +13,8 @@ fn open_tree(path: &std::path::Path) -> AnyTree {
 }
 
 /// Helper to collect keys from a forward iterator.
+/// Returns `Vec<Vec<u8>>` which compares correctly with `vec![b"a", b"b"]`
+/// via Rust's `PartialEq` blanket impl for `Vec<T>` where `T: PartialEq<U>`.
 fn collect_keys(tree: &AnyTree, seqno: u64) -> lsm_tree::Result<Vec<Vec<u8>>> {
     let mut keys = Vec::new();
     for item in tree.iter(seqno, None) {
