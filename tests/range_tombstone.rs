@@ -604,3 +604,65 @@ fn range_tombstone_multiple_compaction_rounds() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+// --- Test: RT disjoint from memtable KV range persists through flush ---
+// Regression test: delete_range targeting keys only in older SSTs must not be
+// dropped during flush just because it doesn't overlap the memtable's KV range.
+#[test]
+fn range_tombstone_disjoint_from_flush_kv_range() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Write keys [x, y, z] and flush to SST (older data)
+    tree.insert("x", "1", 1);
+    tree.insert("y", "2", 2);
+    tree.insert("z", "3", 3);
+    tree.flush_active_memtable(0)?;
+
+    // Now write keys [a, b] + delete_range("x", "zz") in a new memtable.
+    // The RT is disjoint from the KV range [a, b] of this memtable.
+    tree.insert("a", "4", 4);
+    tree.insert("b", "5", 5);
+    tree.remove_range("x", "zz", 10);
+    tree.flush_active_memtable(0)?;
+
+    // The RT must have survived flush and suppress [x, y, z] in the older SST
+    assert_eq!(Some("4".as_bytes().into()), tree.get("a", 11)?);
+    assert_eq!(Some("5".as_bytes().into()), tree.get("b", 11)?);
+    assert_eq!(None, tree.get("x", 11)?);
+    assert_eq!(None, tree.get("y", 11)?);
+    assert_eq!(None, tree.get("z", 11)?);
+
+    Ok(())
+}
+
+// --- Test: RT disjoint from KV range survives compaction ---
+// After flush preserves the RT, compaction should merge it with the older SST
+// and either suppress the keys or propagate the RT.
+#[test]
+fn range_tombstone_disjoint_survives_compaction() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Older data in SST
+    tree.insert("x", "1", 1);
+    tree.insert("y", "2", 2);
+    tree.flush_active_memtable(0)?;
+
+    // New memtable: KV in [a, b], RT covering [x, z) — disjoint from KV
+    tree.insert("a", "3", 3);
+    tree.insert("b", "4", 4);
+    tree.remove_range("x", "z", 10);
+    tree.flush_active_memtable(0)?;
+
+    // Compact everything
+    tree.major_compact(64_000_000, 0)?;
+
+    // After compaction, [x, y] should still be suppressed
+    assert_eq!(Some("3".as_bytes().into()), tree.get("a", 11)?);
+    assert_eq!(Some("4".as_bytes().into()), tree.get("b", 11)?);
+    assert_eq!(None, tree.get("x", 11)?);
+    assert_eq!(None, tree.get("y", 11)?);
+
+    Ok(())
+}
