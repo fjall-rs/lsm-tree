@@ -63,7 +63,9 @@ These are not actionable review findings. Do not raise them:
 
 ## Rust-Specific Standards
 
-- `#[expect(lint, reason = "...")]` is the standard for lint suppressions — `#[expect]` warns when suppression becomes unnecessary, catching stale allowances. Flag any new `#[allow(lint)]` in the PR diff and request migration to `#[expect]`. `#[allow]` is accepted only for legacy code on lines outside the diff, with a migration note recommended.
+- `#[expect(lint, reason = "...")]` is the standard for lint suppressions **when the crate’s MSRV is at least Rust 1.79** (the stabilization release for `#[expect]`). `#[expect]` warns when suppression becomes unnecessary, catching stale allowances.
+  - For repos with **MSRV ≥ 1.79**: Flag any new `#[allow(lint)]` in the PR diff and request migration to `#[expect(..., reason = "...")]`. `#[allow]` is accepted only for legacy code on lines outside the diff, with a migration note recommended.
+  - For repos with **MSRV < 1.79** (where `#[expect]` is unavailable): `#[allow(lint)]` is acceptable, but must be accompanied by a brief `// reason: ...` or `// SAFETY: ...` style comment explaining the justification. Do **not** request migration to `#[expect]` unless/until the repo explicitly raises its MSRV to ≥ 1.79.
 - `TryFrom`/`TryInto` for fallible conversions; `as` casts need justification
 - No `unwrap()` / `expect()` on I/O paths — use `?` propagation
 - `expect()` is acceptable for programmer invariants (e.g., lock poisoning, `const` construction) with reason
