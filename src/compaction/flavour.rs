@@ -78,7 +78,9 @@ pub(super) fn prepare_table_writer(
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
-    )?;
+    )?
+    // Compaction consumes input tables, so clip RTs to each output table's key range.
+    .use_clip_range_tombstones();
 
     if index_partitioning {
         table_writer = table_writer.use_partitioned_index();

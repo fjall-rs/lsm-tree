@@ -394,25 +394,41 @@ impl Writer {
         // If we have range tombstones but no KV items, write a synthetic
         // weak tombstone at the first RT's start key to produce a valid index.
         // Preserve seqno bounds from the range tombstones (the sentinel at seqno 0
-        // should not pull lowest_seqno down).
+        // should not pull lowest_seqno down). Also ensure the table metadata
+        // key range conservatively covers all range tombstones.
         if self.meta.item_count == 0 {
-            let min_start = self
-                .range_tombstones
-                .iter()
-                .map(|rt| &rt.start)
-                .min()
-                .cloned();
+            // Compute the coverage of all range tombstones.
+            let mut min_start: Option<UserKey> = None;
+            let mut max_end: Option<UserKey> = None;
+            for rt in &self.range_tombstones {
+                match &min_start {
+                    None => min_start = Some(rt.start.clone()),
+                    Some(cur_min) if rt.start < *cur_min => min_start = Some(rt.start.clone()),
+                    _ => {}
+                }
+                match &max_end {
+                    None => max_end = Some(rt.end.clone()),
+                    Some(cur_max) if rt.end > *cur_max => max_end = Some(rt.end.clone()),
+                    _ => {}
+                }
+            }
 
-            if let Some(start) = min_start {
+            if let (Some(start), Some(end)) = (min_start, max_end) {
                 let saved_lo = self.meta.lowest_seqno;
                 let saved_hi = self.meta.highest_seqno;
 
-                self.write(InternalValue::new_weak_tombstone(start, 0))?;
+                // Use the minimum RT start for the sentinel key but keep the
+                // metadata key range spanning [min(start), max(end)].
+                self.write(InternalValue::new_weak_tombstone(start.clone(), 0))?;
                 self.spill_block()?;
 
                 // Restore seqno bounds — sentinel is an implementation detail
                 self.meta.lowest_seqno = saved_lo;
                 self.meta.highest_seqno = saved_hi;
+
+                // Ensure the table's key range covers all range tombstones.
+                self.meta.first_key = Some(start);
+                self.meta.last_key = Some(end);
             }
         }
 

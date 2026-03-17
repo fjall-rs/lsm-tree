@@ -47,8 +47,15 @@ pub struct MultiWriter {
 
     linked_blobs: HashMap<BlobFileId, LinkedFile>,
 
-    /// Range tombstones to distribute across output tables (clipped to each table's key range)
+    /// Range tombstones to distribute across output tables.
+    /// During compaction these are clipped to each table's key range;
+    /// during flush they are written unmodified (they must cover keys in older SSTs).
     range_tombstones: Vec<RangeTombstone>,
+
+    /// When true, range tombstones are clipped to each output table's KV key range
+    /// via `intersect_opt`. This is correct for compaction (input tables are consumed)
+    /// but wrong for flush (RTs must cover keys in older SSTs outside the memtable's range).
+    clip_range_tombstones: bool,
 
     /// Level the tables are written to
     initial_level: u8,
@@ -96,13 +103,71 @@ impl MultiWriter {
 
             linked_blobs: HashMap::default(),
             range_tombstones: Vec::new(),
+            clip_range_tombstones: false,
         })
     }
 
+    /// Enables RT clipping: each tombstone is intersected with the output
+    /// table's KV key range. Use this for compaction where input tables are
+    /// consumed; do NOT use for flush where RTs must cover older SSTs.
+    pub fn use_clip_range_tombstones(mut self) -> Self {
+        self.clip_range_tombstones = true;
+        self
+    }
+
     /// Sets range tombstones to be distributed across output tables.
-    /// Each tombstone will be clipped to the key range of each output table.
     pub fn set_range_tombstones(&mut self, tombstones: Vec<RangeTombstone>) {
         self.range_tombstones = tombstones;
+    }
+
+    /// Writes range tombstones to the given writer, respecting the clip mode.
+    ///
+    /// - **clip=true** (compaction): intersect each RT with the table's KV key range.
+    /// - **clip=false** (flush): write all overlapping RTs unmodified so they cover
+    ///   keys in older SSTs outside this memtable's key range.
+    fn write_rts_to_writer(tombstones: &[RangeTombstone], clip: bool, writer: &mut Writer) {
+        if let (Some(first_key), Some(last_key)) =
+            (writer.meta.first_key.clone(), writer.meta.last_key.clone())
+        {
+            if clip {
+                // Compaction mode: clip RTs to this table's key range.
+                if let Some(max_exclusive) =
+                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref())
+                {
+                    for rt in tombstones {
+                        if let Some(clipped) =
+                            rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
+                        {
+                            writer.write_range_tombstone(clipped);
+                        }
+                    }
+                } else {
+                    // last_key at u16::MAX — can't compute exclusive bound, write overlapping RTs unclipped.
+                    for rt in tombstones {
+                        if rt.start.as_ref() <= last_key.as_ref()
+                            && rt.end.as_ref() > first_key.as_ref()
+                        {
+                            writer.write_range_tombstone(rt.clone());
+                        }
+                    }
+                }
+            } else {
+                // Flush mode: write all overlapping RTs without clipping so they
+                // cover keys in older SSTs outside this memtable's key range.
+                for rt in tombstones {
+                    if rt.start.as_ref() <= last_key.as_ref()
+                        && rt.end.as_ref() > first_key.as_ref()
+                    {
+                        writer.write_range_tombstone(rt.clone());
+                    }
+                }
+            }
+        } else {
+            // RT-only table (no KV items yet) — write all tombstones unclipped.
+            for rt in tombstones {
+                writer.write_range_tombstone(rt.clone());
+            }
+        }
     }
 
     pub fn register_blob(&mut self, indirection: BlobIndirection) {
@@ -213,35 +278,17 @@ impl MultiWriter {
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
-        // Clip and write range tombstones to the finishing writer
+        // Write range tombstones to the finishing writer.
+        // In flush mode (clip=false) tombstones are written unmodified because
+        // they must cover keys in older SSTs outside this memtable's key range.
+        // In compaction mode (clip=true) tombstones are clipped to the output
+        // table's KV range because the input tables are consumed.
         if !self.range_tombstones.is_empty() {
-            if let (Some(first_key), Some(last_key)) = (
-                old_writer.meta.first_key.clone(),
-                old_writer.meta.last_key.clone(),
-            ) {
-                // If last_key is at u16::MAX length, upper_bound_exclusive would
-                // overflow the key-length invariant. Write tombstones unclipped
-                // on the upper bound (they still apply to this table's range).
-                if let Some(max_exclusive) =
-                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref())
-                {
-                    for rt in &self.range_tombstones {
-                        if let Some(clipped) =
-                            rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
-                        {
-                            old_writer.write_range_tombstone(clipped);
-                        }
-                    }
-                } else {
-                    for rt in &self.range_tombstones {
-                        if rt.start.as_ref() <= last_key.as_ref()
-                            && rt.end.as_ref() > first_key.as_ref()
-                        {
-                            old_writer.write_range_tombstone(rt.clone());
-                        }
-                    }
-                }
-            }
+            Self::write_rts_to_writer(
+                &self.range_tombstones,
+                self.clip_range_tombstones,
+                &mut old_writer,
+            );
         }
 
         for linked in self.linked_blobs.values() {
@@ -282,40 +329,13 @@ impl MultiWriter {
     ///
     /// Returns the metadata of created tables
     pub fn finish(mut self) -> crate::Result<Vec<(TableId, Checksum)>> {
-        // Clip and write range tombstones to the last writer
+        // Write range tombstones to the last writer (same logic as rotate).
         if !self.range_tombstones.is_empty() {
-            if let (Some(first_key), Some(last_key)) = (
-                self.writer.meta.first_key.clone(),
-                self.writer.meta.last_key.clone(),
-            ) {
-                // If last_key is at u16::MAX length, upper_bound_exclusive would
-                // overflow the key-length invariant. Write tombstones unclipped
-                // on the upper bound (they still apply to this table's range).
-                if let Some(max_exclusive) =
-                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref())
-                {
-                    for rt in &self.range_tombstones {
-                        if let Some(clipped) =
-                            rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
-                        {
-                            self.writer.write_range_tombstone(clipped);
-                        }
-                    }
-                } else {
-                    for rt in &self.range_tombstones {
-                        if rt.start.as_ref() <= last_key.as_ref()
-                            && rt.end.as_ref() > first_key.as_ref()
-                        {
-                            self.writer.write_range_tombstone(rt.clone());
-                        }
-                    }
-                }
-            } else {
-                // RT-only table (no KV items yet) — write all tombstones unclipped
-                for rt in &self.range_tombstones {
-                    self.writer.write_range_tombstone(rt.clone());
-                }
-            }
+            Self::write_rts_to_writer(
+                &self.range_tombstones,
+                self.clip_range_tombstones,
+                &mut self.writer,
+            );
         }
 
         for linked in self.linked_blobs.values() {
