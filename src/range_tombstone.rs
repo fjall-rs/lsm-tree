@@ -119,7 +119,6 @@ impl PartialOrd for RangeTombstone {
 ///
 /// A covering tombstone fully covers a table's key range and has a seqno
 /// greater than the table's max seqno, meaning the entire table can be skipped.
-#[allow(dead_code)] // Used by interval_tree::collect_covering for table-skip decisions
 #[derive(Clone, Debug)]
 pub struct CoveringRt {
     /// The start key of the covering tombstone (inclusive)
@@ -130,11 +129,11 @@ pub struct CoveringRt {
     pub seqno: SeqNo,
 }
 
-#[allow(dead_code)]
 impl CoveringRt {
     /// Returns `true` if this covering tombstone fully covers the given
     /// key range `[min, max]` and has a higher seqno than the table's max.
     #[must_use]
+    #[expect(dead_code, reason = "wired up in table-skip optimization")]
     pub fn covers_table(&self, table_min: &[u8], table_max: &[u8], table_max_seqno: SeqNo) -> bool {
         self.start.as_ref() <= table_min
             && table_max < self.end.as_ref()

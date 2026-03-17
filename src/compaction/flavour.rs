@@ -124,7 +124,6 @@ pub(super) trait CompactionFlavour {
     /// Writes range tombstones to the current output table.
     fn write_range_tombstones(&mut self, tombstones: &[RangeTombstone]);
 
-    #[warn(clippy::too_many_arguments)]
     fn finish(
         self: Box<Self>,
         super_version: &mut SuperVersions,

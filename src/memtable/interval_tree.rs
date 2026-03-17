@@ -95,7 +95,10 @@ impl Node {
     clippy::expect_used,
     reason = "rotation invariant: left child must exist"
 )]
-#[allow(clippy::unnecessary_box_returns)]
+#[expect(
+    clippy::unnecessary_box_returns,
+    reason = "Box<Node> matches AVL tree ownership model"
+)]
 fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.left.take().expect("rotate_right requires left child");
     node.left = new_root.right.take();
@@ -109,7 +112,10 @@ fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     clippy::expect_used,
     reason = "rotation invariant: right child must exist"
 )]
-#[allow(clippy::unnecessary_box_returns)]
+#[expect(
+    clippy::unnecessary_box_returns,
+    reason = "Box<Node> matches AVL tree ownership model"
+)]
 fn rotate_left(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.right.take().expect("rotate_left requires right child");
     node.right = new_root.left.take();
@@ -123,7 +129,10 @@ fn rotate_left(mut node: Box<Node>) -> Box<Node> {
     clippy::expect_used,
     reason = "balance factor guarantees child existence"
 )]
-#[allow(clippy::unnecessary_box_returns)]
+#[expect(
+    clippy::unnecessary_box_returns,
+    reason = "Box<Node> matches AVL tree ownership model"
+)]
 fn balance(mut node: Box<Node>) -> Box<Node> {
     node.update_augmentation();
     let bf = node.balance_factor();
@@ -154,7 +163,6 @@ fn balance(mut node: Box<Node>) -> Box<Node> {
 }
 
 /// Returns `(node, was_new)` — `was_new` is false when a duplicate was replaced.
-#[allow(clippy::unnecessary_box_returns)]
 fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> (Box<Node>, bool) {
     let Some(mut node) = node else {
         return (Box::new(Node::new(tombstone)), true);
@@ -215,6 +223,42 @@ fn collect_overlapping(
         collect_overlapping(n.right.as_deref(), key, read_seqno, result);
     }
     // If start > key, no need to go right (all entries there have start > key too)
+}
+
+/// Like `collect_overlapping`, but returns `true` as soon as any overlapping
+/// tombstone with `seqno > key_seqno` is found. Avoids Vec allocation on the
+/// hot read path.
+fn any_overlapping_suppresses(
+    node: Option<&Node>,
+    key: &[u8],
+    key_seqno: SeqNo,
+    read_seqno: SeqNo,
+) -> bool {
+    let Some(n) = node else { return false };
+
+    if n.subtree_min_seqno >= read_seqno {
+        return false;
+    }
+
+    if n.subtree_max_end.as_ref() <= key {
+        return false;
+    }
+
+    if any_overlapping_suppresses(n.left.as_deref(), key, key_seqno, read_seqno) {
+        return true;
+    }
+
+    if n.tombstone.start.as_ref() <= key {
+        if n.tombstone.contains_key(key)
+            && n.tombstone.visible_at(read_seqno)
+            && n.tombstone.seqno > key_seqno
+        {
+            return true;
+        }
+        return any_overlapping_suppresses(n.right.as_deref(), key, key_seqno, read_seqno);
+    }
+
+    false
 }
 
 /// In-order traversal to produce sorted output.
@@ -286,10 +330,9 @@ impl IntervalTree {
     /// any range tombstone visible at `read_seqno`.
     ///
     /// O(log n + k) where k is the number of overlapping tombstones.
+    /// Uses early-exit traversal to avoid allocating a Vec.
     pub fn query_suppression(&self, key: &[u8], key_seqno: SeqNo, read_seqno: SeqNo) -> bool {
-        let mut result = Vec::new();
-        collect_overlapping(self.root.as_deref(), key, read_seqno, &mut result);
-        result.iter().any(|rt| rt.seqno > key_seqno)
+        any_overlapping_suppresses(self.root.as_deref(), key, key_seqno, read_seqno)
     }
 
     /// Returns all tombstones overlapping with `key` and visible at `read_seqno`.

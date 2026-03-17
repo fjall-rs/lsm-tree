@@ -113,6 +113,9 @@ pub trait AbstractTree {
 
         drop(version_history);
 
+        // Clone needed: flush_to_tables_with_rt consumes the Vec, but on the
+        // RT-only path (no KV data, tables.is_empty()) we re-insert RTs into the
+        // active memtable. Flush is infrequent and RT count is small.
         if let Some((tables, blob_files)) =
             self.flush_to_tables_with_rt(stream, range_tombstones.clone())?
         {
@@ -236,7 +239,6 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[warn(clippy::type_complexity)]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
@@ -249,7 +251,6 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[warn(clippy::type_complexity)]
     fn flush_to_tables_with_rt(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
