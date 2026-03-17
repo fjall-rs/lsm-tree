@@ -52,7 +52,7 @@ These are not actionable review findings. Do not raise them:
 - **Import ordering**: Import grouping or ordering style (e.g., std vs crate vs external order). Unused imports are NOT cosmetic — they cause `clippy -D warnings` failures and must be removed.
 - **Test code style**: Tests prioritize readability and explicitness over DRY. Repeated setup code in tests is acceptable.
 - **`#[allow(clippy::...)]` in existing upstream code**: Existing `#[allow]` suppressions with justification comments are legacy — do not flag in unchanged code. New code in PRs should use `#[expect(clippy::...)]` per Rust Standards below.
-- **Temporary directory strategies**: Using `tempfile::tempdir()` vs manual temp paths — both are valid in test code.
+- **Temporary directory strategies in existing code**: Existing tests using manual temp paths instead of `tempfile::tempdir()` are not a finding. New tests should prefer `tempfile::tempdir()` per Testing Standards below.
 
 ## Scope Rules
 
