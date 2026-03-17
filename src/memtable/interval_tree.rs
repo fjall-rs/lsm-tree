@@ -7,7 +7,6 @@
 //! Keyed by `start`, augmented with `subtree_max_end`, `subtree_max_seqno`,
 //! and `subtree_min_seqno` for pruning during queries.
 
-
 use crate::range_tombstone::CoveringRt;
 use crate::range_tombstone::RangeTombstone;
 use crate::{SeqNo, UserKey};
@@ -335,7 +334,10 @@ impl IntervalTree {
     }
 
     /// Returns `true` if the tree is empty.
-    #[expect(dead_code, reason = "tree may have tombstones but is_empty not called in all paths")]
+    #[expect(
+        dead_code,
+        reason = "tree may have tombstones but is_empty not called in all paths"
+    )]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0
