@@ -156,12 +156,23 @@ impl From<&RangeTombstone> for CoveringRt {
 /// Given a key, returns the next key in lexicographic order by appending `0x00`.
 /// This is useful for converting inclusive upper bounds to exclusive ones
 /// in range-cover queries.
+///
+/// Returns `None` if the key is already at the maximum allowed length
+/// (`u16::MAX`), since appending a byte would violate the u16 key-length
+/// invariant used in the on-disk RT block format.
 #[must_use]
-pub fn upper_bound_exclusive(key: &[u8]) -> UserKey {
+pub fn upper_bound_exclusive(key: &[u8]) -> Option<UserKey> {
+    // The codebase enforces that user keys fit in a u16 length
+    // (see `InternalKey::new`). Appending a byte to a max-length key
+    // would overflow that limit and corrupt on-disk encodings.
+    if key.len() >= usize::from(u16::MAX) {
+        return None;
+    }
+
     let mut result = Vec::with_capacity(key.len() + 1);
     result.extend_from_slice(key);
     result.push(0x00);
-    UserKey::from(result)
+    Some(UserKey::from(result))
 }
 
 #[cfg(test)]
@@ -347,7 +358,13 @@ mod tests {
     #[test]
     fn upper_bound_exclusive_appends_zero() {
         let key = b"hello";
-        let result = upper_bound_exclusive(key);
+        let result = upper_bound_exclusive(key).unwrap();
         assert_eq!(result.as_ref(), b"hello\x00");
+    }
+
+    #[test]
+    fn upper_bound_exclusive_returns_none_for_max_length_key() {
+        let key = vec![0xAA; u16::MAX as usize];
+        assert!(upper_bound_exclusive(&key).is_none());
     }
 }

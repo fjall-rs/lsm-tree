@@ -219,13 +219,26 @@ impl MultiWriter {
                 old_writer.meta.first_key.clone(),
                 old_writer.meta.last_key.clone(),
             ) {
-                let max_exclusive =
-                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref());
-                for rt in &self.range_tombstones {
-                    if let Some(clipped) =
-                        rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
-                    {
-                        old_writer.write_range_tombstone(clipped);
+                // If last_key is at u16::MAX length, upper_bound_exclusive would
+                // overflow the key-length invariant. Write tombstones unclipped
+                // on the upper bound (they still apply to this table's range).
+                if let Some(max_exclusive) =
+                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref())
+                {
+                    for rt in &self.range_tombstones {
+                        if let Some(clipped) =
+                            rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
+                        {
+                            old_writer.write_range_tombstone(clipped);
+                        }
+                    }
+                } else {
+                    for rt in &self.range_tombstones {
+                        if rt.start.as_ref() <= last_key.as_ref()
+                            && rt.end.as_ref() > first_key.as_ref()
+                        {
+                            old_writer.write_range_tombstone(rt.clone());
+                        }
                     }
                 }
             }
@@ -275,13 +288,26 @@ impl MultiWriter {
                 self.writer.meta.first_key.clone(),
                 self.writer.meta.last_key.clone(),
             ) {
-                let max_exclusive =
-                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref());
-                for rt in &self.range_tombstones {
-                    if let Some(clipped) =
-                        rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
-                    {
-                        self.writer.write_range_tombstone(clipped);
+                // If last_key is at u16::MAX length, upper_bound_exclusive would
+                // overflow the key-length invariant. Write tombstones unclipped
+                // on the upper bound (they still apply to this table's range).
+                if let Some(max_exclusive) =
+                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref())
+                {
+                    for rt in &self.range_tombstones {
+                        if let Some(clipped) =
+                            rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
+                        {
+                            self.writer.write_range_tombstone(clipped);
+                        }
+                    }
+                } else {
+                    for rt in &self.range_tombstones {
+                        if rt.start.as_ref() <= last_key.as_ref()
+                            && rt.end.as_ref() > first_key.as_ref()
+                        {
+                            self.writer.write_range_tombstone(rt.clone());
+                        }
                     }
                 }
             } else {

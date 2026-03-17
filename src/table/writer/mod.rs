@@ -433,17 +433,24 @@ impl Writer {
             // Wire format (repeated): [start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]
             self.block_buffer.clear();
             for rt in &self.range_tombstones {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "keys are limited to 16-bit length"
-                )]
-                {
-                    self.block_buffer.write_u16::<LE>(rt.start.len() as u16)?;
-                    self.block_buffer.extend_from_slice(&rt.start);
-                    self.block_buffer.write_u16::<LE>(rt.end.len() as u16)?;
-                    self.block_buffer.extend_from_slice(&rt.end);
-                    self.block_buffer.write_u64::<LE>(rt.seqno)?;
-                }
+                let start_len = u16::try_from(rt.start.len()).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "range tombstone start key length exceeds u16::MAX",
+                    )
+                })?;
+                let end_len = u16::try_from(rt.end.len()).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "range tombstone end key length exceeds u16::MAX",
+                    )
+                })?;
+
+                self.block_buffer.write_u16::<LE>(start_len)?;
+                self.block_buffer.extend_from_slice(&rt.start);
+                self.block_buffer.write_u16::<LE>(end_len)?;
+                self.block_buffer.extend_from_slice(&rt.end);
+                self.block_buffer.write_u64::<LE>(rt.seqno)?;
             }
 
             Block::write_into(
