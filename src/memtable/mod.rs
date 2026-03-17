@@ -181,10 +181,11 @@ impl Memtable {
     ///
     /// Returns the approximate size added to the memtable.
     ///
+    /// Returns 0 if `start >= end` or if either bound exceeds `u16::MAX` bytes.
+    ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned, or if either bound exceeds
-    /// `u16::MAX` bytes (the on-disk format encodes key lengths as u16).
+    /// Panics if the internal mutex is poisoned.
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
         // Reject invalid intervals in release builds (debug_assert is not enough)
         if start >= end {
@@ -192,10 +193,9 @@ impl Memtable {
         }
 
         // On-disk RT format writes key lengths as u16, enforce at insertion time
-        assert!(
-            u16::try_from(start.len()).is_ok() && u16::try_from(end.len()).is_ok(),
-            "range tombstone bounds must not exceed u16::MAX bytes",
-        );
+        if u16::try_from(start.len()).is_err() || u16::try_from(end.len()).is_err() {
+            return 0;
+        }
 
         let size = (start.len() + end.len() + std::mem::size_of::<RangeTombstone>()) as u64;
 

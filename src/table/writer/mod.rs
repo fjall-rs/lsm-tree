@@ -393,8 +393,8 @@ impl Writer {
 
         // If we have range tombstones but no KV items, write a synthetic
         // weak tombstone at the first RT's start key to produce a valid index.
-        // Use WeakTombstone at seqno 0 to minimize side effects — it will be
-        // GC'd immediately on next compaction.
+        // Preserve seqno bounds from the range tombstones (the sentinel at seqno 0
+        // should not pull lowest_seqno down).
         if self.meta.item_count == 0 {
             let min_start = self
                 .range_tombstones
@@ -404,8 +404,15 @@ impl Writer {
                 .cloned();
 
             if let Some(start) = min_start {
+                let saved_lo = self.meta.lowest_seqno;
+                let saved_hi = self.meta.highest_seqno;
+
                 self.write(InternalValue::new_weak_tombstone(start, 0))?;
                 self.spill_block()?;
+
+                // Restore seqno bounds — sentinel is an implementation detail
+                self.meta.lowest_seqno = saved_lo;
+                self.meta.highest_seqno = saved_hi;
             }
         }
 
