@@ -95,10 +95,6 @@ impl Node {
     clippy::expect_used,
     reason = "rotation invariant: left child must exist"
 )]
-#[expect(
-    clippy::unnecessary_box_returns,
-    reason = "Box<Node> matches AVL tree ownership model"
-)]
 fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.left.take().expect("rotate_right requires left child");
     node.left = new_root.right.take();
@@ -112,10 +108,6 @@ fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     clippy::expect_used,
     reason = "rotation invariant: right child must exist"
 )]
-#[expect(
-    clippy::unnecessary_box_returns,
-    reason = "Box<Node> matches AVL tree ownership model"
-)]
 fn rotate_left(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.right.take().expect("rotate_left requires right child");
     node.right = new_root.left.take();
@@ -128,10 +120,6 @@ fn rotate_left(mut node: Box<Node>) -> Box<Node> {
 #[expect(
     clippy::expect_used,
     reason = "balance factor guarantees child existence"
-)]
-#[expect(
-    clippy::unnecessary_box_returns,
-    reason = "Box<Node> matches AVL tree ownership model"
 )]
 fn balance(mut node: Box<Node>) -> Box<Node> {
     node.update_augmentation();
