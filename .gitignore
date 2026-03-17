@@ -24,6 +24,5 @@ profile.json
 fuzz*/**/out*
 
 old
-
-.forge/
 .claude/
+.forge/
