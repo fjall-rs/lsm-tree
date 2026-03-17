@@ -69,7 +69,7 @@ These are not actionable review findings. Do not raise them:
 - `TryFrom`/`TryInto` for fallible conversions; `as` casts need justification
 - No `unwrap()` / `expect()` on I/O paths — use `?` propagation
 - `expect()` is acceptable for programmer invariants (e.g., lock poisoning, `const` construction) with reason
-- Code must pass `cargo clippy --all-features -- -D warnings`
+- Code must pass `cargo clippy --all-features --all-targets -- -D warnings`
 
 ## Testing Standards
 
