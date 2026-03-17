@@ -29,7 +29,7 @@ Focus review effort on real bugs, not cosmetics. Stop after finding issues in hi
 - Hardcoded secrets, credentials, or private URLs
 
 ### Tier 3 — API Design and Robustness (flag if clear improvement)
-- Public API missing `#[must_use]` on `Result`-returning methods
+- Public API methods returning important values (other than `Result`, which is already `#[must_use]`) that should not be ignored (e.g., builder-style methods returning updated `Self`) missing an explicit `#[must_use]`
 - `pub` visibility where `pub(crate)` suffices
 - Missing `Send + Sync` bounds on types used across threads
 - `Clone` on large types (segment readers, block caches) where a reference would work
