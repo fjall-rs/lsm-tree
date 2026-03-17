@@ -75,7 +75,7 @@ These are not actionable review findings. Do not raise them:
 
 - Test naming: `fn <what>_<condition>_<expected>()` (sole exception: `src/compaction/leveled/test.rs` may use `fn test_<scenario>()`)
 - Corruption tests: tamper the relevant on-disk field (checksum, block header, segment metadata) and assert the expected error
-- Use same serialization as production (e.g., `lz4_flex::compress` not `compress_prepend_size`)
+- Use the same serialization/compression APIs as production; avoid test-only helpers that change framing or length-prefixing.
 - Use `tempfile::tempdir()` for test directories — ensures cleanup even on panic
 - Integration tests that require specific disk layout or large data use `#[ignore = "reason"]`
 - Prefer `assert_eq!` with message over bare `assert!` for better failure output
