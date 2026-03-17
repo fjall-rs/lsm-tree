@@ -29,7 +29,7 @@ Focus review effort on real bugs, not cosmetics. Stop after finding issues in hi
 - Hardcoded secrets, credentials, or private URLs
 
 ### Tier 3 — API Design and Robustness (flag if clear improvement)
-- Public API methods returning important values (other than `Result`, which is already `#[must_use]`) that should not be ignored (e.g., builder-style methods returning updated `Self`) missing an explicit `#[must_use]`
+- Public API missing `#[must_use]` on builder-style methods returning `Self` or other non-`Result` types that callers might accidentally discard
 - `pub` visibility where `pub(crate)` suffices
 - Missing `Send + Sync` bounds on types used across threads
 - `Clone` on large types (segment readers, block caches) where a reference would work
@@ -49,9 +49,9 @@ These are not actionable review findings. Do not raise them:
 - **Block sizes and compression levels**: Specific numeric values for block sizes (e.g., `4096`), compression levels, or bloom filter parameters are domain constants, not magic numbers, when used in configuration or tests with surrounding context.
 - **Segment ID and sequence number formats**: Internal naming conventions for segment files and sequence counters are implementation choices, not review findings.
 - **Minor naming preferences**: `lvl` vs `level`, `blk` vs `block`, `seg` vs `segment` — these are team style, not bugs.
-- **Import organization**: Single unused import that clippy would catch anyway.
+- **Import ordering**: Import grouping or ordering style (e.g., std vs crate vs external order). Unused imports are NOT cosmetic — they cause `clippy -D warnings` failures and must be removed.
 - **Test code style**: Tests prioritize readability and explicitness over DRY. Repeated setup code in tests is acceptable.
-- **`#[allow(clippy::...)]` with justification comment**: Respect the author's suppression if explained.
+- **`#[allow(clippy::...)]` in untouched legacy code**: Do not flag `#[allow]` on lines outside the PR diff. For new or modified code within the diff, flag `#[allow]` and request migration to `#[expect(..., reason = "...")]`.
 - **Temporary directory strategies**: Using `tempfile::tempdir()` vs manual temp paths — both are valid in test code.
 
 ## Scope Rules
@@ -63,12 +63,11 @@ These are not actionable review findings. Do not raise them:
 
 ## Rust-Specific Standards
 
-- Prefer `#[expect(lint)]` over `#[allow(lint)]` — `#[expect]` warns when suppression becomes unnecessary
+- `#[expect(lint, reason = "...")]` is the standard for lint suppressions — `#[expect]` warns when suppression becomes unnecessary, catching stale allowances. Flag any new `#[allow(lint)]` in the PR diff and request migration to `#[expect]`. `#[allow]` is accepted only for legacy code on lines outside the diff, with a migration note recommended.
 - `TryFrom`/`TryInto` for fallible conversions; `as` casts need justification
 - No `unwrap()` / `expect()` on I/O paths — use `?` propagation
 - `expect()` is acceptable for programmer invariants (e.g., lock poisoning, `const` construction) with reason
 - Code must pass `cargo clippy --all-features -- -D warnings`
-- Treat unused imports as actionable issues (they trigger clippy warnings and will fail `-D warnings` builds; do not classify them as purely cosmetic).
 
 ## Testing Standards
 
