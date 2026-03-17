@@ -51,7 +51,7 @@ These are not actionable review findings. Do not raise them:
 - **Minor naming preferences**: `lvl` vs `level`, `blk` vs `block`, `seg` vs `segment` — these are team style, not bugs.
 - **Import organization**: Single unused import that clippy would catch anyway.
 - **Test code style**: Tests prioritize readability and explicitness over DRY. Repeated setup code in tests is acceptable.
-- **`#[allow(clippy::...)]` with justification comment**: Respect the author's suppression if explained.
+- **`#[allow(clippy::...)]` in untouched legacy code**: Do not flag `#[allow]` on lines outside the PR diff. For new or modified code within the diff, flag `#[allow]` and request migration to `#[expect(..., reason = "...")]`.
 - **Temporary directory strategies**: Using `tempfile::tempdir()` vs manual temp paths — both are valid in test code.
 
 ## Scope Rules
@@ -63,7 +63,7 @@ These are not actionable review findings. Do not raise them:
 
 ## Rust-Specific Standards
 
-- Prefer `#[expect(lint)]` over `#[allow(lint)]` — `#[expect]` warns when suppression becomes unnecessary
+- `#[expect(lint, reason = "...")]` is the standard for lint suppressions — `#[expect]` warns when suppression becomes unnecessary, catching stale allowances. Flag any new `#[allow(lint)]` in the PR diff and request migration to `#[expect]`. `#[allow]` is accepted only for legacy code on lines outside the diff, with a migration note recommended.
 - `TryFrom`/`TryInto` for fallible conversions; `as` casts need justification
 - No `unwrap()` / `expect()` on I/O paths — use `?` propagation
 - `expect()` is acceptable for programmer invariants (e.g., lock poisoning, `const` construction) with reason
