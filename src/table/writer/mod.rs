@@ -400,6 +400,7 @@ impl Writer {
             // Compute the coverage of all range tombstones.
             let mut min_start: Option<UserKey> = None;
             let mut max_end: Option<UserKey> = None;
+            let mut max_rt_seqno: crate::SeqNo = 0;
             for rt in &self.range_tombstones {
                 match &min_start {
                     None => min_start = Some(rt.start.clone()),
@@ -411,15 +412,25 @@ impl Writer {
                     Some(cur_max) if rt.end > *cur_max => max_end = Some(rt.end.clone()),
                     _ => {}
                 }
+                if rt.seqno > max_rt_seqno {
+                    max_rt_seqno = rt.seqno;
+                }
             }
 
             if let (Some(start), Some(end)) = (min_start, max_end) {
                 let saved_lo = self.meta.lowest_seqno;
                 let saved_hi = self.meta.highest_seqno;
 
-                // Use the minimum RT start for the sentinel key but keep the
-                // metadata key range spanning [min(start), max(end)].
-                self.write(InternalValue::new_weak_tombstone(start.clone(), 0))?;
+                // Use the minimum RT start for the sentinel key. The sentinel
+                // seqno must not collide with real user data: SequenceNumberCounter
+                // starts at 0 (pre-increment), so seqno 0 is a valid user seqno.
+                // Use max RT seqno instead — by the time the RT was written, the
+                // counter has already passed this value, so no real KV entry will
+                // share this (user_key, seqno) pair.
+                self.write(InternalValue::new_weak_tombstone(
+                    start.clone(),
+                    max_rt_seqno,
+                ))?;
                 self.spill_block()?;
 
                 // Restore seqno bounds — sentinel is an implementation detail
