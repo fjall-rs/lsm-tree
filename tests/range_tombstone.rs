@@ -1,3 +1,4 @@
+// Guard: trait import required for .key() method on iterator items (IterGuard trait)
 use lsm_tree::{get_tmp_folder, AbstractTree, AnyTree, Config, Guard, SequenceNumberCounter};
 use test_log::test;
 
