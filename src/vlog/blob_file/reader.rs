@@ -36,6 +36,12 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
+        // Keys are serialized as u16-length on disk — reject caller keys that
+        // exceed this limit before they inflate the read buffer calculation.
+        if key.len() > u16::MAX as usize {
+            return Err(crate::Error::InvalidHeader("Blob"));
+        }
+
         // Use checked arithmetic for the allocation size to prevent truncation
         // on 32-bit targets where `as usize` from u64 could silently wrap.
         let add_size = (BLOB_HEADER_LEN as u64)
