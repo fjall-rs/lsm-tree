@@ -156,6 +156,28 @@ impl MultiWriter {
                 // in older SSTs outside this memtable's key range. No overlap
                 // filter — an RT disjoint from this table's KV range (e.g.,
                 // delete_range on keys only in older SSTs) must still be persisted.
+                //
+                // Widen key_range to include RT coverage so compaction overlap
+                // detection picks up this table when compacting keys covered by
+                // its range tombstones.
+                if let Some((first_rt, rest)) = tombstones.split_first() {
+                    let mut min_start = first_rt.start.clone();
+                    let mut max_end = first_rt.end.clone();
+                    for rt in rest {
+                        if rt.start < min_start {
+                            min_start = rt.start.clone();
+                        }
+                        if rt.end > max_end {
+                            max_end = rt.end.clone();
+                        }
+                    }
+                    if min_start.as_ref() < first_key.as_ref() {
+                        writer.meta.first_key = Some(min_start);
+                    }
+                    if max_end.as_ref() > last_key.as_ref() {
+                        writer.meta.last_key = Some(max_end);
+                    }
+                }
                 for rt in tombstones {
                     writer.write_range_tombstone(rt.clone());
                 }

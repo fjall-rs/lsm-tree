@@ -393,9 +393,10 @@ impl Writer {
 
         // If we have range tombstones but no KV items, write a synthetic
         // weak tombstone at the first RT's start key to produce a valid index.
-        // Preserve seqno bounds from the range tombstones (the sentinel at seqno 0
-        // should not pull lowest_seqno down). Also ensure the table metadata
-        // key range conservatively covers all range tombstones.
+        // Preserve seqno bounds for real entries by saving/restoring metadata
+        // around the sentinel write: the sentinel uses MAX_SEQNO, is never
+        // assigned to real writes, and should not influence lowest_seqno.
+        // Also ensure the table metadata key range covers all range tombstones.
         if self.meta.item_count == 0 {
             // Compute the coverage of all range tombstones.
             let mut min_start: Option<UserKey> = None;
