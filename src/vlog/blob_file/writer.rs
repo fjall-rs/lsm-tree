@@ -135,13 +135,6 @@ impl Writer {
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
 
-        if self.first_key.is_none() {
-            self.first_key = Some(key.into());
-        }
-        self.last_key = Some(key.into());
-
-        self.uncompressed_bytes += u64::from(uncompressed_len);
-
         // NOTE:
         // BLOB HEADER LAYOUT
         //
@@ -154,9 +147,8 @@ impl Writer {
         // [...key; ?]
         // [...val; ?]
 
-        // Write header
-        self.writer.write_all(BLOB_HEADER_MAGIC)?;
-
+        // Compress BEFORE any I/O or state mutation — if post-compression cap
+        // check fails we must not leave partial writes or inconsistent bookkeeping.
         let value = match &self.compression {
             CompressionType::None => std::borrow::Cow::Borrowed(value),
 
@@ -172,6 +164,17 @@ impl Writer {
                 limit: MAX_BLOB_VALUE_SIZE as u64,
             });
         }
+
+        // All validation passed — safe to mutate writer state and perform I/O.
+        if self.first_key.is_none() {
+            self.first_key = Some(key.into());
+        }
+        self.last_key = Some(key.into());
+
+        self.uncompressed_bytes += u64::from(uncompressed_len);
+
+        // Write header
+        self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
         let checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
