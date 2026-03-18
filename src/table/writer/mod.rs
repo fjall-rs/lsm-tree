@@ -424,10 +424,10 @@ impl Writer {
                 // Write a sentinel key at min(rt.start) to force index block
                 // creation in RT-only tables. InternalKey Eq/Ord ignores
                 // value_type, so the sentinel's (user_key, seqno) pair must be
-                // unique within this table. We use max_rt_seqno + 1: no real
-                // entry in this table (KV or RT) has a seqno above max_rt_seqno,
-                // and the table is immutable after write.
-                let sentinel_seqno = max_rt_seqno.saturating_add(1);
+                // globally unique. MAX_SEQNO is reserved and never assigned to
+                // real writes, guaranteeing no collision during merge/compaction.
+                // The sentinel is also invisible to all reads (read_seqno < MAX_SEQNO).
+                let sentinel_seqno = crate::seqno::MAX_SEQNO;
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
                     sentinel_seqno,
