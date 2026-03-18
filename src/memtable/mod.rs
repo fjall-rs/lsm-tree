@@ -192,8 +192,16 @@ impl Memtable {
             return 0;
         }
 
-        // On-disk RT format writes key lengths as u16, enforce at insertion time
+        // On-disk RT format writes key lengths as u16, enforce at insertion time.
+        // Emit a warning when rejecting an oversized bound so this failure is diagnosable.
         if u16::try_from(start.len()).is_err() || u16::try_from(end.len()).is_err() {
+            log::warn!(
+                "insert_range_tombstone: rejecting oversized range tombstone \
+                 bounds (start_len = {}, end_len = {}, max = {})",
+                start.len(),
+                end.len(),
+                u16::MAX,
+            );
             return 0;
         }
 

@@ -369,11 +369,15 @@ fn merge_tables(
         return Ok(());
     };
 
-    // Collect range tombstones from input tables before they are moved
-    let input_range_tombstones: Vec<crate::range_tombstone::RangeTombstone> = tables
+    // Collect range tombstones from input tables before they are moved.
+    // Canonicalize to avoid duplicate RTs across input tables (MultiWriter
+    // rotation copies the same RT into every output table during flush).
+    let mut input_range_tombstones: Vec<crate::range_tombstone::RangeTombstone> = tables
         .iter()
         .flat_map(|t| t.range_tombstones().iter().cloned())
         .collect();
+    input_range_tombstones.sort();
+    input_range_tombstones.dedup();
 
     let mut blob_frag_map = FragmentationMap::default();
 
