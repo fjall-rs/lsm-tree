@@ -637,6 +637,43 @@ fn range_tombstone_disjoint_from_flush_kv_range() -> lsm_tree::Result<()> {
 }
 
 // --- Test: RT disjoint from KV range survives compaction ---
+// Regression: disjoint RT (key range outside KV data) must survive
+// multiple compaction rounds. Without key_range widening in flush mode,
+// leveled compaction overlap selection would never pick up the table
+// carrying the disjoint RT, leaving it permanently stuck.
+#[test]
+fn range_tombstone_disjoint_survives_multiple_compactions() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Older data in SST at low seqno
+    tree.insert("x", "1", 1);
+    tree.insert("y", "2", 2);
+    tree.flush_active_memtable(0)?;
+
+    // New memtable: KV in [a, b], RT covering [x, z) — disjoint from KV
+    tree.insert("a", "3", 3);
+    tree.insert("b", "4", 4);
+    tree.remove_range("x", "z", 10);
+    tree.flush_active_memtable(0)?;
+
+    // Multiple compaction rounds — RT must propagate through all of them
+    tree.major_compact(64_000_000, 0)?;
+    tree.major_compact(64_000_000, 0)?;
+
+    // After two compaction rounds, disjoint RT must still suppress [x, y]
+    assert_eq!(Some("3".as_bytes().into()), tree.get("a", 11)?);
+    assert_eq!(Some("4".as_bytes().into()), tree.get("b", 11)?);
+    assert_eq!(None, tree.get("x", 11)?);
+    assert_eq!(None, tree.get("y", 11)?);
+
+    // Also verify via range iteration
+    let keys = collect_keys(&tree, 11)?;
+    assert_eq!(keys, vec![b"a", b"b"]);
+
+    Ok(())
+}
+
 // After flush preserves the RT, compaction should merge it with the older SST
 // and either suppress the keys or propagate the RT.
 #[test]
