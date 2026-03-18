@@ -432,6 +432,9 @@ impl AbstractTree for Tree {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
+        // Return Some even when tables is empty (RT-only flush): the caller
+        // (AbstractTree::flush) handles empty tables by re-inserting RTs into
+        // the active memtable and still needs to delete sealed memtables.
         Ok(Some((tables, None)))
     }
 

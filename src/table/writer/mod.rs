@@ -421,12 +421,12 @@ impl Writer {
                 let saved_lo = self.meta.lowest_seqno;
                 let saved_hi = self.meta.highest_seqno;
 
-                // Use the minimum RT start for the sentinel key. The sentinel
-                // seqno must not collide with real user data: SequenceNumberCounter
-                // starts at 0 (pre-increment), so seqno 0 is a valid user seqno.
-                // Use max RT seqno instead — by the time the RT was written, the
-                // counter has already passed this value, so no real KV entry will
-                // share this (user_key, seqno) pair.
+                // Use the minimum RT start for the sentinel key to force index
+                // creation. The sentinel has ValueType::WeakTombstone which is
+                // distinct from user-visible types (Value/Tombstone), so it
+                // cannot collide with real entries in merge results. The seqno
+                // uses max_rt_seqno — the counter has already passed this value,
+                // so no real KV entry will share this (user_key, seqno) pair.
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
                     max_rt_seqno,
