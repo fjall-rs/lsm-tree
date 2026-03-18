@@ -13,7 +13,6 @@
 use crate::active_tombstone_set::{ActiveTombstoneSet, ActiveTombstoneSetReverse};
 use crate::range_tombstone::RangeTombstone;
 use crate::{InternalValue, SeqNo};
-use std::cmp::Reverse;
 
 /// Wraps a bidirectional KV stream and suppresses entries covered by range tombstones.
 pub struct RangeTombstoneFilter<I> {
