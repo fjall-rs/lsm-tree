@@ -394,8 +394,8 @@ impl Writer {
         // If we have range tombstones but no KV items, write a synthetic
         // weak tombstone at the first RT's start key to produce a valid index.
         // Preserve seqno bounds for real entries by saving/restoring metadata
-        // around the sentinel write: the sentinel uses MAX_SEQNO, is never
-        // assigned to real writes, and should not influence lowest_seqno.
+        // around the sentinel write. The sentinel uses the table's lowest RT
+        // seqno and should not influence user-visible metadata.
         // Also ensure the table metadata key range covers all range tombstones.
         if self.meta.item_count == 0 {
             // Compute the coverage of all range tombstones.
@@ -420,14 +420,15 @@ impl Writer {
 
                 // Write a sentinel key at min(rt.start) to force index block
                 // creation in RT-only tables. InternalKey Eq/Ord ignores
-                // value_type, so we must ensure the sentinel cannot dominate
-                // real entries during compaction merges. We use seqno 0: with
-                // Reverse(seqno) ordering, 0 sorts LAST — after all real entries.
-                // The sentinel is visible to reads (0 < any read_seqno) but
-                // harmless: filtered by is_tombstone() in iterators, and for
-                // point reads it's the last entry so real Values are returned
-                // first. At last-level compaction it gets GC'd (evict_tombstones).
-                let sentinel_seqno: crate::SeqNo = 0;
+                // value_type, so the sentinel's seqno must not make it visible
+                // before the corresponding range tombstones. We derive the
+                // sentinel seqno from the table's lowest RT seqno (saved_lo),
+                // ensuring it only becomes visible at or after the earliest
+                // real entry in this table and cannot cause snapshot/MVCC
+                // regressions by masking older values in lower tables.
+                // With Reverse(seqno) ordering, saved_lo sorts after any entry
+                // with a higher seqno, so it cannot dominate during merges.
+                let sentinel_seqno: crate::SeqNo = saved_lo;
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
                     sentinel_seqno,
