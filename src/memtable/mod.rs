@@ -228,7 +228,7 @@ impl Memtable {
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned.
-    pub fn is_key_suppressed_by_range_tombstone(
+    pub(crate) fn is_key_suppressed_by_range_tombstone(
         &self,
         key: &[u8],
         key_seqno: SeqNo,
@@ -241,29 +241,12 @@ impl Memtable {
             .query_suppression(key, key_seqno, read_seqno)
     }
 
-    /// Returns all range tombstones overlapping with `key` visible at `read_seqno`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal mutex is poisoned.
-    pub fn overlapping_range_tombstones(
-        &self,
-        key: &[u8],
-        read_seqno: SeqNo,
-    ) -> Vec<RangeTombstone> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.range_tombstones
-            .lock()
-            .expect("lock is poisoned")
-            .overlapping_tombstones(key, read_seqno)
-    }
-
     /// Returns all range tombstones in sorted order (for flush).
     ///
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned.
-    pub fn range_tombstones_sorted(&self) -> Vec<RangeTombstone> {
+    pub(crate) fn range_tombstones_sorted(&self) -> Vec<RangeTombstone> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
             .lock()

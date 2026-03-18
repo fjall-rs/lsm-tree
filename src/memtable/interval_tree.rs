@@ -179,40 +179,6 @@ fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> (Box<Node>
     (balance(node), was_new)
 }
 
-/// Collects all overlapping tombstones: those where `start <= key < end`
-/// and `seqno < read_seqno`.
-fn collect_overlapping(
-    node: Option<&Node>,
-    key: &[u8],
-    read_seqno: SeqNo,
-    result: &mut Vec<RangeTombstone>,
-) {
-    let Some(n) = node else { return };
-
-    // Prune: no tombstone in subtree is visible at this read_seqno
-    if n.subtree_min_seqno >= read_seqno {
-        return;
-    }
-
-    // Prune: max_end <= key means no interval in this subtree covers key
-    if n.subtree_max_end.as_ref() <= key {
-        return;
-    }
-
-    // Recurse left (may have tombstones with start <= key)
-    collect_overlapping(n.left.as_deref(), key, read_seqno, result);
-
-    // Check current node
-    if n.tombstone.start.as_ref() <= key {
-        if n.tombstone.contains_key(key) && n.tombstone.visible_at(read_seqno) {
-            result.push(n.tombstone.clone());
-        }
-        // Recurse right (may also have tombstones with start <= key, up to key)
-        collect_overlapping(n.right.as_deref(), key, read_seqno, result);
-    }
-    // If start > key, no need to go right (all entries there have start > key too)
-}
-
 /// Like `collect_overlapping`, but returns `true` as soon as any overlapping
 /// tombstone with `seqno > key_seqno` is found. Avoids Vec allocation on the
 /// hot read path.
@@ -321,16 +287,6 @@ impl IntervalTree {
     /// Uses early-exit traversal to avoid allocating a Vec.
     pub fn query_suppression(&self, key: &[u8], key_seqno: SeqNo, read_seqno: SeqNo) -> bool {
         any_overlapping_suppresses(self.root.as_deref(), key, key_seqno, read_seqno)
-    }
-
-    /// Returns all tombstones overlapping with `key` and visible at `read_seqno`.
-    ///
-    /// Used for seek initialization: returns tombstones where `start <= key < end`
-    /// and `seqno < read_seqno`.
-    pub fn overlapping_tombstones(&self, key: &[u8], read_seqno: SeqNo) -> Vec<RangeTombstone> {
-        let mut result = Vec::new();
-        collect_overlapping(self.root.as_deref(), key, read_seqno, &mut result);
-        result
     }
 
     /// Returns the highest-seqno visible tombstone that fully covers `[min, max]`,
@@ -447,25 +403,6 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_tombstones_query() {
-        let mut tree = IntervalTree::new();
-        tree.insert(rt(b"a", b"f", 10));
-        tree.insert(rt(b"d", b"m", 20));
-        tree.insert(rt(b"p", b"z", 5));
-
-        let overlaps = tree.overlapping_tombstones(b"e", 100);
-        assert_eq!(overlaps.len(), 2);
-    }
-
-    #[test]
-    fn overlapping_tombstones_none() {
-        let mut tree = IntervalTree::new();
-        tree.insert(rt(b"d", b"f", 10));
-        let overlaps = tree.overlapping_tombstones(b"a", 100);
-        assert!(overlaps.is_empty());
-    }
-
-    #[test]
     fn covering_rt_found() {
         let mut tree = IntervalTree::new();
         tree.insert(rt(b"a", b"z", 50));
@@ -538,8 +475,6 @@ mod tests {
         tree.insert(rt(b"b", b"y", 200));
 
         assert!(!tree.query_suppression(b"c", 5, 50));
-        let overlaps = tree.overlapping_tombstones(b"c", 50);
-        assert!(overlaps.is_empty());
     }
 
     #[test]

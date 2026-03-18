@@ -701,7 +701,7 @@ impl Table {
 
     /// Returns the range tombstones stored in this table.
     #[must_use]
-    pub fn range_tombstones(&self) -> &[RangeTombstone] {
+    pub(crate) fn range_tombstones(&self) -> &[RangeTombstone] {
         &self.0.range_tombstones
     }
 
