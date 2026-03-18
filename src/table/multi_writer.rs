@@ -162,12 +162,31 @@ impl MultiWriter {
                 // filter — an RT disjoint from this table's KV range (e.g.,
                 // delete_range on keys only in older SSTs) must still be persisted.
                 //
-                // Note: we intentionally do NOT widen the table's KV key_range
-                // with RT coverage here, to keep KeyRange.max a true inclusive
-                // upper bound on KV keys and avoid mixing inclusive KV bounds
-                // with exclusive RT ends. This is safe because flush writes ALL
-                // RTs to ALL output tables — compaction will find them regardless.
+                // Conservatively widen key_range to include RT coverage so leveled
+                // compaction overlap selection can discover these RTs. Using rt.end
+                // (exclusive) as an inclusive upper bound over-approximates the
+                // actual KV max but does not lose entries.
                 for rt in tombstones {
+                    match &mut writer.meta.first_key {
+                        Some(existing) => {
+                            if rt.start.as_ref() < existing.as_ref() {
+                                *existing = rt.start.clone();
+                            }
+                        }
+                        None => {
+                            writer.meta.first_key = Some(rt.start.clone());
+                        }
+                    }
+                    match &mut writer.meta.last_key {
+                        Some(existing) => {
+                            if rt.end.as_ref() > existing.as_ref() {
+                                *existing = rt.end.clone();
+                            }
+                        }
+                        None => {
+                            writer.meta.last_key = Some(rt.end.clone());
+                        }
+                    }
                     writer.write_range_tombstone(rt.clone());
                 }
             }
