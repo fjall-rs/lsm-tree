@@ -62,25 +62,15 @@ cargo fmt --all -- --check                   # Format check
 | `bytes_1` | Use `bytes` crate for Slice type |
 | `metrics` | Expose prometheus metrics |
 
-## Design Patterns (Do NOT Flag)
+## Design Decision Analysis (CRITICAL)
 
-These are intentional design decisions. Do not raise review threads about them:
+**Before flagging any potential issue, trace the FULL call chain:**
 
-### Flush Contract: `Some` ≠ "tables were produced"
+1. **Read the caller** — does the caller already handle the case you're about to flag? If a function returns a value that looks problematic in isolation, check every call site. The caller may handle the edge case explicitly (e.g., empty collections, `None` vs `Some(empty)`).
+2. **Check type-level guarantees** — does the type system prevent the issue? Different enum variants, wrapper types, or visibility modifiers may make a "collision" or "misuse" structurally impossible.
+3. **Read adjacent comments** — comments starting with "NOTE:", "Use X instead of Y because...", or explaining WHY a specific approach was chosen document deliberate design decisions. If the comment accurately describes the code behavior, the design is intentional.
 
-`flush_to_tables_with_rt` returns `Option<(Vec<Table>, ...)>`:
-- `None` — no sealed memtables existed (nothing to flush)
-- `Some((tables, ...))` — flush operation completed; `tables` may be empty
-
-An **empty `tables` vector inside `Some`** is intentional (e.g., RT-only flush with no KV data). The caller (`AbstractTree::flush`) handles this by re-inserting range tombstones into the active memtable. Do not suggest adding `if result.is_empty() { return Ok(None) }` — this would skip sealed memtable cleanup.
-
-### Sentinel Key in RT-Only Tables
-
-RT-only tables write a synthetic `WeakTombstone` sentinel to force index creation. This uses `ValueType::WeakTombstone` which is distinct from all user-visible types (`Value`, `Tombstone`), so it **cannot collide** with real entries in merge results regardless of `(user_key, seqno)` overlap. The seqno uses `max_rt_seqno` as an additional safety measure. Do not flag sentinel collision concerns.
-
-### Code Comments Explaining Design Decisions
-
-When code has a comment starting with "NOTE:", "Use X instead of Y because...", or otherwise explains a deliberate design choice, **trust the comment**. If the comment contradicts the code, flag the contradiction — but do not suggest alternatives to correctly-documented design decisions.
+**Only flag an issue if it survives all three checks.** A finding that looks like a bug in one function but is handled by its caller is not a bug — it is a protocol between the two functions.
 
 ## Architecture Notes
 
