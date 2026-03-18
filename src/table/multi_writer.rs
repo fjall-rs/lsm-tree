@@ -144,29 +144,16 @@ impl MultiWriter {
                     }
                 } else {
                     // last_key at max encoding length — can't compute exclusive upper bound.
-                    // Write overlapping RTs unclipped and widen key_range to include
-                    // their coverage, so compaction overlap detection picks up this
-                    // table when compacting keys covered by these tombstones.
-                    let mut min_start = first_key.clone();
-                    let mut max_end = last_key.clone();
+                    // Write overlapping RTs unclipped. We do NOT widen key_range to
+                    // avoid mixing inclusive KV bounds with exclusive RT ends.
+                    // Overlapping filter ensures only RTs intersecting the KV range
+                    // are written; compaction will propagate them forward.
                     for rt in tombstones {
                         if rt.start.as_ref() <= last_key.as_ref()
                             && rt.end.as_ref() > first_key.as_ref()
                         {
-                            if rt.start < min_start {
-                                min_start = rt.start.clone();
-                            }
-                            if rt.end > max_end {
-                                max_end = rt.end.clone();
-                            }
                             writer.write_range_tombstone(rt.clone());
                         }
-                    }
-                    if min_start < first_key {
-                        writer.meta.first_key = Some(min_start);
-                    }
-                    if max_end > last_key {
-                        writer.meta.last_key = Some(max_end);
                     }
                 }
             } else {
@@ -175,27 +162,11 @@ impl MultiWriter {
                 // filter — an RT disjoint from this table's KV range (e.g.,
                 // delete_range on keys only in older SSTs) must still be persisted.
                 //
-                // Widen key_range to include RT coverage so compaction overlap
-                // detection picks up this table when compacting keys covered by
-                // its range tombstones.
-                if let Some((first_rt, rest)) = tombstones.split_first() {
-                    let mut min_start = first_rt.start.clone();
-                    let mut max_end = first_rt.end.clone();
-                    for rt in rest {
-                        if rt.start < min_start {
-                            min_start = rt.start.clone();
-                        }
-                        if rt.end > max_end {
-                            max_end = rt.end.clone();
-                        }
-                    }
-                    if min_start.as_ref() < first_key.as_ref() {
-                        writer.meta.first_key = Some(min_start);
-                    }
-                    if max_end.as_ref() > last_key.as_ref() {
-                        writer.meta.last_key = Some(max_end);
-                    }
-                }
+                // Note: we intentionally do NOT widen the table's KV key_range
+                // with RT coverage here, to keep KeyRange.max a true inclusive
+                // upper bound on KV keys and avoid mixing inclusive KV bounds
+                // with exclusive RT ends. This is safe because flush writes ALL
+                // RTs to ALL output tables — compaction will find them regardless.
                 for rt in tombstones {
                     writer.write_range_tombstone(rt.clone());
                 }
