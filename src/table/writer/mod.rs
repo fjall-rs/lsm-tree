@@ -422,18 +422,15 @@ impl Writer {
                 let saved_hi = self.meta.highest_seqno;
 
                 // Write a sentinel key at min(rt.start) to force index block
-                // creation in RT-only tables. The sentinel uses WeakTombstone
-                // value type, but InternalKey Eq/Ord ignores value_type — so a
-                // real entry with the same (user_key, seqno) would compare equal.
-                // We use max_rt_seqno as the sentinel seqno: by the time the RT
-                // was written, SequenceNumberCounter has moved past this value,
-                // so no FUTURE entry will reuse it. A pre-existing entry at
-                // (start, max_rt_seqno) is possible but harmless — the sentinel
-                // is a WeakTombstone which is dropped during merge/compaction
-                // when a real Value or Tombstone exists at the same (key, seqno).
+                // creation in RT-only tables. InternalKey Eq/Ord ignores
+                // value_type, so the sentinel's (user_key, seqno) pair must be
+                // unique within this table. We use max_rt_seqno + 1: no real
+                // entry in this table (KV or RT) has a seqno above max_rt_seqno,
+                // and the table is immutable after write.
+                let sentinel_seqno = max_rt_seqno.saturating_add(1);
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
-                    max_rt_seqno,
+                    sentinel_seqno,
                 ))?;
                 self.spill_block()?;
 
