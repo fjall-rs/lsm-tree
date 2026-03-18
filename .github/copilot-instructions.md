@@ -62,10 +62,34 @@ cargo fmt --all -- --check                   # Format check
 | `bytes_1` | Use `bytes` crate for Slice type |
 | `metrics` | Expose prometheus metrics |
 
+## Design Patterns (Do NOT Flag)
+
+These are intentional design decisions. Do not raise review threads about them:
+
+### Flush Contract: `Some` ≠ "tables were produced"
+
+`flush_to_tables_with_rt` returns `Option<(Vec<Table>, ...)>`:
+- `None` — no sealed memtables existed (nothing to flush)
+- `Some((tables, ...))` — flush operation completed; `tables` may be empty
+
+An **empty `tables` vector inside `Some`** is intentional (e.g., RT-only flush with no KV data). The caller (`AbstractTree::flush`) handles this by re-inserting range tombstones into the active memtable. Do not suggest adding `if result.is_empty() { return Ok(None) }` — this would skip sealed memtable cleanup.
+
+### Sentinel Key in RT-Only Tables
+
+RT-only tables write a synthetic `WeakTombstone` sentinel to force index creation. This uses `ValueType::WeakTombstone` which is distinct from all user-visible types (`Value`, `Tombstone`), so it **cannot collide** with real entries in merge results regardless of `(user_key, seqno)` overlap. The seqno uses `max_rt_seqno` as an additional safety measure. Do not flag sentinel collision concerns.
+
+### Code Comments Explaining Design Decisions
+
+When code has a comment starting with "NOTE:", "Use X instead of Y because...", or otherwise explains a deliberate design choice, **trust the comment**. If the comment contradicts the code, flag the contradiction — but do not suggest alternatives to correctly-documented design decisions.
+
 ## Architecture Notes
 
 - `src/table/block/` — On-disk block format (header + compressed payload)
 - `src/vlog/blob_file/` — Value log for large values (separate from LSM blocks)
 - `src/compaction/` — Compaction strategies (leveled, FIFO, tiered)
 - `src/seqno.rs` — Sequence number generator (MVCC versioning)
+- `src/range_tombstone.rs` — Range tombstone data model and serialization
+- `src/range_tombstone_filter.rs` — MVCC-aware range tombstone filtering for iterators
+- `src/active_tombstone_set.rs` — Tracks active range tombstones during compaction
+- `src/memtable/interval_tree.rs` — Interval tree for memtable range tombstone queries
 - Compression is pluggable via `CompressionType` enum with `#[cfg(feature)]` variants

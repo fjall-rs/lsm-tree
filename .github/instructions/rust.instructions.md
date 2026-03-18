@@ -43,6 +43,10 @@ Focus review effort on real bugs, not cosmetics. Stop after finding issues in hi
 
 These are not actionable review findings. Do not raise them:
 
+- **Intentional `Some` with empty contents**: When a function returns `Option<(Vec<T>, ...)>`, `Some` with an empty vec is a valid signal ("operation completed, no output produced"). The caller handles empty contents explicitly. Do not suggest returning `None` for empty results unless the caller would behave identically for `None` and `Some(empty)`.
+- **Sentinel/synthetic entries with distinct `ValueType`**: Internal sentinel entries (e.g., `WeakTombstone` for RT-only table index creation) use a `ValueType` variant invisible to user-facing merge logic. Do not flag collision concerns when the `ValueType` is distinct from user types.
+- **Design decision comments**: When code has a comment explaining WHY a specific approach was chosen (e.g., "Use X instead of Y because..."), trust the documented reasoning. Flag only if the comment contradicts the actual code behavior.
+
 - **Comment wording vs code behavior**: If a comment says "flush when full" but the threshold is checked with `>=` not `>`, the intent is clear — the boundary condition is a design choice. Do not suggest rewording comments to match exact comparison operators.
 - **Comment precision**: "returns the block" when it technically returns `Result<Block>` — the comment conveys meaning, not type signature.
 - **Magic numbers with context**: `4` in `assert_eq!(header.len(), 4, "expected u32 checksum")` — the assertion message provides the context. Do not suggest a named constant when the value is used once in a test with an explanatory message.
