@@ -214,37 +214,39 @@ impl TreeIter {
                         #[expect(clippy::expect_used, reason = "we checked for length")]
                         let table = run.first().expect("should exist");
 
-                        // Table-skip: if a range tombstone fully covers this table
-                        // with a higher seqno, skip it entirely (avoid I/O).
-                        // NOTE: O(tables * rt_count) scan — acceptable for typical RT counts;
-                        // pre-filtering visible RTs or indexing by range is a future optimization.
-                        // key_range.max() is inclusive, fully_covers uses half-open: max < rt.end
-                        let is_covered = all_range_tombstones.iter().any(|rt| {
-                            rt.visible_at(seqno)
-                                && rt.fully_covers(
-                                    table.metadata.key_range.min(),
-                                    table.metadata.key_range.max(),
-                                )
-                                && rt.seqno > table.get_highest_seqno()
-                        });
+                        // Check key range overlap first (cheap metadata check) before
+                        // running the O(rt_count) table-skip scan.
+                        if table.check_key_range_overlap(&(
+                            range.start_bound().map(|x| &*x.user_key),
+                            range.end_bound().map(|x| &*x.user_key),
+                        )) {
+                            // Table-skip: if a range tombstone fully covers this table
+                            // with a higher seqno, skip it entirely (avoid I/O).
+                            // NOTE: O(tables * rt_count) scan — acceptable for typical RT counts;
+                            // pre-filtering visible RTs or indexing by range is a future optimization.
+                            // key_range.max() is inclusive, fully_covers uses half-open: max < rt.end
+                            let is_covered = all_range_tombstones.iter().any(|rt| {
+                                rt.visible_at(seqno)
+                                    && rt.fully_covers(
+                                        table.metadata.key_range.min(),
+                                        table.metadata.key_range.max(),
+                                    )
+                                    && rt.seqno > table.get_highest_seqno()
+                            });
 
-                        if !is_covered
-                            && table.check_key_range_overlap(&(
-                                range.start_bound().map(|x| &*x.user_key),
-                                range.end_bound().map(|x| &*x.user_key),
-                            ))
-                        {
-                            let reader = table
-                                .range((
-                                    range.start_bound().map(|x| &x.user_key).cloned(),
-                                    range.end_bound().map(|x| &x.user_key).cloned(),
-                                ))
-                                .filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                });
+                            if !is_covered {
+                                let reader = table
+                                    .range((
+                                        range.start_bound().map(|x| &x.user_key).cloned(),
+                                        range.end_bound().map(|x| &x.user_key).cloned(),
+                                    ))
+                                    .filter(move |item| match item {
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                        Err(_) => true,
+                                    });
 
-                            iters.push(Box::new(reader));
+                                iters.push(Box::new(reader));
+                            }
                         }
                     }
                     _ => {
