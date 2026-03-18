@@ -427,7 +427,8 @@ impl Writer {
                 // value_type, so the sentinel's (user_key, seqno) pair must be
                 // globally unique. MAX_SEQNO is reserved and never assigned to
                 // real writes, guaranteeing no collision during merge/compaction.
-                // The sentinel is also invisible to all reads (read_seqno < MAX_SEQNO).
+                // The sentinel is invisible to normal snapshots (read_seqno <= MAX_SEQNO)
+                // and harmless at SeqNo::MAX (filtered as WeakTombstone by MvccStream).
                 let sentinel_seqno = crate::seqno::MAX_SEQNO;
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
