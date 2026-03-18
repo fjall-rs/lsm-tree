@@ -420,14 +420,14 @@ impl Writer {
 
                 // Write a sentinel key at min(rt.start) to force index block
                 // creation in RT-only tables. InternalKey Eq/Ord ignores
-                // value_type, so the sentinel's (user_key, seqno) pair must be
-                // globally unique. MAX_SEQNO is never assigned to real writes
-                // (generators return < MAX_SEQNO) and stays within the valid
-                // seqno range (MSB clear). At SeqNo::MAX unbounded reads the
-                // sentinel becomes visible but is harmless — it is a WeakTombstone
-                // filtered by `is_tombstone()` in the range iterator and dropped
-                // by CompactionStream when a real Value exists at the same key.
-                let sentinel_seqno = crate::seqno::MAX_SEQNO;
+                // value_type, so we must ensure the sentinel cannot dominate
+                // real entries during compaction merges. We use seqno 0: with
+                // Reverse(seqno) ordering, 0 sorts LAST — after all real entries.
+                // The sentinel is visible to reads (0 < any read_seqno) but
+                // harmless: filtered by is_tombstone() in iterators, and for
+                // point reads it's the last entry so real Values are returned
+                // first. At last-level compaction it gets GC'd (evict_tombstones).
+                let sentinel_seqno: crate::SeqNo = 0;
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
                     sentinel_seqno,
