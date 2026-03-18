@@ -144,14 +144,29 @@ impl MultiWriter {
                     }
                 } else {
                     // last_key at max encoding length — can't compute exclusive upper bound.
-                    // Write overlapping RTs unclipped; table key_range already covers KV data,
-                    // and the overlap filter ensures only RTs intersecting this range are written.
+                    // Write overlapping RTs unclipped and widen key_range to include
+                    // their coverage, so compaction overlap detection picks up this
+                    // table when compacting keys covered by these tombstones.
+                    let mut min_start = first_key.clone();
+                    let mut max_end = last_key.clone();
                     for rt in tombstones {
                         if rt.start.as_ref() <= last_key.as_ref()
                             && rt.end.as_ref() > first_key.as_ref()
                         {
+                            if rt.start < min_start {
+                                min_start = rt.start.clone();
+                            }
+                            if rt.end > max_end {
+                                max_end = rt.end.clone();
+                            }
                             writer.write_range_tombstone(rt.clone());
                         }
+                    }
+                    if min_start < first_key {
+                        writer.meta.first_key = Some(min_start);
+                    }
+                    if max_end > last_key {
+                        writer.meta.last_key = Some(max_end);
                     }
                 }
             } else {
