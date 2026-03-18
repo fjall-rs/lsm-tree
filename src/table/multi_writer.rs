@@ -142,7 +142,9 @@ impl MultiWriter {
                         }
                     }
                 } else {
-                    // last_key at u16::MAX — can't compute exclusive bound, write overlapping RTs unclipped.
+                    // last_key at max encoding length — can't compute exclusive upper bound.
+                    // Write overlapping RTs unclipped; table key_range already covers KV data,
+                    // and the overlap filter ensures only RTs intersecting this range are written.
                     for rt in tombstones {
                         if rt.start.as_ref() <= last_key.as_ref()
                             && rt.end.as_ref() > first_key.as_ref()
