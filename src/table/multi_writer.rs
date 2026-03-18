@@ -110,6 +110,7 @@ impl MultiWriter {
     /// Enables RT clipping: each tombstone is intersected with the output
     /// table's KV key range. Use this for compaction where input tables are
     /// consumed; do NOT use for flush where RTs must cover older SSTs.
+    #[must_use]
     pub fn use_clip_range_tombstones(mut self) -> Self {
         self.clip_range_tombstones = true;
         self

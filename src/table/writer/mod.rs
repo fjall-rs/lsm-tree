@@ -401,7 +401,6 @@ impl Writer {
             // Compute the coverage of all range tombstones.
             let mut min_start: Option<UserKey> = None;
             let mut max_end: Option<UserKey> = None;
-            let mut max_rt_seqno: crate::SeqNo = 0;
             for rt in &self.range_tombstones {
                 match &min_start {
                     None => min_start = Some(rt.start.clone()),
@@ -412,9 +411,6 @@ impl Writer {
                     None => max_end = Some(rt.end.clone()),
                     Some(cur_max) if rt.end > *cur_max => max_end = Some(rt.end.clone()),
                     _ => {}
-                }
-                if rt.seqno > max_rt_seqno {
-                    max_rt_seqno = rt.seqno;
                 }
             }
 
