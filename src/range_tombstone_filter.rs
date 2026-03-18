@@ -42,7 +42,7 @@ impl<I> RangeTombstoneFilter<I> {
 
         // Build reverse-sorted copy: (end desc, seqno desc)
         let mut rev_tombstones = fwd_tombstones.clone();
-        rev_tombstones.sort_by(|a, b| (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno))));
+        rev_tombstones.sort_by(|a, b| (&b.end, &b.seqno).cmp(&(&a.end, &a.seqno)));
 
         Self {
             inner,
