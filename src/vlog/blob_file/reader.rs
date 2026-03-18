@@ -36,7 +36,11 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
-        let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        // Use checked arithmetic for the allocation size to prevent truncation
+        // on 32-bit targets where `as usize` from u64 could silently wrap.
+        let add_size = (BLOB_HEADER_LEN as u64)
+            .checked_add(key.len() as u64)
+            .ok_or(crate::Error::InvalidHeader("Blob"))?;
 
         // Cap-check the on-disk value size BEFORE allocating the read buffer.
         // vhandle.on_disk_size comes from the value log index and could be corrupted.
@@ -47,11 +51,13 @@ impl<'a> Reader<'a> {
             });
         }
 
-        let value = crate::file::read_exact(
-            self.file,
-            vhandle.offset,
-            (u64::from(vhandle.on_disk_size) + add_size) as usize,
-        )?;
+        let read_len = u64::from(vhandle.on_disk_size)
+            .checked_add(add_size)
+            .ok_or(crate::Error::InvalidHeader("Blob"))?;
+        let read_len =
+            usize::try_from(read_len).map_err(|_| crate::Error::InvalidHeader("Blob"))?;
+
+        let value = crate::file::read_exact(self.file, vhandle.offset, read_len)?;
 
         let mut reader = Cursor::new(&value[..]);
 
@@ -81,7 +87,9 @@ impl<'a> Reader<'a> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
-        let raw_data = value.slice((add_size as usize)..);
+        let data_offset =
+            usize::try_from(add_size).map_err(|_| crate::Error::InvalidHeader("Blob"))?;
+        let raw_data = value.slice(data_offset..);
 
         {
             let checksum = {
