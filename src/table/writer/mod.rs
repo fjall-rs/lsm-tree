@@ -239,7 +239,7 @@ impl Writer {
     }
 
     /// Adds a range tombstone to be written into this table's RT block.
-    pub fn write_range_tombstone(&mut self, rt: RangeTombstone) {
+    pub(crate) fn write_range_tombstone(&mut self, rt: RangeTombstone) {
         self.meta.lowest_seqno = self.meta.lowest_seqno.min(rt.seqno);
         self.meta.highest_seqno = self.meta.highest_seqno.max(rt.seqno);
         self.range_tombstones.push(rt);
@@ -421,10 +421,13 @@ impl Writer {
                 // Write a sentinel key at min(rt.start) to force index block
                 // creation in RT-only tables. InternalKey Eq/Ord ignores
                 // value_type, so the sentinel's (user_key, seqno) pair must be
-                // globally unique. SeqNo::MAX is never assigned to real writes
-                // and is filtered by MVCC (item_seqno < read_seqno is false when
-                // both are SeqNo::MAX), so the sentinel never participates in reads.
-                let sentinel_seqno = crate::SeqNo::MAX;
+                // globally unique. MAX_SEQNO is never assigned to real writes
+                // (generators return < MAX_SEQNO) and stays within the valid
+                // seqno range (MSB clear). At SeqNo::MAX unbounded reads the
+                // sentinel becomes visible but is harmless — it is a WeakTombstone
+                // filtered by `is_tombstone()` in the range iterator and dropped
+                // by CompactionStream when a real Value exists at the same key.
+                let sentinel_seqno = crate::seqno::MAX_SEQNO;
                 self.write(InternalValue::new_weak_tombstone(
                     start.clone(),
                     sentinel_seqno,
