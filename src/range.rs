@@ -216,6 +216,8 @@ impl TreeIter {
 
                         // Table-skip: if a range tombstone fully covers this table
                         // with a higher seqno, skip it entirely (avoid I/O).
+                        // NOTE: O(tables * rt_count) scan — acceptable for typical RT counts;
+                        // pre-filtering visible RTs or indexing by range is a future optimization.
                         // key_range.max() is inclusive, fully_covers uses half-open: max < rt.end
                         let is_covered = all_range_tombstones.iter().any(|rt| {
                             rt.visible_at(seqno)
