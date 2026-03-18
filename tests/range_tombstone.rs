@@ -605,6 +605,44 @@ fn range_tombstone_multiple_compaction_rounds() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+// --- Regression: RT-only table sentinel must not mask values in older SSTs ---
+// When a memtable has only range tombstones (no KV data), flush produces an
+// RT-only table with a synthetic sentinel at min(rt.start). If the sentinel
+// seqno makes it visible before the RT's own seqno, point reads at intermediate
+// snapshots incorrectly see a tombstone for that key, hiding real values in
+// older tables.
+#[test]
+fn rt_only_sentinel_does_not_mask_older_values() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Older SST: real value at key "m" with seqno=5
+    // Key "m" is chosen intentionally — it will be min(rt.start) for the RT below,
+    // so the sentinel key collides with this real value.
+    tree.insert("m", "real_value", 5);
+    tree.flush_active_memtable(0)?;
+
+    // RT-only memtable: delete_range [m, z) at seqno=20
+    // Sentinel will be written at key "m" (= min(rt.start))
+    tree.remove_range("m", "z", 20);
+    tree.flush_active_memtable(0)?;
+
+    // Read at seqno=10: RT [m,z)@20 is NOT visible (20 > 10), so "m"@5
+    // should be visible. The sentinel at ("m", sentinel_seqno) must NOT
+    // act as a tombstone that hides the real value when the RT itself
+    // is not yet visible.
+    assert_eq!(
+        Some("real_value".as_bytes().into()),
+        tree.get("m", 10)?,
+        "sentinel must not mask real value at key 'm' when RT is not yet visible"
+    );
+
+    // Read at seqno=21: RT [m,z)@20 IS visible → "m" suppressed by RT
+    assert_eq!(None, tree.get("m", 21)?);
+
+    Ok(())
+}
+
 // --- Test: RT disjoint from memtable KV range persists through flush ---
 // Regression test: delete_range targeting keys only in older SSTs must not be
 // dropped during flush just because it doesn't overlap the memtable's KV range.
