@@ -456,9 +456,9 @@ fn range_tombstone_only_flush() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-// --- Test N: GC eviction at bottom level ---
+// --- Test N: Bottom-level compaction must keep RT-deleted keys hidden ---
 #[test]
-fn range_tombstone_gc_eviction_at_bottom_level() -> lsm_tree::Result<()> {
+fn range_tombstone_bottom_level_compaction_keeps_deleted_keys_hidden() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let tree = open_tree(folder.path());
 
@@ -468,15 +468,20 @@ fn range_tombstone_gc_eviction_at_bottom_level() -> lsm_tree::Result<()> {
     tree.remove_range("a", "d", 10);
     tree.flush_active_memtable(0)?;
 
-    // Before GC: range tombstone suppresses all
+    // Before compaction: range tombstone suppresses all
     assert_eq!(None, tree.get("a", 11)?);
+    assert_eq!(None, tree.get("b", 11)?);
 
-    // Major compact with GC watermark ABOVE the tombstone seqno
-    // This should evict the range tombstone at the bottom level
+    // Major compact with GC watermark ABOVE the tombstone seqno.
+    // We must not drop RTs yet because compaction does not physically remove
+    // all covered KVs based on RT coverage alone.
     tree.major_compact(64_000_000, 11)?;
 
-    // After GC: both data and tombstone are evicted (all seqno < 11)
-    // Insert new data — should be visible (no lingering tombstone)
+    // Deleted keys must stay hidden after bottom-level compaction.
+    assert_eq!(None, tree.get("a", 11)?);
+    assert_eq!(None, tree.get("b", 11)?);
+
+    // Newer writes must still win over the older RT.
     tree.insert("a", "new_a", 15);
     assert_eq!(Some("new_a".as_bytes().into()), tree.get("a", 16)?);
 
@@ -769,11 +774,12 @@ fn range_tombstone_disjoint_from_flush_kv_range() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-// Regression: disjoint RTs can be persisted into an SST whose recorded KV
-// key_range still does not cover the RT span. Point reads must therefore not
-// reject RT-bearing tables solely via `metadata.key_range.contains_key(key)`.
+// Regression: flush must finalize the last buffered KV block before widening
+// table metadata for RT coverage. Otherwise Writer::finish would overwrite the
+// widened key_range with the buffered block's last KV key and later point reads
+// could not soundly reject unrelated SSTs by metadata.key_range.
 #[test]
-fn range_tombstone_disjoint_flush_key_range_is_not_sound_rt_prefilter() -> lsm_tree::Result<()> {
+fn range_tombstone_disjoint_flush_key_range_tracks_rt_coverage() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let tree = open_tree(folder.path());
 
@@ -792,8 +798,8 @@ fn range_tombstone_disjoint_flush_key_range_is_not_sound_rt_prefilter() -> lsm_t
         .expect("expected flushed RT-bearing table");
 
     assert!(
-        !rt_table.metadata.key_range.contains_key(b"x"),
-        "RT-bearing table metadata must demonstrate why point reads cannot rely on key_range"
+        rt_table.metadata.key_range.contains_key(b"x"),
+        "RT-bearing table metadata must conservatively include RT coverage"
     );
     assert_eq!(None, tree.get("x", 11)?);
 

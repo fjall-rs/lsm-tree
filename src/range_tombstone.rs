@@ -176,7 +176,10 @@ pub fn upper_bound_exclusive(key: &[u8]) -> Option<UserKey> {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "tests use unwrap on controlled fixtures for brevity"
+)]
 mod tests {
     use super::*;
 

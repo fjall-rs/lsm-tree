@@ -84,7 +84,7 @@ impl std::ops::Deref for Tree {
     }
 }
 
-impl crate::abstract_tree::sealed::Sealed for Tree {}
+impl crate::abstract_tree::Sealed for Tree {}
 
 impl AbstractTree for Tree {
     fn table_file_cache_size(&self) -> usize {
@@ -816,18 +816,18 @@ impl Tree {
 
         // Check SST table range tombstones.
         //
-        // We intentionally do NOT pre-filter by table.metadata.key_range here.
-        // In this fork, flush can persist RTs in tables whose recorded key range
-        // still reflects only their KV coverage, so `key_range.contains_key(key)`
-        // is not a sound rejection test for point-read suppression. The RT
-        // itself is the source of truth; `should_suppress` checks key coverage
-        // and visibility directly.
+        // Flush/RT-only writes widen persisted table key ranges to include RT
+        // coverage, and compaction either clips RTs to the output table range
+        // or widens metadata in the inclusive-upper-bound fallback. That makes
+        // `metadata.key_range.contains_key(key)` a sound early reject here and
+        // avoids scanning RT blocks for unrelated SSTs on point reads.
         for table in super_version
             .version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| run.iter())
             .filter(|t| !t.range_tombstones().is_empty())
+            .filter(|t| t.metadata.key_range.contains_key(key))
         {
             for rt in table.range_tombstones() {
                 if rt.should_suppress(key, key_seqno, read_seqno) {

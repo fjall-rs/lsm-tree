@@ -325,6 +325,7 @@ impl MultiWriter {
         }
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
+        old_writer.spill_block()?;
 
         // Write range tombstones to the finishing writer.
         // In flush mode (clip=false) tombstones are written unmodified because
@@ -377,6 +378,8 @@ impl MultiWriter {
     ///
     /// Returns the metadata of created tables
     pub fn finish(mut self) -> crate::Result<Vec<(TableId, Checksum)>> {
+        self.writer.spill_block()?;
+
         // Write range tombstones to the last writer (same logic as rotate).
         if !self.range_tombstones.is_empty() {
             Self::write_rts_to_writer(

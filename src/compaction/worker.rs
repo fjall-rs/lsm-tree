@@ -394,11 +394,7 @@ fn merge_tables(
     };
 
     let dst_lvl = payload.canonical_level.into();
-    let last_level = opts.config.level_count - 1;
-
-    // NOTE: Only evict tombstones when reaching the last level,
-    // That way we don't resurrect data beneath the tombstone
-    let is_last_level = payload.dest_level == last_level;
+    let is_last_level = payload.dest_level == opts.config.level_count - 1;
 
     merge_iter = merge_iter
         .evict_tombstones(is_last_level)
@@ -502,24 +498,16 @@ fn merge_tables(
         // Propagate range tombstones to output tables BEFORE writing KV items,
         // so that if the compactor rotates tables during the merge loop,
         // earlier tables already carry the RT metadata.
-        // At last level, evict tombstones below GC watermark.
+        //
+        // Keep RTs even at the last level until compaction itself becomes
+        // RT-aware and can physically drop covered KVs. Dropping the RT first
+        // would only remove the logical delete marker and can resurrect data.
         if !input_range_tombstones.is_empty() {
-            let surviving: Vec<_> = if is_last_level {
-                input_range_tombstones
-                    .into_iter()
-                    .filter(|rt| rt.seqno >= opts.mvcc_gc_watermark)
-                    .collect()
-            } else {
-                input_range_tombstones
-            };
-
-            if !surviving.is_empty() {
-                log::debug!(
-                    "Propagating {} range tombstones to compaction output",
-                    surviving.len(),
-                );
-                compactor.write_range_tombstones(&surviving);
-            }
+            log::debug!(
+                "Propagating {} range tombstones to compaction output",
+                input_range_tombstones.len(),
+            );
+            compactor.write_range_tombstones(&input_range_tombstones);
         }
 
         for (idx, item) in merge_iter.enumerate() {

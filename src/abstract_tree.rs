@@ -19,13 +19,14 @@ type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 // (`&impl AbstractTree`), but external implementations are no longer part of
 // the supported extension surface. Internal flush/version hooks keep evolving
 // with crate-owned tree types and must not create downstream semver traps.
-pub mod sealed {
+mod sealed {
     pub trait Sealed {}
 }
+pub use sealed::Sealed;
 
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
-pub trait AbstractTree: sealed::Sealed {
+pub trait AbstractTree: Sealed {
     /// Debug method for tracing the MVCC history of a key.
     #[doc(hidden)]
     fn print_trace(&self, key: &[u8]) -> crate::Result<()>;
