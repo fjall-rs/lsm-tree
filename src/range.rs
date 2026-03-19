@@ -151,61 +151,24 @@ impl TreeIter {
 
             let range = (lo, hi);
 
-            // Cheap pre-check: count total range tombstones before cloning
-            let rt_count = lock.version.active_memtable.range_tombstone_count()
-                + lock
-                    .version
-                    .sealed_memtables
-                    .iter()
-                    .map(|mt| mt.range_tombstone_count())
-                    .sum::<usize>()
-                + lock
-                    .ephemeral
-                    .as_ref()
-                    .map_or(0, |(mt, _)| mt.range_tombstone_count())
-                + lock
-                    .version
-                    .version
-                    .iter_levels()
-                    .flat_map(|lvl| lvl.iter())
-                    .flat_map(|run| run.iter())
-                    .map(|t| t.range_tombstones().len())
-                    .sum::<usize>();
-
-            // Only collect/clone tombstones when the total count is non-zero
-            let all_range_tombstones = if rt_count > 0 {
-                let mut rts: Vec<RangeTombstone> = Vec::with_capacity(rt_count);
-
-                rts.extend(lock.version.active_memtable.range_tombstones_sorted());
-                for mt in lock.version.sealed_memtables.iter() {
-                    rts.extend(mt.range_tombstones_sorted());
-                }
-                if let Some((mt, _)) = &lock.ephemeral {
-                    rts.extend(mt.range_tombstones_sorted());
-                }
-                for table in lock
-                    .version
-                    .version
-                    .iter_levels()
-                    .flat_map(|lvl| lvl.iter())
-                    .flat_map(|run| run.iter())
-                {
-                    rts.extend(table.range_tombstones().iter().cloned());
-                }
-                // No sort needed here — RangeTombstoneFilter::new sorts internally
-                rts
-            } else {
-                Vec::new()
-            };
-
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
+            let mut all_range_tombstones: Vec<RangeTombstone> = Vec::new();
 
-            for run in lock
+            let disk_runs: Vec<_> = lock
                 .version
                 .version
                 .iter_levels()
                 .flat_map(|lvl| lvl.iter())
-            {
+                .map(|run| {
+                    for table in run.iter() {
+                        all_range_tombstones.extend(table.range_tombstones().iter().cloned());
+                    }
+
+                    run.clone()
+                })
+                .collect();
+
+            for run in disk_runs {
                 match run.len() {
                     0 => {
                         // Do nothing
@@ -269,6 +232,8 @@ impl TreeIter {
 
             // Sealed memtables
             for memtable in lock.version.sealed_memtables.iter() {
+                all_range_tombstones.extend(memtable.range_tombstones_sorted());
+
                 let iter = memtable.range(range.clone());
 
                 iters.push(Box::new(
@@ -279,6 +244,8 @@ impl TreeIter {
 
             // Active memtable
             {
+                all_range_tombstones.extend(lock.version.active_memtable.range_tombstones_sorted());
+
                 let iter = lock.version.active_memtable.range(range.clone());
 
                 iters.push(Box::new(
@@ -288,6 +255,8 @@ impl TreeIter {
             }
 
             if let Some((mt, seqno)) = &lock.ephemeral {
+                all_range_tombstones.extend(mt.range_tombstones_sorted());
+
                 let iter = Box::new(
                     mt.range(range)
                         .filter(move |item| seqno_filter(item.key.seqno, *seqno))
@@ -304,7 +273,9 @@ impl TreeIter {
                 Err(_) => true,
             });
 
-            // Fast path: skip filter wrapping when no tombstone is visible at this read seqno
+            // Fast path: skip filter wrapping when no tombstone is visible at this
+            // read seqno. We collect RTs while building the iterator inputs to
+            // avoid a separate pre-scan over every memtable and SST.
             if all_range_tombstones.iter().all(|rt| !rt.visible_at(seqno)) {
                 Box::new(iter)
             } else {

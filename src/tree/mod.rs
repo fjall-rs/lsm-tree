@@ -814,10 +814,14 @@ impl Tree {
             }
         }
 
-        // Check SST table range tombstones
-        // NOTE: We cannot filter by key_range.contains_key here because RT-only
-        // tables may have a key range narrower than their tombstone coverage.
-        // RangeTombstone::should_suppress already checks contains_key internally.
+        // Check SST table range tombstones.
+        //
+        // We intentionally do NOT pre-filter by table.metadata.key_range here.
+        // In this fork, flush can persist RTs in tables whose recorded key range
+        // still reflects only their KV coverage, so `key_range.contains_key(key)`
+        // is not a sound rejection test for point-read suppression. The RT
+        // itself is the source of truth; `should_suppress` checks key coverage
+        // and visibility directly.
         for table in super_version
             .version
             .iter_levels()

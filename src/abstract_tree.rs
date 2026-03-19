@@ -15,6 +15,10 @@ pub type RangeItem = crate::Result<KvPair>;
 
 type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 
+// Sealed on purpose: this trait is still public as a consumer-side bound
+// (`&impl AbstractTree`), but external implementations are no longer part of
+// the supported extension surface. Internal flush/version hooks keep evolving
+// with crate-owned tree types and must not create downstream semver traps.
 pub mod sealed {
     pub trait Sealed {}
 }
