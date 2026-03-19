@@ -24,10 +24,36 @@ fn collect_keys(tree: &AnyTree, seqno: u64) -> lsm_tree::Result<Vec<Vec<u8>>> {
     Ok(keys)
 }
 
+/// Helper to collect keys from a bounded range iterator.
+fn collect_range_keys<R>(tree: &AnyTree, range: R, seqno: u64) -> lsm_tree::Result<Vec<Vec<u8>>>
+where
+    R: std::ops::RangeBounds<&'static str>,
+{
+    let mut keys = Vec::new();
+    for item in tree.range(range, seqno, None) {
+        let k = item.key()?;
+        keys.push(k.to_vec());
+    }
+    Ok(keys)
+}
+
 /// Helper to collect keys from a reverse iterator.
 fn collect_keys_rev(tree: &AnyTree, seqno: u64) -> lsm_tree::Result<Vec<Vec<u8>>> {
     let mut keys = Vec::new();
     for item in tree.iter(seqno, None).rev() {
+        let k = item.key()?;
+        keys.push(k.to_vec());
+    }
+    Ok(keys)
+}
+
+/// Helper to collect keys from a bounded reverse range iterator.
+fn collect_range_keys_rev<R>(tree: &AnyTree, range: R, seqno: u64) -> lsm_tree::Result<Vec<Vec<u8>>>
+where
+    R: std::ops::RangeBounds<&'static str>,
+{
+    let mut keys = Vec::new();
+    for item in tree.range(range, seqno, None).rev() {
         let k = item.key()?;
         keys.push(k.to_vec());
     }
@@ -209,6 +235,45 @@ fn remove_prefix_suppresses_matching_keys() -> lsm_tree::Result<()> {
     assert_eq!(None, tree.get("user:3", 11)?);
     // "order:" is not affected
     assert_eq!(Some("pizza".as_bytes().into()), tree.get("order:1", 11)?);
+
+    Ok(())
+}
+
+#[test]
+fn remove_prefix_rejects_unbounded_prefix_without_partial_delete() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let path = folder.path();
+
+    {
+        let tree = open_tree(path);
+
+        tree.insert(vec![0xFF], "ff", 1);
+        tree.insert(vec![0xFF, 0x01], "ff01", 2);
+        tree.insert("plain", "plain", 3);
+
+        assert_eq!(0, tree.remove_prefix([], 10));
+        assert_eq!(0, tree.remove_prefix(vec![0xFF], 11));
+
+        assert_eq!(Some("ff".as_bytes().into()), tree.get(vec![0xFF], 12)?);
+        assert_eq!(
+            Some("ff01".as_bytes().into()),
+            tree.get(vec![0xFF, 0x01], 12)?
+        );
+        assert_eq!(Some("plain".as_bytes().into()), tree.get("plain", 12)?);
+
+        tree.flush_active_memtable(0)?;
+    }
+
+    {
+        let tree = open_tree(path);
+
+        assert_eq!(Some("ff".as_bytes().into()), tree.get(vec![0xFF], 12)?);
+        assert_eq!(
+            Some("ff01".as_bytes().into()),
+            tree.get(vec![0xFF, 0x01], 12)?
+        );
+        assert_eq!(Some("plain".as_bytes().into()), tree.get("plain", 12)?);
+    }
 
     Ok(())
 }
@@ -704,6 +769,37 @@ fn range_tombstone_disjoint_from_flush_kv_range() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+// Regression: disjoint RTs can be persisted into an SST whose recorded KV
+// key_range still does not cover the RT span. Point reads must therefore not
+// reject RT-bearing tables solely via `metadata.key_range.contains_key(key)`.
+#[test]
+fn range_tombstone_disjoint_flush_key_range_is_not_sound_rt_prefilter() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    tree.insert("x", "1", 1);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("a", "2", 2);
+    tree.insert("b", "3", 3);
+    tree.remove_range("x", "zz", 10);
+    tree.flush_active_memtable(0)?;
+
+    let version = tree.current_version();
+    let rt_table = version
+        .iter_tables()
+        .find(|table| table.regions.range_tombstones.is_some())
+        .expect("expected flushed RT-bearing table");
+
+    assert!(
+        !rt_table.metadata.key_range.contains_key(b"x"),
+        "RT-bearing table metadata must demonstrate why point reads cannot rely on key_range"
+    );
+    assert_eq!(None, tree.get("x", 11)?);
+
+    Ok(())
+}
+
 // --- Test: RT disjoint from KV range survives compaction ---
 // Regression: disjoint RT (key range outside KV data) must survive
 // multiple compaction rounds. Without key_range widening in flush mode,
@@ -768,6 +864,74 @@ fn range_tombstone_disjoint_survives_compaction() -> lsm_tree::Result<()> {
     assert_eq!(Some("4".as_bytes().into()), tree.get("b", 11)?);
     assert_eq!(None, tree.get("x", 11)?);
     assert_eq!(None, tree.get("y", 11)?);
+
+    Ok(())
+}
+
+// Regression: range iteration should only carry RTs that overlap the requested
+// range. Narrow scans over untouched keys must keep returning those keys, while
+// overlapping scans still honor the persisted RT.
+#[test]
+fn range_tombstone_narrow_range_queries_respect_overlap() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    tree.insert("x", "1", 1);
+    tree.insert("y", "2", 2);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("a", "3", 3);
+    tree.insert("b", "4", 4);
+    tree.remove_range("x", "z", 10);
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(collect_range_keys(&tree, "a"..="b", 11)?, vec![b"a", b"b"]);
+    assert_eq!(
+        collect_range_keys(&tree, "x"..="z", 11)?,
+        Vec::<Vec<u8>>::new()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn range_tombstone_disjoint_survives_recovery_for_narrow_scans() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let path = folder.path();
+
+    {
+        let tree = open_tree(path);
+
+        tree.insert("x", "1", 1);
+        tree.insert("y", "2", 2);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("a", "3", 3);
+        tree.insert("b", "4", 4);
+        tree.remove_range("x", "z", 10);
+        tree.flush_active_memtable(0)?;
+    }
+
+    let tree = open_tree(path);
+
+    assert_eq!(Some("3".as_bytes().into()), tree.get("a", 11)?);
+    assert_eq!(Some("4".as_bytes().into()), tree.get("b", 11)?);
+    assert_eq!(None, tree.get("x", 11)?);
+    assert_eq!(None, tree.get("y", 11)?);
+
+    assert_eq!(collect_range_keys(&tree, "a"..="b", 11)?, vec![b"a", b"b"]);
+    assert_eq!(
+        collect_range_keys(&tree, "x"..="z", 11)?,
+        Vec::<Vec<u8>>::new()
+    );
+    assert_eq!(
+        collect_range_keys_rev(&tree, "a"..="b", 11)?,
+        vec![b"b", b"a"]
+    );
+    assert_eq!(
+        collect_range_keys_rev(&tree, "x"..="z", 11)?,
+        Vec::<Vec<u8>>::new()
+    );
 
     Ok(())
 }
