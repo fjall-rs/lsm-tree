@@ -907,7 +907,10 @@ fn range_tombstone_memtable_narrow_range_queries_ignore_disjoint_rt() -> lsm_tre
     tree.insert("b", "4", 4);
 
     assert_eq!(collect_range_keys(&tree, "a"..="b", 11)?, vec![b"a", b"b"]);
-    assert_eq!(collect_range_keys(&tree, "x"..="z", 11)?, Vec::<Vec<u8>>::new());
+    assert_eq!(
+        collect_range_keys(&tree, "x"..="z", 11)?,
+        Vec::<Vec<u8>>::new()
+    );
     assert_eq!(
         collect_range_keys_rev(&tree, "a"..="b", 11)?,
         vec![b"b", b"a"]
