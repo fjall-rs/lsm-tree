@@ -248,6 +248,10 @@ pub trait AbstractTree {
 
     /// Like [`AbstractTree::flush_to_tables`], but also writes range tombstones.
     ///
+    /// Required method: `AbstractTree` is internal (used via `enum_dispatch`,
+    /// not intended for external implementation), so adding a required method
+    /// is not a breaking API change.
+    ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
