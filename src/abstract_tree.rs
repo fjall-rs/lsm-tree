@@ -15,9 +15,13 @@ pub type RangeItem = crate::Result<KvPair>;
 
 type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 
+pub(crate) mod sealed {
+    pub trait Sealed {}
+}
+
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
-pub trait AbstractTree {
+pub trait AbstractTree: sealed::Sealed {
     /// Debug method for tracing the MVCC history of a key.
     #[doc(hidden)]
     fn print_trace(&self, key: &[u8]) -> crate::Result<()>;
@@ -248,8 +252,8 @@ pub trait AbstractTree {
 
     /// Like [`AbstractTree::flush_to_tables`], but also writes range tombstones.
     ///
-    /// This is an internal method used by the crate and is hidden from
-    /// generated documentation.
+    /// This is an internal extension hook on the crate's sealed tree types and
+    /// is hidden from generated documentation.
     ///
     /// # Errors
     ///
@@ -728,9 +732,7 @@ pub trait AbstractTree {
     /// Returns the approximate size added to the memtable.
     /// Returns 0 if `start >= end` (invalid interval is silently ignored).
     ///
-    /// Required method: `AbstractTree` is internal (used via `enum_dispatch`,
-    /// not intended for external implementation), so adding a required method
-    /// is not a breaking API change.
+    /// This is a required method on the crate's sealed tree types.
     fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64;
 
     /// Deletes all keys with the given prefix by inserting a range tombstone.

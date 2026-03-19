@@ -622,8 +622,8 @@ fn rt_only_sentinel_does_not_mask_older_values() -> lsm_tree::Result<()> {
     tree.insert("m", "real_value", 5);
     tree.flush_active_memtable(0)?;
 
-    // RT-only memtable: delete_range [m, z) at seqno=20
-    // Sentinel will be written at key "m" (= min(rt.start))
+    // RT-only memtable: delete_range [m, z) at seqno=20.
+    // With a single RT, the sentinel uses that tombstone's start key "m".
     tree.remove_range("m", "z", 20);
     tree.flush_active_memtable(0)?;
 

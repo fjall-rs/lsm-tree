@@ -84,6 +84,8 @@ impl std::ops::Deref for Tree {
     }
 }
 
+impl crate::abstract_tree::sealed::Sealed for Tree {}
+
 impl AbstractTree for Tree {
     fn table_file_cache_size(&self) -> usize {
         self.config

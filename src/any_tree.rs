@@ -15,3 +15,5 @@ pub enum AnyTree {
     /// Key-value separated LSM-tree, see [`BlobTree`]
     Blob(BlobTree),
 }
+
+impl crate::abstract_tree::sealed::Sealed for AnyTree {}
