@@ -15,7 +15,7 @@ pub type RangeItem = crate::Result<KvPair>;
 
 type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 
-pub(crate) mod sealed {
+pub mod sealed {
     pub trait Sealed {}
 }
 

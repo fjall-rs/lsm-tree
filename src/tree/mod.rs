@@ -1063,7 +1063,7 @@ impl Tree {
             let reader = sfa::Reader::new(&manifest_path)?;
             let manifest = Manifest::decode_from(&manifest_path, &reader)?;
 
-            if manifest.version != FormatVersion::V3 {
+            if !matches!(manifest.version, FormatVersion::V3 | FormatVersion::V4) {
                 return Err(crate::Error::InvalidVersion(manifest.version.into()));
             }
 

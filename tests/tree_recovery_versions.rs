@@ -1,5 +1,58 @@
+use byteorder::{LittleEndian, ReadBytesExt};
 use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use std::{fs::File, path::Path};
 use test_log::test;
+
+fn read_manifest_format_version(path: &Path) -> lsm_tree::Result<u8> {
+    let curr_version_id = File::open(path.join("current"))?.read_u64::<LittleEndian>()?;
+    let manifest_path = path.join(format!("v{curr_version_id}"));
+    let reader = sfa::Reader::new(&manifest_path)?;
+
+    #[expect(
+        clippy::expect_used,
+        reason = "test fixture should contain format_version"
+    )]
+    let section = reader
+        .toc()
+        .section(b"format_version")
+        .expect("format_version section should exist");
+
+    Ok(section.buf_reader(&manifest_path)?.read_u8()?)
+}
+
+#[test]
+fn tree_writes_v4_manifest_and_recovers_it() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let path = folder.path();
+
+    {
+        let tree = Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(4, read_manifest_format_version(path)?);
+    }
+
+    {
+        let tree = Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        assert_eq!(Some("a".as_bytes().into()), tree.get("a", 1)?);
+        assert_eq!(4, read_manifest_format_version(path)?);
+    }
+
+    Ok(())
+}
 
 #[test]
 #[ignore = "restore Version history maintenance"]
