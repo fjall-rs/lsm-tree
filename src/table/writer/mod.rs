@@ -435,12 +435,13 @@ impl Writer {
                 ))?;
                 self.spill_block()?;
 
-                // Restore metadata — sentinel is an implementation detail and
-                // should not affect user-visible seqno bounds or item counts.
+                // Restore seqno bounds — sentinel seqno is derived from RT
+                // metadata, not from user data, so it should not shift the
+                // table's seqno range. Item/key counts are NOT decremented:
+                // the sentinel IS an on-disk entry and counts must match
+                // actual block contents for consistency with recovery/tests.
                 self.meta.lowest_seqno = saved_lo;
                 self.meta.highest_seqno = saved_hi;
-                self.meta.item_count = self.meta.item_count.saturating_sub(1);
-                self.meta.key_count = self.meta.key_count.saturating_sub(1);
 
                 // Ensure the table's key range covers all range tombstones.
                 self.meta.first_key = Some(start);

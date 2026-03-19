@@ -728,6 +728,10 @@ pub trait AbstractTree {
     ///
     /// Returns the approximate size added to the memtable.
     /// Returns 0 if `start >= end` (invalid interval is silently ignored).
+    ///
+    /// Required method: `AbstractTree` is internal (used via `enum_dispatch`,
+    /// not intended for external implementation), so adding a required method
+    /// is not a breaking API change.
     fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64;
 
     /// Deletes all keys with the given prefix by inserting a range tombstone.
