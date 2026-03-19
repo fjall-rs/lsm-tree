@@ -116,7 +116,11 @@ impl ActiveTombstoneSet {
     /// Seek prefill must collect truly overlapping tombstones
     /// (`start <= key < end`); `expire_until` immediately enforces the
     /// `end` bound.
-    #[expect(dead_code, reason = "used by iterator initialization logic")]
+    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "used by iterator initialization logic")
+    )]
     pub fn initialize_from(&mut self, tombstones: impl IntoIterator<Item = RangeTombstone>) {
         for rt in tombstones {
             self.activate(&rt);
@@ -124,7 +128,11 @@ impl ActiveTombstoneSet {
     }
 
     /// Returns `true` if there are no active tombstones.
-    #[expect(dead_code, reason = "helper for callers to inspect active tombstones")]
+    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "helper for callers to inspect active tombstones")
+    )]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.seqno_counts.is_empty()
@@ -226,7 +234,11 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Bulk-activates tombstones at a seek position (for reverse).
-    #[expect(dead_code, reason = "used by iterator initialization logic")]
+    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "used by iterator initialization logic")
+    )]
     pub fn initialize_from(&mut self, tombstones: impl IntoIterator<Item = RangeTombstone>) {
         for rt in tombstones {
             self.activate(&rt);
@@ -234,7 +246,11 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Returns `true` if there are no active tombstones.
-    #[expect(dead_code, reason = "helper for callers to inspect active tombstones")]
+    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "helper for callers to inspect active tombstones")
+    )]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.seqno_counts.is_empty()

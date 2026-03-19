@@ -133,7 +133,11 @@ impl CoveringRt {
     /// Returns `true` if this covering tombstone fully covers the given
     /// key range `[min, max]` and has a higher seqno than the table's max.
     #[must_use]
-    #[expect(dead_code, reason = "wired up in table-skip optimization")]
+    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired up in table-skip optimization")
+    )]
     pub fn covers_table(&self, table_min: &[u8], table_max: &[u8], table_max_seqno: SeqNo) -> bool {
         self.start.as_ref() <= table_min
             && table_max < self.end.as_ref()
