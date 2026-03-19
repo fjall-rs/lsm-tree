@@ -895,6 +895,32 @@ fn range_tombstone_narrow_range_queries_respect_overlap() -> lsm_tree::Result<()
 }
 
 #[test]
+fn range_tombstone_memtable_narrow_range_queries_ignore_disjoint_rt() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    tree.insert("x", "1", 1);
+    tree.insert("y", "2", 2);
+    tree.remove_range("x", "z", 10);
+
+    tree.insert("a", "3", 3);
+    tree.insert("b", "4", 4);
+
+    assert_eq!(collect_range_keys(&tree, "a"..="b", 11)?, vec![b"a", b"b"]);
+    assert_eq!(collect_range_keys(&tree, "x"..="z", 11)?, Vec::<Vec<u8>>::new());
+    assert_eq!(
+        collect_range_keys_rev(&tree, "a"..="b", 11)?,
+        vec![b"b", b"a"]
+    );
+    assert_eq!(
+        collect_range_keys_rev(&tree, "x"..="z", 11)?,
+        Vec::<Vec<u8>>::new()
+    );
+
+    Ok(())
+}
+
+#[test]
 fn range_tombstone_disjoint_survives_recovery_for_narrow_scans() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();

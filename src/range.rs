@@ -272,7 +272,12 @@ impl TreeIter {
 
             // Sealed memtables
             for memtable in lock.version.sealed_memtables.iter() {
-                all_range_tombstones.extend(memtable.range_tombstones_sorted());
+                all_range_tombstones.extend(
+                    memtable
+                        .range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                );
 
                 let iter = memtable.range(range.clone());
 
@@ -284,7 +289,13 @@ impl TreeIter {
 
             // Active memtable
             {
-                all_range_tombstones.extend(lock.version.active_memtable.range_tombstones_sorted());
+                all_range_tombstones.extend(
+                    lock.version
+                        .active_memtable
+                        .range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                );
 
                 let iter = lock.version.active_memtable.range(range.clone());
 
@@ -295,7 +306,11 @@ impl TreeIter {
             }
 
             if let Some((mt, seqno)) = &lock.ephemeral {
-                all_range_tombstones.extend(mt.range_tombstones_sorted());
+                all_range_tombstones.extend(
+                    mt.range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                );
 
                 let iter = Box::new(
                     mt.range(range)
