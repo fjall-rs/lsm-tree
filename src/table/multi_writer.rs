@@ -143,37 +143,36 @@ impl MultiWriter {
                         }
                     }
                 } else {
-                        // last_key at max encoding length — can't compute exclusive upper bound.
-                        // Write overlapping RTs unclipped, but widen this table's key range
-                        // metadata to cover any RTs we persist. This ensures RT coverage
-                        // does not extend beyond the table's effective key range.
-                        for rt in tombstones {
-                            if rt.start.as_ref() <= last_key.as_ref()
-                                && rt.end.as_ref() > first_key.as_ref()
-                            {
-                                // Widen meta.first_key / last_key to include the RT span.
-                                match &mut writer.meta.first_key {
-                                    Some(existing) => {
-                                        if rt.start.as_ref() < existing.as_ref() {
-                                            *existing = rt.start.clone();
-                                        }
-                                    }
-                                    None => {
-                                        writer.meta.first_key = Some(rt.start.clone());
+                    // last_key at max encoding length — can't compute exclusive upper bound.
+                    // Write overlapping RTs unclipped, but widen this table's key range
+                    // metadata to cover any RTs we persist. This ensures RT coverage
+                    // does not extend beyond the table's effective key range.
+                    for rt in tombstones {
+                        if rt.start.as_ref() <= last_key.as_ref()
+                            && rt.end.as_ref() > first_key.as_ref()
+                        {
+                            // Widen meta.first_key / last_key to include the RT span.
+                            match &mut writer.meta.first_key {
+                                Some(existing) => {
+                                    if rt.start.as_ref() < existing.as_ref() {
+                                        *existing = rt.start.clone();
                                     }
                                 }
-                                match &mut writer.meta.last_key {
-                                    Some(existing) => {
-                                        if rt.end.as_ref() > existing.as_ref() {
-                                            *existing = rt.end.clone();
-                                        }
-                                    }
-                                    None => {
-                                        writer.meta.last_key = Some(rt.end.clone());
-                                    }
+                                None => {
+                                    writer.meta.first_key = Some(rt.start.clone());
                                 }
-                                writer.write_range_tombstone(rt.clone());
                             }
+                            match &mut writer.meta.last_key {
+                                Some(existing) => {
+                                    if rt.end.as_ref() > existing.as_ref() {
+                                        *existing = rt.end.clone();
+                                    }
+                                }
+                                None => {
+                                    writer.meta.last_key = Some(rt.end.clone());
+                                }
+                            }
+                            writer.write_range_tombstone(rt.clone());
                         }
                     }
                 }

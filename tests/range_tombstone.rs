@@ -643,6 +643,36 @@ fn rt_only_sentinel_does_not_mask_older_values() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+// --- Regression: sentinel key/seqno must come from the same tombstone ---
+// If the sentinel key comes from min(rt.start) but the seqno comes from a
+// different tombstone with a lower seqno, the sentinel can become visible at a
+// key that is not yet covered by any visible RT and mask older data.
+#[test]
+fn rt_only_sentinel_uses_lowest_seqno_tombstones_start_key() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    tree.insert("a", "real_value", 5);
+    tree.flush_active_memtable(0)?;
+
+    // Two RTs in an RT-only flush:
+    // - [m, z) @20 is the earliest visible tombstone
+    // - [a, b) @30 provides the lexicographically smallest start key
+    //
+    // The sentinel must be written at "m"@20, not "a"@20.
+    tree.remove_range("a", "b", 30);
+    tree.remove_range("m", "z", 20);
+    tree.flush_active_memtable(0)?;
+
+    // At seqno 25 only [m, z) is visible, so key "a" must remain visible.
+    assert_eq!(Some("real_value".as_bytes().into()), tree.get("a", 25)?);
+
+    // Once [a, b) becomes visible, key "a" is suppressed as expected.
+    assert_eq!(None, tree.get("a", 31)?);
+
+    Ok(())
+}
+
 // --- Test: RT disjoint from memtable KV range persists through flush ---
 // Regression test: delete_range targeting keys only in older SSTs must not be
 // dropped during flush just because it doesn't overlap the memtable's KV range.

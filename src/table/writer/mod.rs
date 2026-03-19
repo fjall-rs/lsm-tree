@@ -401,6 +401,8 @@ impl Writer {
             // Compute the coverage of all range tombstones.
             let mut min_start: Option<UserKey> = None;
             let mut max_end: Option<UserKey> = None;
+            let mut sentinel_start: Option<UserKey> = None;
+            let mut sentinel_seqno: Option<crate::SeqNo> = None;
             for rt in &self.range_tombstones {
                 match &min_start {
                     None => min_start = Some(rt.start.clone()),
@@ -412,25 +414,36 @@ impl Writer {
                     Some(cur_max) if rt.end > *cur_max => max_end = Some(rt.end.clone()),
                     _ => {}
                 }
+
+                match (sentinel_seqno, &sentinel_start) {
+                    (None, _) => {
+                        sentinel_seqno = Some(rt.seqno);
+                        sentinel_start = Some(rt.start.clone());
+                    }
+                    (Some(cur_seqno), Some(cur_start))
+                        if rt.seqno < cur_seqno
+                            || (rt.seqno == cur_seqno && rt.start < *cur_start) =>
+                    {
+                        sentinel_seqno = Some(rt.seqno);
+                        sentinel_start = Some(rt.start.clone());
+                    }
+                    _ => {}
+                }
             }
 
-            if let (Some(start), Some(end)) = (min_start, max_end) {
+            if let (Some(start), Some(end), Some(sentinel_key), Some(sentinel_seqno)) =
+                (min_start, max_end, sentinel_start, sentinel_seqno)
+            {
                 let saved_lo = self.meta.lowest_seqno;
                 let saved_hi = self.meta.highest_seqno;
 
-                // Write a sentinel key at min(rt.start) to force index block
-                // creation in RT-only tables. InternalKey Eq/Ord ignores
-                // value_type, so the sentinel's seqno must not make it visible
-                // before the corresponding range tombstones. We derive the
-                // sentinel seqno from the table's lowest RT seqno (saved_lo),
-                // ensuring it only becomes visible at or after the earliest
-                // real entry in this table and cannot cause snapshot/MVCC
-                // regressions by masking older values in lower tables.
-                // With Reverse(seqno) ordering, saved_lo sorts after any entry
-                // with a higher seqno, so it cannot dominate during merges.
-                let sentinel_seqno: crate::SeqNo = saved_lo;
+                // Write a sentinel key to force index block creation in RT-only
+                // tables. The sentinel must use the start key of the same
+                // tombstone that contributes the lowest seqno; otherwise it can
+                // become visible at a key that is not yet covered by any visible
+                // range tombstone and incorrectly mask older values.
                 self.write(InternalValue::new_weak_tombstone(
-                    start.clone(),
+                    sentinel_key,
                     sentinel_seqno,
                 ))?;
                 self.spill_block()?;
