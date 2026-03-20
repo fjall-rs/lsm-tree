@@ -114,6 +114,7 @@ pub trait AbstractTree: sealed::Sealed {
             range_tombstones.extend(mt.range_tombstones_sorted());
         }
         range_tombstones.sort();
+        range_tombstones.dedup();
 
         let merger = Merger::new(
             latest
