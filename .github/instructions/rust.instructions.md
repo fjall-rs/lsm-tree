@@ -43,7 +43,7 @@ Focus review effort on real bugs, not cosmetics. Stop after finding issues in hi
 
 These are not actionable review findings. Do not raise them:
 
-- **Caller-handled edge cases**: Before flagging a function for not handling an edge case (empty collection, `None` vs `Some(empty)`, missing guard), read ALL call sites. If every caller already handles the case, the function's behavior is part of a deliberate contract — not a bug. Only flag if the edge case is truly unhandled end-to-end.
+- **Caller-handled edge cases**: Before flagging a function for not handling an edge case (empty collection, `None` vs `Some(empty)`, missing guard), check call sites visible in the PR diff. If all visible callers already handle the case, the function's behavior is part of a deliberate contract — not a bug. Only flag if the edge case is truly unhandled end-to-end within the scope of the PR.
 - **Type-system-prevented issues**: Before flagging a potential collision, overlap, or misuse, check whether distinct enum variants, wrapper types, or visibility modifiers make the issue structurally impossible. A `WeakTombstone` variant that never appears in user-facing merge paths cannot collide with user data regardless of key/seqno overlap.
 - **Documented design decisions**: When code has a comment explaining WHY a specific approach was chosen, trust the documented reasoning. Flag only if the comment contradicts the actual code behavior — not if you would have chosen a different approach.
 
