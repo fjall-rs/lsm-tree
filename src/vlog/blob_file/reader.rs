@@ -12,7 +12,7 @@ use crate::{
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
-    io::{Cursor, Read, Seek},
+    io::{Cursor, Read},
 };
 
 /// Reads a single blob from a blob file
@@ -56,14 +56,14 @@ impl<'a> Reader<'a> {
 
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
-        reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
+        let key = crate::UserKey::from_reader(&mut reader, key_len.into())?;
 
         let raw_data = value.slice((add_size as usize)..);
 
         {
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
-                hasher.update(key);
+                hasher.update(&key);
                 hasher.update(&raw_data);
                 hasher.digest128()
             };
