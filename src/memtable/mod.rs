@@ -13,7 +13,7 @@ use crate::{
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 pub use crate::tree::inner::MemtableId;
 
@@ -30,10 +30,11 @@ pub struct Memtable {
 
     /// Range tombstones stored in an interval tree.
     ///
-    /// Protected by a `Mutex` since `IntervalTree` is not lock-free.
-    /// Contention is expected to be low — range deletes are infrequent.
-    /// Future optimization: `RwLock` or atomic RT count for lock-free empty check.
-    pub(crate) range_tombstones: Mutex<interval_tree::IntervalTree>,
+    /// Protected by `RwLock` — read-heavy suppression queries (`query_suppression`,
+    /// `range_tombstones_sorted`) take a shared read lock, while `insert_range_tombstone`
+    /// takes an exclusive write lock. After sealing, only readers access this field,
+    /// so the `RwLock` degenerates to contention-free shared access.
+    pub(crate) range_tombstones: RwLock<interval_tree::IntervalTree>,
 
     /// Approximate active memtable size.
     ///
@@ -72,7 +73,7 @@ impl Memtable {
         Self {
             id,
             items: SkipMap::default(),
-            range_tombstones: Mutex::new(interval_tree::IntervalTree::new()),
+            range_tombstones: RwLock::new(interval_tree::IntervalTree::new()),
             approximate_size: AtomicU64::default(),
             highest_seqno: AtomicU64::default(),
             requested_rotation: AtomicBool::default(),
@@ -211,7 +212,7 @@ impl Memtable {
 
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
-            .lock()
+            .write()
             .expect("lock is poisoned")
             .insert(RangeTombstone::new(start, end, seqno));
 
@@ -238,7 +239,7 @@ impl Memtable {
     ) -> bool {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
-            .lock()
+            .read()
             .expect("lock is poisoned")
             .query_suppression(key, key_seqno, read_seqno)
     }
@@ -251,7 +252,7 @@ impl Memtable {
     pub(crate) fn range_tombstones_sorted(&self) -> Vec<RangeTombstone> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
-            .lock()
+            .read()
             .expect("lock is poisoned")
             .iter_sorted()
     }
@@ -265,7 +266,7 @@ impl Memtable {
     pub fn range_tombstone_count(&self) -> usize {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
-            .lock()
+            .read()
             .expect("lock is poisoned")
             .len()
     }
