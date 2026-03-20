@@ -60,6 +60,14 @@ where
     Ok(keys)
 }
 
+fn find_rt_table(tree: &AnyTree) -> lsm_tree::Table {
+    tree.current_version()
+        .iter_tables()
+        .find(|table| table.regions.range_tombstones.is_some())
+        .expect("expected RT-bearing table")
+        .clone()
+}
+
 // --- Test A: Point reads suppressed by memtable range tombstone ---
 #[test]
 fn range_tombstone_suppresses_point_read_in_memtable() -> lsm_tree::Result<()> {
@@ -323,7 +331,11 @@ fn range_iteration_with_sealed_tombstone_and_sst_data() -> lsm_tree::Result<()> 
 
     // Range tombstone in sealed memtable
     tree.remove_range("b", "d", 10);
-    tree.rotate_memtable();
+    assert!(
+        tree.rotate_memtable().is_some(),
+        "memtable with RT should seal"
+    );
+    assert!(tree.sealed_memtable_count() > 0);
 
     // New data in active memtable
     tree.insert("e", "5", 11);
@@ -420,6 +432,52 @@ fn range_tombstone_persists_through_recovery() -> lsm_tree::Result<()> {
         assert_eq!(None, tree.get("b", 11)?);
         assert_eq!(Some("3".as_bytes().into()), tree.get("c", 11)?);
     }
+
+    Ok(())
+}
+
+#[test]
+fn range_tombstone_tampered_rt_block_fails_recovery() -> lsm_tree::Result<()> {
+    use std::{
+        fs::OpenOptions,
+        io::{Seek, SeekFrom, Write},
+    };
+
+    let folder = get_tmp_folder();
+
+    {
+        let tree = open_tree(folder.path());
+        tree.insert("a", "1", 1);
+        tree.insert("b", "2", 2);
+        tree.insert("c", "3", 3);
+        tree.remove_range("a", "c", 10);
+        tree.flush_active_memtable(0)?;
+
+        let rt_table = find_rt_table(&tree);
+        let rt_handle = rt_table
+            .regions
+            .range_tombstones
+            .expect("expected range tombstone block");
+
+        let mut file = OpenOptions::new().write(true).open(&*rt_table.path)?;
+        let payload_pos = *rt_handle.offset()
+            + u64::try_from(lsm_tree::table::block::Header::serialized_len())
+                .expect("header size should fit in u64");
+        file.seek(SeekFrom::Start(payload_pos))?;
+        file.write_all(&u16::MAX.to_le_bytes())?;
+        file.flush()?;
+    }
+
+    assert!(
+        Config::new(
+            folder.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()
+        .is_err(),
+        "tampered RT block must fail recovery instead of reopening successfully"
+    );
 
     Ok(())
 }
@@ -574,6 +632,11 @@ fn range_tombstone_table_skip_optimization() -> lsm_tree::Result<()> {
     // Create a range tombstone that fully covers the table's key range
     // with higher seqno than any key in the table
     tree.remove_range("a", "d", 100);
+    tree.flush_active_memtable(0)?;
+    assert!(
+        tree.table_count() >= 2,
+        "table-skip regression should exercise SST-backed RT path"
+    );
 
     // The table [a,c] is fully covered by [a,d)@100 (100 > max_seqno=3)
     // Table-skip should allow skipping the entire table during iteration
@@ -791,11 +854,7 @@ fn range_tombstone_disjoint_flush_key_range_tracks_rt_coverage() -> lsm_tree::Re
     tree.remove_range("x", "zz", 10);
     tree.flush_active_memtable(0)?;
 
-    let version = tree.current_version();
-    let rt_table = version
-        .iter_tables()
-        .find(|table| table.regions.range_tombstones.is_some())
-        .expect("expected flushed RT-bearing table");
+    let rt_table = find_rt_table(&tree);
 
     assert!(
         rt_table.metadata.key_range.contains_key(b"x"),

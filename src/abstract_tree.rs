@@ -19,6 +19,11 @@ type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 // (`&impl AbstractTree`), but external implementations are no longer part of
 // the supported extension surface. Internal flush/version hooks keep evolving
 // with crate-owned tree types and must not create downstream semver traps.
+//
+// `sealed` stays `pub` only so sibling modules in this crate can write
+// `crate::abstract_tree::sealed::Sealed` in their impls. The parent module
+// `abstract_tree` is not publicly exported from the crate root, so downstream
+// crates still cannot name or implement this trait.
 pub mod sealed {
     pub trait Sealed {}
 }
@@ -132,7 +137,8 @@ pub trait AbstractTree: sealed::Sealed {
             if tables.is_empty() && !range_tombstones.is_empty() {
                 let active = self.active_memtable();
                 for rt in &range_tombstones {
-                    active.insert_range_tombstone(rt.start.clone(), rt.end.clone(), rt.seqno);
+                    let _ =
+                        active.insert_range_tombstone(rt.start.clone(), rt.end.clone(), rt.seqno);
                 }
             }
 

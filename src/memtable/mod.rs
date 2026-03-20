@@ -186,6 +186,7 @@ impl Memtable {
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned.
+    #[must_use]
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
         // Reject invalid intervals in release builds (debug_assert is not enough)
         if start >= end {
@@ -259,6 +260,7 @@ impl Memtable {
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned.
+    #[must_use]
     pub fn range_tombstone_count(&self) -> usize {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
