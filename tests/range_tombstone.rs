@@ -468,16 +468,17 @@ fn range_tombstone_tampered_rt_block_fails_recovery() -> lsm_tree::Result<()> {
         file.flush()?;
     }
 
-    assert!(
-        Config::new(
-            folder.path(),
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()
-        .is_err(),
-        "tampered RT block must fail recovery instead of reopening successfully"
-    );
+    match Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()
+    {
+        Err(lsm_tree::Error::ChecksumMismatch { .. }) | Err(lsm_tree::Error::Unrecoverable) => {}
+        Err(other) => panic!("expected ChecksumMismatch or Unrecoverable, got: {other:?}"),
+        Ok(_) => panic!("tampered RT block must fail recovery, not reopen successfully"),
+    }
 
     Ok(())
 }
