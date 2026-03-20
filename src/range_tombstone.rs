@@ -133,7 +133,6 @@ impl CoveringRt {
     /// Returns `true` if this covering tombstone fully covers the given
     /// key range `[min, max]` and has a higher seqno than the table's max.
     #[must_use]
-    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "wired up in table-skip optimization")
@@ -161,22 +160,33 @@ impl From<&RangeTombstone> for CoveringRt {
 /// This is useful for converting inclusive upper bounds to exclusive ones
 /// in range-cover queries.
 ///
-/// Returns `None` if the key is already at the maximum allowed length
-/// (`u16::MAX`), since appending a byte would violate the u16 key-length
-/// invariant used in the on-disk RT block format.
+/// Returns `None` only when the key is already the lexicographically largest
+/// encodable user key in this bounded key domain.
 #[must_use]
 pub fn upper_bound_exclusive(key: &[u8]) -> Option<UserKey> {
     // The codebase enforces that user keys fit in a u16 length
-    // (see `InternalKey::new`). Appending a byte to a max-length key
-    // would overflow that limit and corrupt on-disk encodings.
-    if key.len() >= usize::from(u16::MAX) {
-        return None;
+    // (see `InternalKey::new`). For shorter keys, appending `0x00`
+    // yields the immediate strict upper bound while preserving prefix order.
+    if key.len() < usize::from(u16::MAX) {
+        let mut result = Vec::with_capacity(key.len() + 1);
+        result.extend_from_slice(key);
+        result.push(0x00);
+        return Some(UserKey::from(result));
     }
 
-    let mut result = Vec::with_capacity(key.len() + 1);
-    result.extend_from_slice(key);
-    result.push(0x00);
-    Some(UserKey::from(result))
+    // At max length we cannot append, but a strict upper bound still exists
+    // unless the key is already the absolute maximum (all `0xFF`).
+    let mut result = key.to_vec();
+
+    for (idx, byte) in result.iter_mut().enumerate().rev() {
+        if *byte < 0xFF {
+            *byte += 1;
+            result.truncate(idx + 1);
+            return Some(UserKey::from(result));
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -370,8 +380,16 @@ mod tests {
     }
 
     #[test]
-    fn upper_bound_exclusive_returns_none_for_max_length_key() {
-        let key = vec![0xAA; u16::MAX as usize];
+    fn upper_bound_exclusive_max_length_non_max_key_has_successor() {
+        let key = vec![0xAA; usize::from(u16::MAX)];
+        let successor = upper_bound_exclusive(&key).expect("non-max key should have successor");
+        assert!(key.as_slice() < successor.as_ref());
+        assert!(successor.len() <= usize::from(u16::MAX));
+    }
+
+    #[test]
+    fn upper_bound_exclusive_true_max_returns_none() {
+        let key = vec![0xFF; usize::from(u16::MAX)];
         assert!(upper_bound_exclusive(&key).is_none());
     }
 }

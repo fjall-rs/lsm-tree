@@ -119,6 +119,42 @@ fn tree_recovers_safe_v3_manifest() -> lsm_tree::Result<()> {
 }
 
 #[test]
+fn tree_rejects_unsupported_manifest_version() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let path = folder.path();
+
+    {
+        let tree = Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(4, read_manifest_format_version(path)?);
+        rewrite_manifest_format_version(path, 99)?;
+        assert_eq!(99, read_manifest_format_version(path)?);
+    }
+
+    let reopened = Config::new(
+        path,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open();
+
+    assert!(
+        reopened.is_err(),
+        "unsupported manifest version must be rejected"
+    );
+
+    Ok(())
+}
+
+#[test]
 #[ignore = "restore Version history maintenance"]
 fn tree_recovery_version_free_list() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();

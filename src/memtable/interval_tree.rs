@@ -293,7 +293,6 @@ impl IntervalTree {
     /// or `None` if no such tombstone exists.
     ///
     /// Used for table-skip decisions.
-    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(not(test), expect(dead_code, reason = "used for table-skip decisions"))]
     pub fn query_covering_rt_for_range(
         &self,

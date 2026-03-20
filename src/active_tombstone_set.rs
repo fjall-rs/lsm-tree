@@ -116,7 +116,6 @@ impl ActiveTombstoneSet {
     /// Seek prefill must collect truly overlapping tombstones
     /// (`start <= key < end`); `expire_until` immediately enforces the
     /// `end` bound.
-    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "used by iterator initialization logic")
@@ -128,7 +127,6 @@ impl ActiveTombstoneSet {
     }
 
     /// Returns `true` if there are no active tombstones.
-    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "helper for callers to inspect active tombstones")
@@ -234,7 +232,6 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Bulk-activates tombstones at a seek position (for reverse).
-    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "used by iterator initialization logic")
@@ -246,7 +243,6 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Returns `true` if there are no active tombstones.
-    #[cfg_attr(test, allow(dead_code))]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "helper for callers to inspect active tombstones")
@@ -365,6 +361,13 @@ mod tests {
 
         set.expire_until(b"c");
         assert!(set.is_empty());
+    }
+
+    #[test]
+    fn reverse_initialize_from() {
+        let mut set = ActiveTombstoneSetReverse::new(100);
+        set.initialize_from(vec![rt(b"a", b"m", 10), rt(b"b", b"z", 20)]);
+        assert_eq!(set.max_active_seqno(), Some(20));
     }
 
     #[test]

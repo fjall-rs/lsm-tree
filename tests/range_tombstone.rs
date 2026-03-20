@@ -849,21 +849,43 @@ fn range_tombstone_multi_table_flush_keeps_newer_values_reachable() -> lsm_tree:
     let folder = get_tmp_folder();
     let tree = open_tree(folder.path());
 
-    // Standard-tree flush uses a fixed 64 MiB MultiWriter target. Two large
-    // early values force rotation before the later "y" write, reproducing the
-    // widened-key-range bug on the actual flush path instead of a synthetic
-    // test-only configuration.
-    let large_a = "a".repeat(34 * 1_024 * 1_024);
-    let large_b = "b".repeat(34 * 1_024 * 1_024);
+    // Standard-tree flush uses a fixed 64 MiB MultiWriter target. Multiple
+    // large early values force rotation before the later "y" write, reproducing
+    // the widened-key-range bug on the actual flush path instead of a synthetic
+    // test-only configuration. Reuse one large buffer to keep the test lighter
+    // on CI memory.
+    let mi = 1_024 * 1_024;
+    let large_value = "a".repeat(17 * mi);
 
-    tree.insert("a", large_a, 1);
-    tree.insert("b", large_b, 2);
+    tree.insert("a0", &large_value, 1);
+    tree.insert("a1", &large_value, 2);
+    tree.insert("b0", &large_value, 3);
+    tree.insert("b1", &large_value, 4);
     tree.remove_range("x", "zz", 10);
     tree.insert("y", "visible_newer", 20);
     tree.flush_active_memtable(0)?;
 
     assert!(tree.table_count() > 1, "test requires a rotated flush");
     assert_eq!(Some("visible_newer".as_bytes().into()), tree.get("y", 21)?);
+
+    Ok(())
+}
+
+#[test]
+fn range_tombstone_suppresses_bulk_ingested_values() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    {
+        let mut ingestion = tree.ingestion()?;
+        ingestion.write("k", "old")?;
+        ingestion.finish()?;
+    }
+
+    tree.remove_range("k", "l", 10);
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(None, tree.get("k", 11)?);
 
     Ok(())
 }
