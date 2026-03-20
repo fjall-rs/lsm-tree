@@ -108,9 +108,17 @@ impl<'a> Reader<'a> {
             });
         }
 
-        // Read on-disk key (upstream #277): checksum now covers the stored key
-        // instead of caller-provided key, catching on-disk key corruption.
-        let on_disk_key = crate::UserKey::from_reader(&mut reader, key_len.into())?;
+        // Zero-copy view of the on-disk key bytes for checksum and cross-check.
+        // The full blob record is already in `value`, so slicing avoids an extra
+        // allocation vs UserKey::from_reader (upstream #277).
+        let on_disk_key = value.slice(BLOB_HEADER_LEN..BLOB_HEADER_LEN + key_len as usize);
+
+        // Ensure the stored key bytes exactly match the caller-provided key.
+        // This protects against handles that point at a different key with the
+        // same length (e.g., due to corruption or misuse).
+        if on_disk_key != key {
+            return Err(crate::Error::InvalidHeader("Blob"));
+        }
 
         #[expect(
             clippy::cast_possible_truncation,
@@ -119,9 +127,9 @@ impl<'a> Reader<'a> {
         let raw_data = value.slice((add_size as usize)..);
 
         {
-            // NOTE: Checksum covers the on-disk key (upstream #277), which matches the
-            // writer's caller-provided key under normal operation. On corruption, the
-            // on-disk key diverges and checksum will detect it.
+            // Checksum covers on-disk key + raw value data (upstream #277).
+            // Key corruption is caught by the explicit cross-check above;
+            // checksum catches value/payload corruption.
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
                 hasher.update(&on_disk_key);
@@ -469,6 +477,74 @@ mod tests {
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
         assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
+
+        Ok(())
+    }
+
+    /// Tamper on-disk key bytes in a blob file and verify that the reader
+    /// detects corruption via checksum mismatch (upstream #277 behaviour).
+    #[test]
+    fn blob_reader_corrupted_on_disk_key_triggers_checksum_mismatch() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"abc", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Tamper on-disk key bytes.
+        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + OnDiskValLen(4) = 38
+        // Key starts at offset 38 from blob start.
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        raw[key_offset] ^= 0xFF; // flip bits in first key byte
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // The on-disk key no longer matches caller key → InvalidHeader from
+        // the explicit cross-check (before checksum is even computed).
+        let result = reader.get(b"abc", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader(Blob) from key cross-check, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Verify that reading a blob with a caller key that differs from the
+    /// stored key (same length, different bytes) is rejected.
+    #[test]
+    fn blob_reader_wrong_caller_key_same_length_returns_invalid_header() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"aaa", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // Correct key works
+        assert_eq!(reader.get(b"aaa", &handle)?, b"value");
+
+        // Wrong key with same length → InvalidHeader from cross-check
+        let result = reader.get(b"bbb", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader(Blob) for wrong caller key, got: {result:?}",
+        );
 
         Ok(())
     }
