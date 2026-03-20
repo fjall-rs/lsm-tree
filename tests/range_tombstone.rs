@@ -482,6 +482,37 @@ fn range_tombstone_tampered_rt_block_fails_recovery() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+// --- Regression: RT-only table with sentinel survives recovery ---
+// The sentinel WeakTombstone inflates item_count/tombstone_count metadata.
+// Recovery must accept these tables without validation errors, and the
+// RT must still suppress covered keys after reopen.
+#[test]
+fn rt_only_table_sentinel_survives_recovery() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let path = folder.path();
+
+    {
+        let tree = open_tree(path);
+        tree.insert("a", "1", 1);
+        tree.insert("b", "2", 2);
+        tree.flush_active_memtable(0)?;
+
+        // RT-only flush: sentinel written, counts inflated by +1
+        tree.remove_range("a", "c", 10);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen — recovery must succeed despite sentinel in metadata
+    let tree = open_tree(path);
+
+    // RT must still suppress after recovery
+    assert_eq!(None, tree.get("a", 11)?);
+    assert_eq!(None, tree.get("b", 11)?);
+    assert_eq!(Some("1".as_bytes().into()), tree.get("a", 5)?);
+
+    Ok(())
+}
+
 // --- Test M: RT-only memtable flush creates a valid table ---
 #[test]
 fn range_tombstone_only_flush() -> lsm_tree::Result<()> {
