@@ -336,9 +336,19 @@ impl TreeIter {
 
             // Deduplicate: MultiWriter rotation copies the same RTs into each
             // output table, so collected tombstones can contain duplicates.
-            // Sort/dedup by RT fields only; cutoff is identical for same-source dupes.
+            // When the same RT appears from different sources with different
+            // cutoffs (e.g., persisted SST + ephemeral), keep the max cutoff
+            // so the RT stays visible if ANY source's snapshot includes it.
             all_range_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
-            all_range_tombstones.dedup_by(|a, b| a.0 == b.0);
+            all_range_tombstones.dedup_by(|a, b| {
+                if a.0 == b.0 {
+                    // b is the element that survives; keep the higher cutoff
+                    b.1 = b.1.max(a.1);
+                    true
+                } else {
+                    false
+                }
+            });
 
             // Fast path: skip filter wrapping when no tombstone is visible at
             // its per-source cutoff. Each RT carries the seqno of its originating
