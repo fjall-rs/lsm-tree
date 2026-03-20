@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn no_tombstones() {
+    fn items_no_tombstones_return_all() {
         let items: Vec<crate::Result<InternalValue>> =
             vec![Ok(kv(b"a", 1)), Ok(kv(b"b", 2)), Ok(kv(b"c", 3))];
 
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn basic_suppression() {
+    fn items_with_range_tombstone_suppress_covered_keys() {
         let items: Vec<crate::Result<InternalValue>> = vec![
             Ok(kv(b"a", 5)),
             Ok(kv(b"b", 5)),
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn tombstone_does_not_suppress_newer_kv() {
+    fn items_newer_than_tombstone_survive() {
         let items: Vec<crate::Result<InternalValue>> = vec![Ok(kv(b"b", 10)), Ok(kv(b"c", 3))];
 
         let tombstones = vec![rt(b"a", b"z", 5)];
@@ -189,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn half_open_end_exclusive() {
+    fn range_end_exclusive_preserves_boundary_key() {
         let items: Vec<crate::Result<InternalValue>> =
             vec![Ok(kv(b"b", 5)), Ok(kv(b"c", 5)), Ok(kv(b"d", 5))];
 
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_overlapping_tombstones() {
+    fn overlapping_tombstones_suppress_union_of_ranges() {
         let items: Vec<crate::Result<InternalValue>> = vec![
             Ok(kv(b"a", 1)),
             Ok(kv(b"b", 3)),
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn tombstone_not_visible_at_read_seqno() {
+    fn tombstone_newer_than_read_seqno_not_visible() {
         let items: Vec<crate::Result<InternalValue>> = vec![Ok(kv(b"b", 3))];
 
         let tombstones = vec![rt(b"a", b"z", 10)];
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn reverse_basic_suppression() {
+    fn rev_items_with_range_tombstone_suppress_covered_keys() {
         let items: Vec<crate::Result<InternalValue>> = vec![
             Ok(kv(b"a", 5)),
             Ok(kv(b"b", 5)),
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn reverse_half_open() {
+    fn rev_range_end_exclusive_preserves_boundary_key() {
         let items: Vec<crate::Result<InternalValue>> =
             vec![Ok(kv(b"a", 5)), Ok(kv(b"l", 5)), Ok(kv(b"m", 5))];
 
