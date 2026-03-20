@@ -396,6 +396,7 @@ fn range_tombstone_survives_compaction() -> lsm_tree::Result<()> {
     // Both tables in L0 — compact them
     assert_eq!(2, tree.table_count());
     tree.major_compact(64_000_000, 0)?;
+    assert!(tree.table_count() <= 1, "major_compact should merge tables");
 
     // After compaction, range tombstone should still suppress
     assert_eq!(Some("1".as_bytes().into()), tree.get("a", 12)?);
@@ -640,6 +641,10 @@ fn range_tombstone_survives_compaction_with_rotation() -> lsm_tree::Result<()> {
 
     // Force compaction with small target_size to trigger rotation
     tree.major_compact(1024, 0)?;
+    assert!(
+        tree.table_count() > 1,
+        "compaction with 1 KiB target should produce multiple output tables"
+    );
 
     // After compaction: keys inside [key_005, key_015) should be suppressed
     assert_eq!(None, tree.get("key_005", 51)?);
