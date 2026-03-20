@@ -187,7 +187,7 @@ impl Memtable {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
         // Reject invalid intervals in release builds (debug_assert is not enough)
@@ -230,7 +230,7 @@ impl Memtable {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Panics if the internal `RwLock` is poisoned.
     pub(crate) fn is_key_suppressed_by_range_tombstone(
         &self,
         key: &[u8],
@@ -248,7 +248,7 @@ impl Memtable {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Panics if the internal `RwLock` is poisoned.
     pub(crate) fn range_tombstones_sorted(&self) -> Vec<RangeTombstone> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
@@ -261,7 +261,7 @@ impl Memtable {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub fn range_tombstone_count(&self) -> usize {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
