@@ -24,7 +24,7 @@ const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
-    io::{Cursor, Read, Seek},
+    io::{Cursor, Read},
 };
 
 /// Reads a single blob from a blob file
@@ -108,10 +108,9 @@ impl<'a> Reader<'a> {
             });
         }
 
-        // NOTE: This seek is a no-op for the current code path (raw_data is sliced
-        // from `value` by offset, not read via `reader`), but kept to maintain the
-        // cursor position in case future code reads further fields after the key.
-        reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
+        // Read on-disk key (upstream #277): checksum now covers the stored key
+        // instead of caller-provided key, catching on-disk key corruption.
+        let on_disk_key = crate::UserKey::from_reader(&mut reader, key_len.into())?;
 
         #[expect(
             clippy::cast_possible_truncation,
@@ -120,14 +119,12 @@ impl<'a> Reader<'a> {
         let raw_data = value.slice((add_size as usize)..);
 
         {
-            // NOTE: Checksum is computed over the caller-provided key (not the on-disk
-            // key bytes). This matches the writer, which hashes caller key + value.
-            // On-disk key corruption is caught by the key_len cross-check above;
-            // content-level key verification would require changing the checksum
-            // contract and is out of scope for this security hardening.
+            // NOTE: Checksum covers the on-disk key (upstream #277), which matches the
+            // writer's caller-provided key under normal operation. On corruption, the
+            // on-disk key diverges and checksum will detect it.
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
-                hasher.update(key);
+                hasher.update(&on_disk_key);
                 hasher.update(&raw_data);
                 hasher.digest128()
             };
@@ -180,6 +177,8 @@ impl<'a> Reader<'a> {
                 UserValue::from(decompressed)
             }
         };
+
+        debug_assert_eq!(real_val_len, value.len());
 
         Ok(value)
     }
