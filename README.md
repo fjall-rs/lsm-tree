@@ -11,6 +11,11 @@
 > **Maintained fork** by [Structured World Foundation](https://sw.foundation) for the [CoordiNode](https://github.com/structured-world/coordinode) database engine.
 > Based on [fjall-rs/lsm-tree](https://github.com/fjall-rs/lsm-tree). We contribute patches upstream and maintain additional features needed for CoordiNode (zstd compression, custom sequence number generators, batch get, intra-L0 compaction, security hardening).
 
+> [!IMPORTANT]
+> This fork now introduces a fork-specific **disk format V4** compatibility boundary.
+> `V4` is a breaking on-disk change relative to `V3` because the fork persists new semantics such as range tombstones and merge operands.
+> New code may continue reading supported `V3` databases, but databases written with these `V4` semantics must not be opened by older `V3` binaries.
+
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
 
 > [!NOTE]
