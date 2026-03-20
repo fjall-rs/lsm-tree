@@ -31,7 +31,7 @@ fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
 /// |--------------|
 /// |    filter    | <- may not exist
 /// |--------------|
-/// |      ...     |
+/// |  range_tomb  | <- may not exist
 /// |--------------|
 /// | linked blobs | <- may not exist
 /// |--------------|
