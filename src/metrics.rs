@@ -34,6 +34,12 @@ pub struct Metrics {
     /// Number of blocks that were read from block cache
     pub(crate) data_block_load_cached: AtomicUsize,
 
+    /// Number of range tombstone blocks that were actually read from disk
+    pub(crate) range_tombstone_block_load_io: AtomicUsize,
+
+    /// Number of range tombstone blocks that were read from block cache
+    pub(crate) range_tombstone_block_load_cached: AtomicUsize,
+
     /// Number of filter queries that were performed
     pub(crate) filter_queries: AtomicUsize,
 
@@ -48,6 +54,9 @@ pub struct Metrics {
 
     /// Number of filter block bytes that were requested from OS or disk
     pub(crate) filter_block_io_requested: AtomicU64,
+
+    /// Number of range tombstone block bytes that were requested from OS or disk
+    pub(crate) range_tombstone_block_io_requested: AtomicU64,
 }
 
 #[expect(
@@ -82,11 +91,17 @@ impl Metrics {
         self.filter_block_io_requested.load(Relaxed)
     }
 
+    /// Number of I/O range tombstone block bytes transferred from disk or OS page cache.
+    pub fn range_tombstone_block_io(&self) -> u64 {
+        self.range_tombstone_block_io_requested.load(Relaxed)
+    }
+
     /// Number of I/O block bytes transferred from disk or OS page cache.
     pub fn block_io(&self) -> u64 {
         self.data_block_io_requested.load(Relaxed)
             + self.index_block_io_requested.load(Relaxed)
             + self.filter_block_io_requested.load(Relaxed)
+            + self.range_tombstone_block_io_requested.load(Relaxed)
     }
 
     /// Number of data blocks that were accessed.
@@ -104,11 +119,18 @@ impl Metrics {
         self.filter_block_load_cached.load(Relaxed) + self.filter_block_load_io.load(Relaxed)
     }
 
+    /// Number of range tombstone blocks that were accessed.
+    pub fn range_tombstone_block_load_count(&self) -> usize {
+        self.range_tombstone_block_load_cached.load(Relaxed)
+            + self.range_tombstone_block_load_io.load(Relaxed)
+    }
+
     /// Number of blocks that were loaded from disk or OS page cache.
     pub fn block_load_io_count(&self) -> usize {
         self.data_block_load_io.load(Relaxed)
             + self.index_block_load_io.load(Relaxed)
             + self.filter_block_load_io.load(Relaxed)
+            + self.range_tombstone_block_load_io.load(Relaxed)
     }
 
     /// Number of data blocks that were loaded from disk or OS page cache.
@@ -126,11 +148,17 @@ impl Metrics {
         self.filter_block_load_cached.load(Relaxed)
     }
 
+    /// Number of range tombstone blocks that were loaded from block cache.
+    pub fn range_tombstone_block_load_cached_count(&self) -> usize {
+        self.range_tombstone_block_load_cached.load(Relaxed)
+    }
+
     /// Number of blocks that were loaded from disk or OS page cache.
     pub fn block_load_cached_count(&self) -> usize {
         self.data_block_load_cached.load(Relaxed)
             + self.index_block_load_cached.load(Relaxed)
             + self.filter_block_load_cached.load(Relaxed)
+            + self.range_tombstone_block_load_cached.load(Relaxed)
     }
 
     /// Number of blocks that were accessed.
@@ -166,6 +194,18 @@ impl Metrics {
     pub fn index_block_cache_hit_rate(&self) -> f64 {
         let queries = self.index_block_load_count() as f64;
         let hits = self.index_block_load_cached_count() as f64;
+
+        if queries == 0.0 {
+            1.0
+        } else {
+            hits / queries
+        }
+    }
+
+    /// Range tombstone block cache efficiency in percent (0.0 - 1.0).
+    pub fn range_tombstone_block_cache_hit_rate(&self) -> f64 {
+        let queries = self.range_tombstone_block_load_count() as f64;
+        let hits = self.range_tombstone_block_load_cached_count() as f64;
 
         if queries == 0.0 {
             1.0
