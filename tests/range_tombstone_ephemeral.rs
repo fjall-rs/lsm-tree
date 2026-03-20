@@ -231,6 +231,44 @@ fn ephemeral_rt_same_seqno_still_suppresses() -> lsm_tree::Result<()> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Duplicate RT from two sources with different cutoffs
+// The same RT may exist in both a persisted SST and the ephemeral memtable.
+// Dedup must preserve the higher cutoff so the RT remains visible when at
+// least one source's snapshot includes it.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn duplicate_rt_from_two_sources_keeps_max_cutoff() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // Base tree: keys a,b,c at seqno 1; RT [a, d) at seqno 5 in memtable
+    tree.insert("a", "v", 1);
+    tree.insert("b", "v", 1);
+    tree.insert("c", "v", 1);
+    tree.remove_range("a", "d", 5);
+
+    // Flush to SST so the RT is persisted (cutoff will be outer_seqno=4)
+    tree.flush_active_memtable(0)?;
+
+    // Ephemeral: same RT [a, d) at seqno 5 (cutoff will be eph_seqno=10)
+    // outer_seqno = 4 → persisted RT NOT visible (5 >= 4)
+    // eph_seqno = 10 → ephemeral RT IS visible (5 < 10)
+    // If dedup drops the ephemeral copy, the RT becomes invisible and a,b,c leak.
+    let eph = build_ephemeral(&[], &[(b"a", b"d", 5)]);
+
+    let keys = collect_keys(&tree, 4, Some((eph.clone(), 10)))?;
+    // a,b,c must be suppressed — the ephemeral copy's cutoff=10 makes the RT visible
+    assert_eq!(keys, Vec::<Vec<u8>>::new());
+
+    // Reverse
+    let keys_rev = collect_keys_rev(&tree, 4, Some((eph, 10)))?;
+    assert_eq!(keys_rev, Vec::<Vec<u8>>::new());
+
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Base-tree RT should not be affected by ephemeral seqno
 // ─────────────────────────────────────────────────────────────────────────
 
