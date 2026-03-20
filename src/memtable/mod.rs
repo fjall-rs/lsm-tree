@@ -30,8 +30,9 @@ pub struct Memtable {
 
     /// Range tombstones stored in an interval tree.
     ///
-    /// Protected by a Mutex since `IntervalTree` is not lock-free.
+    /// Protected by a `Mutex` since `IntervalTree` is not lock-free.
     /// Contention is expected to be low — range deletes are infrequent.
+    /// Future optimization: `RwLock` or atomic RT count for lock-free empty check.
     pub(crate) range_tombstones: Mutex<interval_tree::IntervalTree>,
 
     /// Approximate active memtable size.

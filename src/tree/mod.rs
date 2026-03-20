@@ -790,7 +790,8 @@ impl Tree {
         key_seqno: SeqNo,
         read_seqno: SeqNo,
     ) -> bool {
-        // Check active memtable range tombstones
+        // Check active memtable range tombstones.
+        // Future optimization: skip lock when memtable has no RTs (atomic count).
         if super_version
             .active_memtable
             .is_key_suppressed_by_range_tombstone(key, key_seqno, read_seqno)
