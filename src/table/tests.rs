@@ -1429,3 +1429,102 @@ fn table_global_seqno() -> crate::Result<()> {
 
     Ok(())
 }
+
+/// Exercises the `load_block` cache-miss and cache-hit paths for
+/// `BlockType::RangeTombstone`, verifying that the dedicated RT metrics
+/// counters are incremented instead of the data-block counters.
+#[test]
+#[cfg(feature = "metrics")]
+fn load_block_range_tombstone_metrics() -> crate::Result<()> {
+    use crate::{
+        cache::Cache,
+        descriptor_table::DescriptorTable,
+        range_tombstone::RangeTombstone,
+        table::{block::BlockType, util::load_block},
+        CompressionType,
+    };
+    use std::sync::atomic::Ordering::Relaxed;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table");
+
+    // Build a table that contains a range tombstone block.
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer.write(InternalValue::from_components(
+        b"a",
+        b"v1",
+        1,
+        crate::ValueType::Value,
+    ))?;
+    writer.write(InternalValue::from_components(
+        b"z",
+        b"v2",
+        2,
+        crate::ValueType::Value,
+    ))?;
+    writer.write_range_tombstone(RangeTombstone::new(b"b".into(), b"y".into(), 3));
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    let metrics = Arc::new(crate::metrics::Metrics::default());
+    let cache = Arc::new(Cache::with_capacity_bytes(10_000_000));
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        cache.clone(),
+        Some(Arc::new(DescriptorTable::new(10))),
+        false,
+        false,
+        #[cfg(feature = "metrics")]
+        metrics.clone(),
+    )?;
+
+    let rt_handle = table
+        .regions
+        .range_tombstones
+        .expect("table should have range tombstone block");
+
+    let table_id = table.global_id();
+
+    // Use a fresh cache so the first load is guaranteed to be a miss.
+    let fresh_cache = Arc::new(Cache::with_capacity_bytes(10_000_000));
+
+    // First load: cache miss → IO path
+    let _block = load_block(
+        table_id,
+        &table.path,
+        &table.file_accessor,
+        &fresh_cache,
+        &rt_handle,
+        BlockType::RangeTombstone,
+        CompressionType::None,
+        #[cfg(feature = "metrics")]
+        &metrics,
+    )?;
+
+    assert_eq!(1, metrics.range_tombstone_block_load_io.load(Relaxed));
+    assert_eq!(0, metrics.range_tombstone_block_load_cached.load(Relaxed));
+    assert!(metrics.range_tombstone_block_io_requested.load(Relaxed) > 0);
+    assert_eq!(0, metrics.data_block_load_io.load(Relaxed));
+
+    // Second load: cache hit (block was inserted into fresh_cache by first load)
+    let _block = load_block(
+        table_id,
+        &table.path,
+        &table.file_accessor,
+        &fresh_cache,
+        &rt_handle,
+        BlockType::RangeTombstone,
+        CompressionType::None,
+        #[cfg(feature = "metrics")]
+        &metrics,
+    )?;
+
+    assert_eq!(1, metrics.range_tombstone_block_load_io.load(Relaxed));
+    assert_eq!(1, metrics.range_tombstone_block_load_cached.load(Relaxed));
+    assert_eq!(0, metrics.data_block_load_cached.load(Relaxed));
+
+    Ok(())
+}
