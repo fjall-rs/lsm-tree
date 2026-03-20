@@ -188,7 +188,7 @@ impl BlobTree {
     }
 }
 
-impl crate::abstract_tree::Sealed for BlobTree {}
+impl crate::abstract_tree::sealed::Sealed for BlobTree {}
 
 impl AbstractTree for BlobTree {
     fn print_trace(&self, key: &[u8]) -> crate::Result<()> {

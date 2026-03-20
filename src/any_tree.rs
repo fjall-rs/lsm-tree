@@ -16,4 +16,4 @@ pub enum AnyTree {
     Blob(BlobTree),
 }
 
-impl crate::abstract_tree::Sealed for AnyTree {}
+impl crate::abstract_tree::sealed::Sealed for AnyTree {}
