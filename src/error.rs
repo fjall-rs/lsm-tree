@@ -52,6 +52,15 @@ pub enum Error {
 
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
+
+    /// Range tombstone block decode failure
+    RangeTombstoneDecode {
+        /// Which wire-format field failed (e.g. `start_len`, `end_buf`, `seqno`)
+        field: &'static str,
+
+        /// Byte offset in the block when the failure occurred
+        offset: u64,
+    },
 }
 
 impl std::fmt::Display for Error {

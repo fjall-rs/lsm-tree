@@ -476,8 +476,12 @@ fn range_tombstone_tampered_rt_block_fails_recovery() -> lsm_tree::Result<()> {
     )
     .open()
     {
-        Err(lsm_tree::Error::ChecksumMismatch { .. }) | Err(lsm_tree::Error::Unrecoverable) => {}
-        Err(other) => panic!("expected ChecksumMismatch or Unrecoverable, got: {other:?}"),
+        Err(lsm_tree::Error::ChecksumMismatch { .. })
+        | Err(lsm_tree::Error::Unrecoverable)
+        | Err(lsm_tree::Error::RangeTombstoneDecode { .. }) => {}
+        Err(other) => panic!(
+            "expected ChecksumMismatch, Unrecoverable, or RangeTombstoneDecode, got: {other:?}"
+        ),
         Ok(_) => panic!("tampered RT block must fail recovery, not reopen successfully"),
     }
 

@@ -645,9 +645,13 @@ impl Table {
             reason = "block size always fits in usize"
         )]
         while (cursor.position() as usize) < data.len() {
-            let start_len = cursor
-                .read_u16::<LE>()
-                .map_err(|_| crate::Error::Unrecoverable)? as usize;
+            let start_len =
+                cursor
+                    .read_u16::<LE>()
+                    .map_err(|_| crate::Error::RangeTombstoneDecode {
+                        field: "start_len",
+                        offset: cursor.position(),
+                    })? as usize;
 
             // Validate length against remaining data before allocating
             let remaining = data.len() - cursor.position() as usize;
@@ -655,34 +659,54 @@ impl Table {
                 log::error!(
                     "Range tombstone block: start_len {start_len} exceeds remaining {remaining}"
                 );
-                return Err(crate::Error::Unrecoverable);
+                return Err(crate::Error::RangeTombstoneDecode {
+                    field: "start_len",
+                    offset: cursor.position(),
+                });
             }
 
             let mut start_buf = vec![0u8; start_len];
             cursor
                 .read_exact(&mut start_buf)
-                .map_err(|_| crate::Error::Unrecoverable)?;
+                .map_err(|_| crate::Error::RangeTombstoneDecode {
+                    field: "start_buf",
+                    offset: cursor.position(),
+                })?;
 
-            let end_len = cursor
-                .read_u16::<LE>()
-                .map_err(|_| crate::Error::Unrecoverable)? as usize;
+            let end_len =
+                cursor
+                    .read_u16::<LE>()
+                    .map_err(|_| crate::Error::RangeTombstoneDecode {
+                        field: "end_len",
+                        offset: cursor.position(),
+                    })? as usize;
 
             let remaining = data.len() - cursor.position() as usize;
             if end_len > remaining {
                 log::error!(
                     "Range tombstone block: end_len {end_len} exceeds remaining {remaining}"
                 );
-                return Err(crate::Error::Unrecoverable);
+                return Err(crate::Error::RangeTombstoneDecode {
+                    field: "end_len",
+                    offset: cursor.position(),
+                });
             }
 
             let mut end_buf = vec![0u8; end_len];
             cursor
                 .read_exact(&mut end_buf)
-                .map_err(|_| crate::Error::Unrecoverable)?;
+                .map_err(|_| crate::Error::RangeTombstoneDecode {
+                    field: "end_buf",
+                    offset: cursor.position(),
+                })?;
 
-            let seqno = cursor
-                .read_u64::<LE>()
-                .map_err(|_| crate::Error::Unrecoverable)?;
+            let seqno =
+                cursor
+                    .read_u64::<LE>()
+                    .map_err(|_| crate::Error::RangeTombstoneDecode {
+                        field: "seqno",
+                        offset: cursor.position(),
+                    })?;
 
             let start = UserKey::from(start_buf);
             let end = UserKey::from(end_buf);
@@ -690,7 +714,10 @@ impl Table {
             // Validate invariant: start < end (reject corrupted data)
             if start >= end {
                 log::error!("Range tombstone block: invalid interval (start >= end)");
-                return Err(crate::Error::Unrecoverable);
+                return Err(crate::Error::RangeTombstoneDecode {
+                    field: "interval",
+                    offset: cursor.position(),
+                });
             }
 
             tombstones.push(RangeTombstone::new(start, end, seqno));

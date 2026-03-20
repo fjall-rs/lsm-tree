@@ -1429,3 +1429,38 @@ fn table_global_seqno() -> crate::Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[expect(clippy::unwrap_used, clippy::cast_possible_truncation)]
+fn decode_range_tombstones_invalid_interval_returns_error() {
+    use byteorder::{WriteBytesExt, LE};
+
+    // Build a single tombstone where start ("z") >= end ("a")
+    let mut buf = Vec::new();
+    let start = b"z";
+    let end = b"a";
+    let seqno: u64 = 1;
+
+    buf.write_u16::<LE>(start.len() as u16).unwrap();
+    buf.extend_from_slice(start);
+    buf.write_u16::<LE>(end.len() as u16).unwrap();
+    buf.extend_from_slice(end);
+    buf.write_u64::<LE>(seqno).unwrap();
+
+    let block = Block {
+        header: block::Header {
+            block_type: block::BlockType::RangeTombstone,
+            checksum: crate::Checksum::from_raw(0),
+            data_length: buf.len() as u32,
+            uncompressed_length: buf.len() as u32,
+        },
+        data: buf.into(),
+    };
+
+    match Table::decode_range_tombstones(&block) {
+        Err(crate::Error::RangeTombstoneDecode {
+            field: "interval", ..
+        }) => {}
+        other => panic!("expected RangeTombstoneDecode {{ field: \"interval\" }}, got: {other:?}"),
+    }
+}
