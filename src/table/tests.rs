@@ -1431,7 +1431,7 @@ fn table_global_seqno() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used, clippy::cast_possible_truncation)]
+#[expect(clippy::unwrap_used)]
 fn decode_range_tombstones_invalid_interval_returns_error() {
     use byteorder::{WriteBytesExt, LE};
 
@@ -1447,12 +1447,13 @@ fn decode_range_tombstones_invalid_interval_returns_error() {
     buf.extend_from_slice(end);
     buf.write_u64::<LE>(seqno).unwrap();
 
+    let data_length = u32::try_from(buf.len()).expect("test buffer fits in u32");
     let block = Block {
         header: block::Header {
             block_type: block::BlockType::RangeTombstone,
             checksum: crate::Checksum::from_raw(0),
-            data_length: buf.len() as u32,
-            uncompressed_length: buf.len() as u32,
+            data_length,
+            uncompressed_length: data_length,
         },
         data: buf.into(),
     };

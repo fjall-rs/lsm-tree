@@ -645,12 +645,13 @@ impl Table {
             reason = "block size always fits in usize"
         )]
         while (cursor.position() as usize) < data.len() {
+            let offset = cursor.position();
             let start_len =
                 cursor
                     .read_u16::<LE>()
                     .map_err(|_| crate::Error::RangeTombstoneDecode {
                         field: "start_len",
-                        offset: cursor.position(),
+                        offset,
                     })? as usize;
 
             // Validate length against remaining data before allocating
@@ -661,24 +662,26 @@ impl Table {
                 );
                 return Err(crate::Error::RangeTombstoneDecode {
                     field: "start_len",
-                    offset: cursor.position(),
+                    offset,
                 });
             }
 
             let mut start_buf = vec![0u8; start_len];
+            let offset = cursor.position();
             cursor
                 .read_exact(&mut start_buf)
                 .map_err(|_| crate::Error::RangeTombstoneDecode {
                     field: "start_buf",
-                    offset: cursor.position(),
+                    offset,
                 })?;
 
+            let offset = cursor.position();
             let end_len =
                 cursor
                     .read_u16::<LE>()
                     .map_err(|_| crate::Error::RangeTombstoneDecode {
                         field: "end_len",
-                        offset: cursor.position(),
+                        offset,
                     })? as usize;
 
             let remaining = data.len() - cursor.position() as usize;
@@ -688,24 +691,26 @@ impl Table {
                 );
                 return Err(crate::Error::RangeTombstoneDecode {
                     field: "end_len",
-                    offset: cursor.position(),
+                    offset,
                 });
             }
 
             let mut end_buf = vec![0u8; end_len];
+            let offset = cursor.position();
             cursor
                 .read_exact(&mut end_buf)
                 .map_err(|_| crate::Error::RangeTombstoneDecode {
                     field: "end_buf",
-                    offset: cursor.position(),
+                    offset,
                 })?;
 
+            let offset = cursor.position();
             let seqno =
                 cursor
                     .read_u64::<LE>()
                     .map_err(|_| crate::Error::RangeTombstoneDecode {
                         field: "seqno",
-                        offset: cursor.position(),
+                        offset,
                     })?;
 
             let start = UserKey::from(start_buf);
