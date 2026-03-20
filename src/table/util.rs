@@ -60,6 +60,7 @@ pub fn load_block(
             BlockType::Index => {
                 metrics.index_block_load_cached.fetch_add(1, Relaxed);
             }
+            // NOTE: see IO match below — RT blocks bypass load_block() today
             BlockType::RangeTombstone => {
                 metrics
                     .range_tombstone_block_load_cached
@@ -112,6 +113,9 @@ pub fn load_block(
                 .index_block_io_requested
                 .fetch_add(handle.size().into(), Relaxed);
         }
+        // NOTE: RT blocks are currently loaded eagerly at table recovery
+        // via Block::from_file(), bypassing load_block(). This arm exists for
+        // exhaustive coverage should RT loading move to the cached path.
         BlockType::RangeTombstone => {
             metrics.range_tombstone_block_load_io.fetch_add(1, Relaxed);
 
