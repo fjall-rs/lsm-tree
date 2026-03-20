@@ -613,14 +613,19 @@ fn range_tombstone_prefix_iteration_with_sst() -> lsm_tree::Result<()> {
 // --- Test P: Compaction with MultiWriter rotation preserves RTs across tables ---
 #[test]
 fn range_tombstone_survives_compaction_with_rotation() -> lsm_tree::Result<()> {
+    use lsm_tree::config::CompressionPolicy;
+    use lsm_tree::CompressionType;
+
     let folder = get_tmp_folder();
 
-    // Use small target_size to force MultiWriter rotation during compaction
+    // Disable compression: repetitive payloads compress too well under lz4,
+    // preventing MultiWriter rotation with the small 1 KiB target below.
     let tree = Config::new(
         folder.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
+    .data_block_compression_policy(CompressionPolicy::all(CompressionType::None))
     .open()?;
 
     // Insert enough data to produce multiple tables on compaction

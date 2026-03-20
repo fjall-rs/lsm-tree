@@ -32,7 +32,7 @@ pub struct RangeTombstoneFilter<I> {
 impl<I> RangeTombstoneFilter<I> {
     /// Creates a new bidirectional filter.
     ///
-    /// `fwd_tombstones` must be sorted by `(start asc, seqno desc, end asc)` (the natural Ord).
+    /// `fwd_tombstones` need not be pre-sorted — the constructor sorts internally by natural Ord.
     /// Internally, a second copy sorted by `(end desc, seqno desc)` is created for reverse.
     #[must_use]
     pub fn new(inner: I, mut fwd_tombstones: Vec<RangeTombstone>, read_seqno: SeqNo) -> Self {
