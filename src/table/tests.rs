@@ -1431,6 +1431,10 @@ fn table_global_seqno() -> crate::Result<()> {
 }
 
 /// Build a Block from raw bytes for decode_range_tombstones tests.
+#[expect(
+    clippy::expect_used,
+    reason = "test helper: data length is controlled and fits in u32"
+)]
 fn rt_block(data: Vec<u8>) -> Block {
     let data_length = u32::try_from(data.len()).expect("test buffer fits in u32");
     Block {
@@ -1486,8 +1490,10 @@ fn decode_range_tombstones_truncated_start_len_returns_error() {
 fn decode_range_tombstones_empty_block_returns_ok() {
     // Empty block has no tombstones — should succeed with empty vec
     let block = rt_block(Vec::new());
-    let result = Table::decode_range_tombstones(&block).expect("empty block should decode");
-    assert!(result.is_empty());
+    match Table::decode_range_tombstones(&block) {
+        Ok(tombstones) => assert!(tombstones.is_empty()),
+        Err(err) => panic!("empty block should decode, got error: {err}"),
+    }
 }
 
 #[test]
