@@ -481,10 +481,12 @@ mod tests {
         Ok(())
     }
 
-    /// Tamper on-disk key bytes in a blob file and verify that the reader
-    /// detects corruption via checksum mismatch (upstream #277 behaviour).
+    /// Tamper on-disk key bytes and verify two detection layers:
+    /// 1. Original caller key → InvalidHeader from cross-check (fast path)
+    /// 2. Tampered key as caller → ChecksumMismatch (checksum path, upstream #277)
     #[test]
-    fn blob_reader_corrupted_on_disk_key_triggers_checksum_mismatch() -> crate::Result<()> {
+    fn blob_reader_corrupted_on_disk_key_detected_by_cross_check_and_checksum() -> crate::Result<()>
+    {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
@@ -502,17 +504,26 @@ mod tests {
         let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
         let mut raw = std::fs::read(&blob_file.0.path)?;
         raw[key_offset] ^= 0xFF; // flip bits in first key byte
+        let corrupted_key = raw[key_offset..key_offset + 3].to_vec();
         std::fs::write(&blob_file.0.path, &raw)?;
 
         let file = File::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
-        // The on-disk key no longer matches caller key → InvalidHeader from
-        // the explicit cross-check (before checksum is even computed).
+        // Layer 1: original caller key vs tampered on-disk key → InvalidHeader
         let result = reader.get(b"abc", &handle);
         assert!(
             matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
             "expected InvalidHeader(Blob) from key cross-check, got: {result:?}",
+        );
+
+        // Layer 2: pass the tampered key as caller so cross-check passes,
+        // but checksum (computed over tampered key + value) won't match the
+        // stored checksum (computed over original key + value).
+        let result = reader.get(&corrupted_key, &handle);
+        assert!(
+            matches!(result, Err(crate::Error::ChecksumMismatch { .. })),
+            "expected ChecksumMismatch for tampered on-disk key, got: {result:?}",
         );
 
         Ok(())
