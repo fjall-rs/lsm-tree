@@ -148,10 +148,13 @@ fn tree_rejects_unsupported_manifest_version() -> lsm_tree::Result<()> {
     )
     .open();
 
-    assert!(
-        reopened.is_err(),
-        "unsupported manifest version must be rejected"
-    );
+    match reopened {
+        Err(lsm_tree::Error::InvalidVersion(v)) => {
+            assert_eq!(v, 99, "rejected version should match the tampered value");
+        }
+        Err(other) => panic!("expected InvalidVersion(99), got: {other:?}"),
+        Ok(_) => panic!("unsupported manifest version must be rejected"),
+    }
 
     Ok(())
 }
