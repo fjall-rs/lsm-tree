@@ -837,6 +837,57 @@ fn range_tombstone_disjoint_from_flush_kv_range() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+// --- Regression: compaction clip must not drop RT covering gap between output tables ---
+// major_compact merges all tables together so the gap scenario doesn't arise.
+// Leveled compaction with overlap-based selection could produce a gap — tracked in #32.
+#[test]
+fn compaction_clip_preserves_rt_covering_gap_between_tables() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+    let tree = open_tree(folder.path());
+
+    // L2: keys in the gap that the RT should suppress
+    tree.insert("m", "old_m", 1);
+    tree.insert("n", "old_n", 2);
+    tree.insert("o", "old_o", 3);
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(64_000_000, 0)?;
+
+    // L1: keys on both sides of the gap, plus RT covering the gap
+    tree.insert("a", "val_a", 10);
+    tree.insert("l", "val_l", 11);
+    tree.insert("q", "val_q", 12);
+    tree.insert("z", "val_z", 13);
+    tree.remove_range("m", "p", 20);
+    tree.flush_active_memtable(0)?;
+
+    // Compact L1 → should produce tables covering [a,l] and [q,z]
+    // RT [m,p) must survive even though it falls in the gap
+    tree.major_compact(64_000_000, 0)?;
+
+    // Keys in the gap must still be suppressed by RT
+    assert_eq!(
+        None,
+        tree.get("m", 21)?,
+        "RT [m,p)@20 must suppress 'm' after compaction"
+    );
+    assert_eq!(
+        None,
+        tree.get("n", 21)?,
+        "RT [m,p)@20 must suppress 'n' after compaction"
+    );
+    assert_eq!(
+        None,
+        tree.get("o", 21)?,
+        "RT [m,p)@20 must suppress 'o' after compaction"
+    );
+
+    // Keys outside the gap must be fine
+    assert_eq!(Some("val_a".as_bytes().into()), tree.get("a", 21)?);
+    assert_eq!(Some("val_q".as_bytes().into()), tree.get("q", 21)?);
+
+    Ok(())
+}
+
 // Regression: flush must finalize the last buffered KV block before widening
 // table metadata for RT coverage. Otherwise Writer::finish would overwrite the
 // widened key_range with the buffered block's last KV key and later point reads
