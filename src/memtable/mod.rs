@@ -288,7 +288,124 @@ impl Memtable {
 mod tests {
     use super::*;
     use crate::ValueType;
+    use std::sync::Arc;
     use test_log::test;
+
+    #[test]
+    fn concurrent_suppression_queries_do_not_block_each_other() {
+        let mt = Arc::new(Memtable::new(0));
+
+        let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
+        for i in 0u8..100 {
+            let key = vec![b'a' + (i % 25)];
+            mt.insert(InternalValue::from_components(
+                key,
+                b"v".to_vec(),
+                u64::from(i),
+                ValueType::Value,
+            ));
+        }
+
+        let handles: Vec<_> = (0..8)
+            .map(|t| {
+                let mt = Arc::clone(&mt);
+                std::thread::spawn(move || {
+                    for i in 0u8..200 {
+                        let key = vec![b'a' + ((t + i) % 25)];
+                        let _ = mt.is_key_suppressed_by_range_tombstone(&key, 5, SeqNo::MAX);
+                        let _ = mt.range_tombstone_count();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().expect("reader thread panicked");
+        }
+    }
+
+    #[test]
+    fn concurrent_reads_and_writes_preserve_correctness() {
+        let mt = Arc::new(Memtable::new(0));
+
+        let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"m".to_vec().into(), 10);
+
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let mt = Arc::clone(&mt);
+                std::thread::spawn(move || {
+                    for _ in 0..500 {
+                        let suppressed =
+                            mt.is_key_suppressed_by_range_tombstone(b"f", 5, SeqNo::MAX);
+                        assert!(
+                            suppressed,
+                            "key 'f' at seqno=5 must be suppressed by RT [a,m)@10"
+                        );
+
+                        assert!(!mt.is_key_suppressed_by_range_tombstone(b"z", 5, SeqNo::MAX));
+                    }
+                })
+            })
+            .collect();
+
+        let writers: Vec<_> = (0..2)
+            .map(|t| {
+                let mt = Arc::clone(&mt);
+                std::thread::spawn(move || {
+                    for i in 0u64..100 {
+                        let seqno = 100 + t * 1000 + i;
+                        let _ = mt.insert_range_tombstone(
+                            b"n".to_vec().into(),
+                            b"z".to_vec().into(),
+                            seqno,
+                        );
+                    }
+                })
+            })
+            .collect();
+
+        for h in readers {
+            h.join().expect("reader panicked");
+        }
+        for h in writers {
+            h.join().expect("writer panicked");
+        }
+
+        assert!(mt.range_tombstone_count() >= 1);
+    }
+
+    #[test]
+    fn sealed_memtable_concurrent_reads_no_contention() {
+        let mt = Arc::new(Memtable::new(0));
+
+        for i in 0u64..50 {
+            let start = vec![b'a' + (i as u8 % 25)];
+            let end = vec![b'a' + (i as u8 % 25) + 1];
+            let _ = mt.insert_range_tombstone(start.into(), end.into(), i);
+        }
+
+        mt.flag_rotated();
+        assert!(mt.is_flagged_for_rotation());
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let mt = Arc::clone(&mt);
+                std::thread::spawn(move || {
+                    for _ in 0..500 {
+                        let _ = mt.is_key_suppressed_by_range_tombstone(b"c", 5, SeqNo::MAX);
+                        let sorted = mt.range_tombstones_sorted();
+                        assert!(!sorted.is_empty());
+                        let count = mt.range_tombstone_count();
+                        assert!(count > 0);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().expect("reader thread panicked on sealed memtable");
+        }
+    }
 
     #[test]
     #[expect(clippy::unwrap_used)]
