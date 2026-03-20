@@ -743,6 +743,9 @@ impl Tree {
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
+        // Search order: active → sealed → SST (newest first). A point
+        // tombstone in a newer source is authoritative — no older source
+        // can contain a newer value, so returning None is correct.
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
             let Some(entry) = ignore_tombstone_value(entry) else {
                 return Ok(None);
