@@ -8,6 +8,8 @@ use std::{
 use test_log::test;
 
 fn read_manifest_format_version(path: &Path) -> lsm_tree::Result<u8> {
+    // read_u64 takes &mut self, but calling it on an owned File from `?` is
+    // valid Rust — the compiler auto-borrows &mut on the owned temporary.
     let curr_version_id = File::open(path.join("current"))?.read_u64::<LittleEndian>()?;
     let manifest_path = path.join(format!("v{curr_version_id}"));
     let reader = sfa::Reader::new(&manifest_path)?;
