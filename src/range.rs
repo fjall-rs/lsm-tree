@@ -182,7 +182,10 @@ impl TreeIter {
             );
 
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
-            let mut all_range_tombstones: Vec<RangeTombstone> = Vec::new();
+            // Each RT is paired with the per-source visibility cutoff so that
+            // ephemeral memtable RTs use their own index_seqno instead of the
+            // outer scan seqno (see issue #33).
+            let mut all_range_tombstones: Vec<(RangeTombstone, SeqNo)> = Vec::new();
             let mut single_tables = Vec::new();
             let mut multi_runs = Vec::new();
 
@@ -205,7 +208,7 @@ impl TreeIter {
                                 .range_tombstones()
                                 .iter()
                                 .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
-                                .cloned(),
+                                .map(|rt| (rt.clone(), seqno)),
                         );
 
                         // Check key range overlap first (cheap metadata check) before
@@ -224,7 +227,7 @@ impl TreeIter {
                                     .range_tombstones()
                                     .iter()
                                     .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
-                                    .cloned(),
+                                    .map(|rt| (rt.clone(), seqno)),
                             );
                         }
 
@@ -240,8 +243,8 @@ impl TreeIter {
                 // RT stored in the same table won't trigger skip (conservative
                 // but correct). Separate KV/RT seqno bounds would improve this.
                 // key_range.max() is inclusive, fully_covers uses half-open: max < rt.end
-                let is_covered = all_range_tombstones.iter().any(|rt| {
-                    rt.visible_at(seqno)
+                let is_covered = all_range_tombstones.iter().any(|(rt, cutoff)| {
+                    rt.visible_at(*cutoff)
                         && rt.fully_covers(
                             table.metadata.key_range.min(),
                             table.metadata.key_range.max(),
@@ -276,7 +279,8 @@ impl TreeIter {
                     memtable
                         .range_tombstones_sorted()
                         .into_iter()
-                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                        .map(|rt| (rt, seqno)),
                 );
 
                 let iter = memtable.range(range.clone());
@@ -294,7 +298,8 @@ impl TreeIter {
                         .active_memtable
                         .range_tombstones_sorted()
                         .into_iter()
-                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                        .map(|rt| (rt, seqno)),
                 );
 
                 let iter = lock.version.active_memtable.range(range.clone());
@@ -305,16 +310,17 @@ impl TreeIter {
                 ));
             }
 
-            if let Some((mt, seqno)) = &lock.ephemeral {
+            if let Some((mt, eph_seqno)) = &lock.ephemeral {
                 all_range_tombstones.extend(
                     mt.range_tombstones_sorted()
                         .into_iter()
-                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                        .map(|rt| (rt, *eph_seqno)),
                 );
 
                 let iter = Box::new(
                     mt.range(range)
-                        .filter(move |item| seqno_filter(item.key.seqno, *seqno))
+                        .filter(move |item| seqno_filter(item.key.seqno, *eph_seqno))
                         .map(Ok),
                 );
                 iters.push(iter);
@@ -330,16 +336,20 @@ impl TreeIter {
 
             // Deduplicate: MultiWriter rotation copies the same RTs into each
             // output table, so collected tombstones can contain duplicates.
-            all_range_tombstones.sort();
-            all_range_tombstones.dedup();
+            // Sort/dedup by RT fields only; cutoff is identical for same-source dupes.
+            all_range_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
+            all_range_tombstones.dedup_by(|a, b| a.0 == b.0);
 
-            // Fast path: skip filter wrapping when no tombstone is visible at this
-            // read seqno. We collect RTs while building the iterator inputs to
-            // avoid a separate pre-scan over every memtable and SST.
-            if all_range_tombstones.iter().all(|rt| !rt.visible_at(seqno)) {
+            // Fast path: skip filter wrapping when no tombstone is visible at
+            // its per-source cutoff. Each RT carries the seqno of its originating
+            // source, so the check is per-RT rather than global.
+            if all_range_tombstones
+                .iter()
+                .all(|(rt, cutoff)| !rt.visible_at(*cutoff))
+            {
                 Box::new(iter)
             } else {
-                Box::new(RangeTombstoneFilter::new(iter, all_range_tombstones, seqno))
+                Box::new(RangeTombstoneFilter::new(iter, all_range_tombstones))
             }
         })
     }
