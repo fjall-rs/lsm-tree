@@ -64,13 +64,13 @@ cargo fmt --all -- --check                   # Format check
 
 ## Design Decision Analysis (CRITICAL)
 
-**Before flagging any potential issue, trace the FULL call chain:**
+**Before flagging any potential issue, trace the call chain visible in the PR diff:**
 
-1. **Read the caller** — does the caller already handle the case you're about to flag? If a function returns a value that looks problematic in isolation, check every call site. The caller may handle the edge case explicitly (e.g., empty collections, `None` vs `Some(empty)`).
+1. **Read the caller** — does the caller already handle the case you're about to flag? If a function returns a value that looks problematic in isolation, check call sites visible in the diff. The caller may handle the edge case explicitly (e.g., empty collections, `None` vs `Some(empty)`).
 2. **Check type-level guarantees** — does the type system prevent the issue? Different enum variants, wrapper types, or visibility modifiers may make a "collision" or "misuse" structurally impossible.
 3. **Read adjacent comments** — comments starting with "NOTE:", "Use X instead of Y because...", or explaining WHY a specific approach was chosen document deliberate design decisions. If the comment accurately describes the code behavior, the design is intentional.
 
-**Only flag an issue if it survives all three checks.** A finding that looks like a bug in one function but is handled by its caller is not a bug — it is a protocol between the two functions.
+**Only suppress Tier 3/Tier 4 findings if they fail these checks.** If the pattern still indicates a Tier 1 (logic/correctness) or Tier 2 (safety/crash) issue, flag it regardless of documented rationale or caller handling.
 
 ## Architecture Notes
 
