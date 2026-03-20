@@ -15,9 +15,22 @@ pub type RangeItem = crate::Result<KvPair>;
 
 type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 
+// Sealed on purpose: this trait is still public as a consumer-side bound
+// (`&impl AbstractTree`), but external implementations are no longer part of
+// the supported extension surface. Internal flush/version hooks keep evolving
+// with crate-owned tree types and must not create downstream semver traps.
+//
+// `sealed` stays `pub` only so sibling modules in this crate can write
+// `crate::abstract_tree::sealed::Sealed` in their impls. The parent module
+// `abstract_tree` is not publicly exported from the crate root, so downstream
+// crates still cannot name or implement this trait.
+pub mod sealed {
+    pub trait Sealed {}
+}
+
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
-pub trait AbstractTree {
+pub trait AbstractTree: sealed::Sealed {
     /// Debug method for tracing the MVCC history of a key.
     #[doc(hidden)]
     fn print_trace(&self, key: &[u8]) -> crate::Result<()>;
@@ -76,7 +89,9 @@ pub trait AbstractTree {
         _lock: &MutexGuard<'_, ()>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<u64>> {
-        use crate::{compaction::stream::CompactionStream, merge::Merger};
+        use crate::{
+            compaction::stream::CompactionStream, merge::Merger, range_tombstone::RangeTombstone,
+        };
 
         let version_history = self.get_version_history_lock();
         let latest = version_history.latest_version();
@@ -93,6 +108,14 @@ pub trait AbstractTree {
 
         let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
 
+        // Collect range tombstones from sealed memtables
+        let mut range_tombstones: Vec<RangeTombstone> = Vec::new();
+        for mt in latest.sealed_memtables.iter() {
+            range_tombstones.extend(mt.range_tombstones_sorted());
+        }
+        range_tombstones.sort();
+        range_tombstones.dedup();
+
         let merger = Merger::new(
             latest
                 .sealed_memtables
@@ -104,7 +127,22 @@ pub trait AbstractTree {
 
         drop(version_history);
 
-        if let Some((tables, blob_files)) = self.flush_to_tables(stream)? {
+        // Clone needed: flush_to_tables_with_rt consumes the Vec, but on the
+        // RT-only path (no KV data, tables.is_empty()) we re-insert RTs into the
+        // active memtable. Flush is infrequent and RT count is small.
+        if let Some((tables, blob_files)) =
+            self.flush_to_tables_with_rt(stream, range_tombstones.clone())?
+        {
+            // If no tables were produced (RT-only memtable), re-insert RTs
+            // into active memtable so they aren't lost
+            if tables.is_empty() && !range_tombstones.is_empty() {
+                let active = self.active_memtable();
+                for rt in &range_tombstones {
+                    let _ =
+                        active.insert_range_tombstone(rt.start.clone(), rt.end.clone(), rt.seqno);
+                }
+            }
+
             self.register_tables(
                 &tables,
                 blob_files.as_deref(),
@@ -216,10 +254,26 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[warn(clippy::type_complexity)]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<FlushToTablesResult>> {
+        self.flush_to_tables_with_rt(stream, Vec::new())
+    }
+
+    /// Like [`AbstractTree::flush_to_tables`], but also writes range tombstones.
+    ///
+    /// This is an internal extension hook on the crate's sealed tree types and
+    /// is hidden from generated documentation.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
+    fn flush_to_tables_with_rt(
+        &self,
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<FlushToTablesResult>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
@@ -680,4 +734,36 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
+
+    /// Deletes all keys in the range `[start, end)` by inserting a range tombstone.
+    ///
+    /// This is much more efficient than deleting keys individually when
+    /// removing a contiguous range of keys.
+    ///
+    /// Returns the approximate size added to the memtable.
+    /// Returns 0 if `start >= end` (invalid interval is silently ignored).
+    ///
+    /// This is a required method on the crate's sealed tree types.
+    fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64;
+
+    /// Deletes all keys with the given prefix by inserting a range tombstone.
+    ///
+    /// This is sugar over [`AbstractTree::remove_range`] using prefix bounds.
+    ///
+    /// Returns the approximate size added to the memtable.
+    /// Returns 0 for empty prefixes or all-`0xFF` prefixes (cannot form valid half-open range).
+    fn remove_prefix<K: AsRef<[u8]>>(&self, prefix: K, seqno: SeqNo) -> u64 {
+        use crate::range::prefix_to_range;
+        use std::ops::Bound;
+
+        let (lo, hi) = prefix_to_range(prefix.as_ref());
+
+        let Bound::Included(start) = lo else { return 0 };
+
+        // Bound::Unbounded means the prefix is all 0xFF — no representable
+        // exclusive upper bound exists, so we cannot form a valid range tombstone.
+        let Bound::Excluded(end) = hi else { return 0 };
+
+        self.remove_range(start, end, seqno)
+    }
 }

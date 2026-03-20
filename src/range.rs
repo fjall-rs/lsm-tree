@@ -7,6 +7,8 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    range_tombstone::RangeTombstone,
+    range_tombstone_filter::RangeTombstoneFilter,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -95,57 +97,94 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
+fn range_tombstone_overlaps_bounds(
+    rt: &RangeTombstone,
+    bounds: &(Bound<UserKey>, Bound<UserKey>),
+) -> bool {
+    let overlaps_lo = match &bounds.0 {
+        Bound::Included(key) | Bound::Excluded(key) => rt.end.as_ref() > key.as_ref(),
+        Bound::Unbounded => true,
+    };
+
+    let overlaps_hi = match &bounds.1 {
+        Bound::Included(key) => rt.start.as_ref() <= key.as_ref(),
+        Bound::Excluded(key) => rt.start.as_ref() < key.as_ref(),
+        Bound::Unbounded => true,
+    };
+
+    overlaps_lo && overlaps_hi
+}
+
 impl TreeIter {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "create_range wires up multiple iterator sources, filters, and tombstone handling; splitting further would reduce clarity"
+    )]
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
         range: R,
         seqno: SeqNo,
     ) -> Self {
         Self::new(guard, |lock| {
-            let lo = match range.start_bound() {
-                // NOTE: See memtable.rs for range explanation
-                Bound::Included(key) => Bound::Included(InternalKey::new(
-                    key.as_ref(),
-                    SeqNo::MAX,
-                    crate::ValueType::Tombstone,
-                )),
-                Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
-                    key.as_ref(),
-                    0,
-                    crate::ValueType::Tombstone,
-                )),
-                Bound::Unbounded => Bound::Unbounded,
-            };
+            let user_range = (
+                match range.start_bound() {
+                    Bound::Included(key) => Bound::Included(UserKey::from(key.as_ref())),
+                    Bound::Excluded(key) => Bound::Excluded(UserKey::from(key.as_ref())),
+                    Bound::Unbounded => Bound::Unbounded,
+                },
+                match range.end_bound() {
+                    Bound::Included(key) => Bound::Included(UserKey::from(key.as_ref())),
+                    Bound::Excluded(key) => Bound::Excluded(UserKey::from(key.as_ref())),
+                    Bound::Unbounded => Bound::Unbounded,
+                },
+            );
 
-            let hi = match range.end_bound() {
-                // NOTE: See memtable.rs for range explanation, this is the reverse case
-                // where we need to go all the way to the last seqno of an item
-                //
-                // Example: We search for (Unbounded..Excluded(abdef))
-                //
-                // key -> seqno
-                //
-                // a   -> 7 <<< This is the lowest key that matches the range
-                // abc -> 5
-                // abc -> 4
-                // abc -> 3 <<< This is the highest key that matches the range
-                // abcdef -> 6
-                // abcdef -> 5
-                //
-                Bound::Included(key) => {
-                    Bound::Included(InternalKey::new(key.as_ref(), 0, crate::ValueType::Value))
-                }
-                Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
-                    key.as_ref(),
-                    SeqNo::MAX,
-                    crate::ValueType::Value,
-                )),
-                Bound::Unbounded => Bound::Unbounded,
-            };
-
-            let range = (lo, hi);
+            let range = (
+                match &user_range.0 {
+                    // NOTE: See memtable.rs for range explanation
+                    Bound::Included(key) => Bound::Included(InternalKey::new(
+                        key.as_ref(),
+                        SeqNo::MAX,
+                        crate::ValueType::Tombstone,
+                    )),
+                    Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
+                        key.as_ref(),
+                        0,
+                        crate::ValueType::Tombstone,
+                    )),
+                    Bound::Unbounded => Bound::Unbounded,
+                },
+                match &user_range.1 {
+                    // NOTE: See memtable.rs for range explanation, this is the reverse case
+                    // where we need to go all the way to the last seqno of an item
+                    //
+                    // Example: We search for (Unbounded..Excluded(abdef))
+                    //
+                    // key -> seqno
+                    //
+                    // a   -> 7 <<< This is the lowest key that matches the range
+                    // abc -> 5
+                    // abc -> 4
+                    // abc -> 3 <<< This is the highest key that matches the range
+                    // abcdef -> 6
+                    // abcdef -> 5
+                    //
+                    Bound::Included(key) => {
+                        Bound::Included(InternalKey::new(key.as_ref(), 0, crate::ValueType::Value))
+                    }
+                    Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
+                        key.as_ref(),
+                        SeqNo::MAX,
+                        crate::ValueType::Value,
+                    )),
+                    Bound::Unbounded => Bound::Unbounded,
+                },
+            );
 
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
+            let mut all_range_tombstones: Vec<RangeTombstone> = Vec::new();
+            let mut single_tables = Vec::new();
+            let mut multi_runs = Vec::new();
 
             for run in lock
                 .version
@@ -161,42 +200,85 @@ impl TreeIter {
                         #[expect(clippy::expect_used, reason = "we checked for length")]
                         let table = run.first().expect("should exist");
 
-                        if table.check_key_range_overlap(&(
-                            range.start_bound().map(|x| &*x.user_key),
-                            range.end_bound().map(|x| &*x.user_key),
-                        )) {
-                            let reader = table
-                                .range((
-                                    range.start_bound().map(|x| &x.user_key).cloned(),
-                                    range.end_bound().map(|x| &x.user_key).cloned(),
-                                ))
-                                .filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                });
+                        all_range_tombstones.extend(
+                            table
+                                .range_tombstones()
+                                .iter()
+                                .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                                .cloned(),
+                        );
 
-                            iters.push(Box::new(reader));
+                        // Check key range overlap first (cheap metadata check) before
+                        // running the O(rt_count) table-skip scan.
+                        if table.check_key_range_overlap(&(
+                            user_range.0.as_ref().map(std::convert::AsRef::as_ref),
+                            user_range.1.as_ref().map(std::convert::AsRef::as_ref),
+                        )) {
+                            single_tables.push(table.clone());
                         }
                     }
                     _ => {
-                        if let Some(reader) = RunReader::new(
-                            run.clone(),
-                            (
-                                range.start_bound().map(|x| &x.user_key).cloned(),
-                                range.end_bound().map(|x| &x.user_key).cloned(),
-                            ),
-                        ) {
-                            iters.push(Box::new(reader.filter(move |item| match item {
-                                Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                Err(_) => true,
-                            })));
+                        for table in run.iter() {
+                            all_range_tombstones.extend(
+                                table
+                                    .range_tombstones()
+                                    .iter()
+                                    .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                                    .cloned(),
+                            );
                         }
+
+                        multi_runs.push(run.clone());
                     }
+                }
+            }
+
+            for table in single_tables {
+                // Table-skip: if a range tombstone fully covers this table
+                // with a higher seqno, skip it entirely (avoid I/O).
+                // NOTE: get_highest_seqno() includes RT seqnos, so a covering
+                // RT stored in the same table won't trigger skip (conservative
+                // but correct). Separate KV/RT seqno bounds would improve this.
+                // key_range.max() is inclusive, fully_covers uses half-open: max < rt.end
+                let is_covered = all_range_tombstones.iter().any(|rt| {
+                    rt.visible_at(seqno)
+                        && rt.fully_covers(
+                            table.metadata.key_range.min(),
+                            table.metadata.key_range.max(),
+                        )
+                        && rt.seqno > table.get_highest_seqno()
+                });
+
+                if !is_covered {
+                    let reader = table
+                        .range(user_range.clone())
+                        .filter(move |item| match item {
+                            Ok(item) => seqno_filter(item.key.seqno, seqno),
+                            Err(_) => true,
+                        });
+
+                    iters.push(Box::new(reader));
+                }
+            }
+
+            for run in multi_runs {
+                if let Some(reader) = RunReader::new(run, user_range.clone()) {
+                    iters.push(Box::new(reader.filter(move |item| match item {
+                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                        Err(_) => true,
+                    })));
                 }
             }
 
             // Sealed memtables
             for memtable in lock.version.sealed_memtables.iter() {
+                all_range_tombstones.extend(
+                    memtable
+                        .range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                );
+
                 let iter = memtable.range(range.clone());
 
                 iters.push(Box::new(
@@ -207,6 +289,14 @@ impl TreeIter {
 
             // Active memtable
             {
+                all_range_tombstones.extend(
+                    lock.version
+                        .active_memtable
+                        .range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                );
+
                 let iter = lock.version.active_memtable.range(range.clone());
 
                 iters.push(Box::new(
@@ -216,6 +306,12 @@ impl TreeIter {
             }
 
             if let Some((mt, seqno)) = &lock.ephemeral {
+                all_range_tombstones.extend(
+                    mt.range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range)),
+                );
+
                 let iter = Box::new(
                     mt.range(range)
                         .filter(move |item| seqno_filter(item.key.seqno, *seqno))
@@ -227,10 +323,24 @@ impl TreeIter {
             let merged = Merger::new(iters);
             let iter = MvccStream::new(merged);
 
-            Box::new(iter.filter(|x| match x {
+            let iter = iter.filter(|x| match x {
                 Ok(value) => !value.key.is_tombstone(),
                 Err(_) => true,
-            }))
+            });
+
+            // Deduplicate: MultiWriter rotation copies the same RTs into each
+            // output table, so collected tombstones can contain duplicates.
+            all_range_tombstones.sort();
+            all_range_tombstones.dedup();
+
+            // Fast path: skip filter wrapping when no tombstone is visible at this
+            // read seqno. We collect RTs while building the iterator inputs to
+            // avoid a separate pre-scan over every memtable and SST.
+            if all_range_tombstones.iter().all(|rt| !rt.visible_at(seqno)) {
+                Box::new(iter)
+            } else {
+                Box::new(RangeTombstoneFilter::new(iter, all_range_tombstones, seqno))
+            }
         })
     }
 }

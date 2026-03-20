@@ -8,6 +8,7 @@ use crate::coding::{Decode, Encode};
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
+use crate::range_tombstone::RangeTombstone;
 use crate::table::multi_writer::MultiWriter;
 use crate::version::{SuperVersions, Version};
 use crate::vlog::blob_file::scanner::ScanEntry;
@@ -77,7 +78,9 @@ pub(super) fn prepare_table_writer(
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
-    )?;
+    )?
+    // Compaction consumes input tables, so clip RTs to each output table's key range.
+    .use_clip_range_tombstones();
 
     if index_partitioning {
         table_writer = table_writer.use_partitioned_index();
@@ -120,7 +123,9 @@ pub(super) fn prepare_table_writer(
 pub(super) trait CompactionFlavour {
     fn write(&mut self, item: InternalValue) -> crate::Result<()>;
 
-    #[warn(clippy::too_many_arguments)]
+    /// Writes range tombstones to the current output table.
+    fn write_range_tombstones(&mut self, tombstones: &[RangeTombstone]);
+
     fn finish(
         self: Box<Self>,
         super_version: &mut SuperVersions,
@@ -164,6 +169,10 @@ impl RelocatingCompaction {
 }
 
 impl CompactionFlavour for RelocatingCompaction {
+    fn write_range_tombstones(&mut self, tombstones: &[RangeTombstone]) {
+        self.inner.write_range_tombstones(tombstones);
+    }
+
     fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.key.value_type.is_indirection() {
             let mut reader = &item.value[..];
@@ -371,6 +380,10 @@ impl StandardCompaction {
 }
 
 impl CompactionFlavour for StandardCompaction {
+    fn write_range_tombstones(&mut self, tombstones: &[RangeTombstone]) {
+        self.table_writer.set_range_tombstones(tombstones.to_vec());
+    }
+
     fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         let indirection = if item.key.value_type.is_indirection() {
             Some({

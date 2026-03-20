@@ -188,6 +188,8 @@ impl BlobTree {
     }
 }
 
+impl crate::abstract_tree::sealed::Sealed for BlobTree {}
+
 impl AbstractTree for BlobTree {
     fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
         self.index.print_trace(key)
@@ -356,9 +358,10 @@ impl AbstractTree for BlobTree {
     }
 
     #[expect(clippy::too_many_lines, reason = "flush logic is inherently complex")]
-    fn flush_to_tables(
+    fn flush_to_tables_with_rt(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
         use crate::{
             coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
@@ -439,6 +442,11 @@ impl AbstractTree for BlobTree {
 
         let separation_threshold = kv_opts.separation_threshold;
 
+        // Set range tombstones BEFORE writing KV items so that if MultiWriter
+        // rotates to a new table during the write loop, earlier tables already
+        // carry the RT metadata.
+        table_writer.set_range_tombstones(range_tombstones);
+
         for item in stream {
             let item = item?;
 
@@ -503,6 +511,9 @@ impl AbstractTree for BlobTree {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
+        // Return Some even when tables is empty (RT-only flush): the caller
+        // (AbstractTree::flush) handles empty tables by re-inserting RTs into
+        // the active memtable and still needs to delete sealed memtables.
         Ok(Some((tables, Some(blob_files))))
     }
 
@@ -642,5 +653,9 @@ impl AbstractTree for BlobTree {
 
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
+    }
+
+    fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64 {
+        self.index.remove_range(start, end, seqno)
     }
 }

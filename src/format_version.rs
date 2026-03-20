@@ -13,6 +13,9 @@ pub enum FormatVersion {
 
     /// Version for 3.x.x releases
     V3,
+
+    /// Version for range-tombstone SST semantics
+    V4,
 }
 
 impl std::fmt::Display for FormatVersion {
@@ -27,6 +30,7 @@ impl From<FormatVersion> for u8 {
             FormatVersion::V1 => 1,
             FormatVersion::V2 => 2,
             FormatVersion::V3 => 3,
+            FormatVersion::V4 => 4,
         }
     }
 }
@@ -39,6 +43,7 @@ impl TryFrom<u8> for FormatVersion {
             1 => Ok(Self::V1),
             2 => Ok(Self::V2),
             3 => Ok(Self::V3),
+            4 => Ok(Self::V4),
             _ => Err(()),
         }
     }

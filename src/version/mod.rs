@@ -350,11 +350,20 @@ impl Version {
                 })
                 .collect::<Vec<_>>();
 
-            let mut runs = Vec::with_capacity(prev_runs.len() + 1);
+            let mut runs = Vec::with_capacity(prev_runs.len() + run.len());
 
-            if let Some(run) = Run::new(run.to_vec()) {
-                runs.push(run);
-            }
+            // Start each freshly flushed table as its own run. `optimize_runs`
+            // will fuse them back together when their key ranges stay truly
+            // disjoint, but RT-bearing flush tables may intentionally widen
+            // their persisted key_range and must not be forced into a single
+            // run where `Run::get_for_key` assumes non-overlap.
+            runs.extend(run.iter().cloned().map(|table| {
+                let Some(run) = Run::new(vec![table]) else {
+                    unreachable!("single-table run should never be empty");
+                };
+
+                run
+            }));
 
             runs.extend(prev_runs);
 
@@ -632,7 +641,7 @@ impl Version {
         //
 
         writer.start("format_version")?;
-        writer.write_u8(FormatVersion::V3.into())?;
+        writer.write_u8(FormatVersion::V4.into())?;
 
         writer.start("crate_version")?;
         writer.write_all(env!("CARGO_PKG_VERSION").as_bytes())?;

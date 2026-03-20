@@ -84,6 +84,8 @@ impl std::ops::Deref for Tree {
     }
 }
 
+impl crate::abstract_tree::sealed::Sealed for Tree {}
+
 impl AbstractTree for Tree {
     fn table_file_cache_size(&self) -> usize {
         self.config
@@ -338,9 +340,10 @@ impl AbstractTree for Tree {
             .len()
     }
 
-    fn flush_to_tables(
+    fn flush_to_tables_with_rt(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
         use crate::{file::TABLES_FOLDER, table::multi_writer::MultiWriter};
         use std::time::Instant;
@@ -396,6 +399,11 @@ impl AbstractTree for Tree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
+        // Set range tombstones BEFORE writing KV items so that if MultiWriter
+        // rotates to a new table during the write loop, earlier tables already
+        // carry the RT metadata.
+        table_writer.set_range_tombstones(range_tombstones);
+
         for item in stream {
             table_writer.write(item?)?;
         }
@@ -426,6 +434,9 @@ impl AbstractTree for Tree {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
+        // Return Some even when tables is empty (RT-only flush): the caller
+        // (AbstractTree::flush) handles empty tables by re-inserting RTs into
+        // the active memtable and still needs to delete sealed memtables.
         Ok(Some((tables, None)))
     }
 
@@ -681,6 +692,20 @@ impl AbstractTree for Tree {
         let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
+
+    fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64 {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let memtable = Arc::clone(
+            &self
+                .version_history
+                .read()
+                .expect("lock is poisoned")
+                .latest_version()
+                .active_memtable,
+        );
+
+        memtable.insert_range_tombstone(start.into(), end.into(), seqno)
+    }
 }
 
 impl Tree {
@@ -718,19 +743,95 @@ impl Tree {
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
+        // Search order: active → sealed → SST (newest first). A point
+        // tombstone in a newer source is authoritative — no older source
+        // can contain a newer value, so returning None is correct.
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
+            let Some(entry) = ignore_tombstone_value(entry) else {
+                return Ok(None);
+            };
+
+            // Check if any range tombstone suppresses this entry
+            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+                return Ok(None);
+            }
+            return Ok(Some(entry));
         }
 
         // Now look in sealed memtables
         if let Some(entry) =
             Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
         {
-            return Ok(ignore_tombstone_value(entry));
+            let Some(entry) = ignore_tombstone_value(entry) else {
+                return Ok(None);
+            };
+
+            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+                return Ok(None);
+            }
+            return Ok(Some(entry));
         }
 
         // Now look in tables... this may involve disk I/O
-        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
+        let entry = Self::get_internal_entry_from_tables(&super_version.version, key, seqno)?;
+
+        if let Some(entry) = entry {
+            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+                return Ok(None);
+            }
+            return Ok(Some(entry));
+        }
+
+        Ok(None)
+    }
+
+    /// Checks if a key at `key_seqno` is suppressed by any range tombstone
+    /// in the active memtable, sealed memtables, or SST tables, visible at `read_seqno`.
+    fn is_suppressed_by_range_tombstones(
+        super_version: &SuperVersion,
+        key: &[u8],
+        key_seqno: SeqNo,
+        read_seqno: SeqNo,
+    ) -> bool {
+        // Check active memtable range tombstones.
+        // Future optimization: skip lock when memtable has no RTs (atomic count).
+        if super_version
+            .active_memtable
+            .is_key_suppressed_by_range_tombstone(key, key_seqno, read_seqno)
+        {
+            return true;
+        }
+
+        // Check sealed memtable range tombstones
+        for mt in super_version.sealed_memtables.iter().rev() {
+            if mt.is_key_suppressed_by_range_tombstone(key, key_seqno, read_seqno) {
+                return true;
+            }
+        }
+
+        // Check SST table range tombstones.
+        //
+        // Flush/RT-only writes widen persisted table key ranges to include RT
+        // coverage, and compaction either clips RTs to the output table range
+        // or widens metadata in the inclusive-upper-bound fallback. That makes
+        // `metadata.key_range.contains_key(key)` a sound early reject here and
+        // avoids scanning RT blocks for unrelated SSTs on point reads.
+        for table in super_version
+            .version
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .flat_map(|run| run.iter())
+            .filter(|t| !t.range_tombstones().is_empty())
+            .filter(|t| t.metadata.key_range.contains_key(key))
+        {
+            for rt in table.range_tombstones() {
+                if rt.should_suppress(key, key_seqno, read_seqno) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn get_internal_entry_from_tables(
@@ -961,7 +1062,7 @@ impl Tree {
             let reader = sfa::Reader::new(&manifest_path)?;
             let manifest = Manifest::decode_from(&manifest_path, &reader)?;
 
-            if manifest.version != FormatVersion::V3 {
+            if !matches!(manifest.version, FormatVersion::V3 | FormatVersion::V4) {
                 return Err(crate::Error::InvalidVersion(manifest.version.into()));
             }
 

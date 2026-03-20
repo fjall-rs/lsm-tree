@@ -31,6 +31,7 @@ use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
     file_accessor::FileAccessor,
+    range_tombstone::RangeTombstone,
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -566,6 +567,23 @@ impl Table {
             None
         };
 
+        // Load range tombstones (if present)
+        let range_tombstones = if let Some(rt_handle) = regions.range_tombstones {
+            log::trace!("Loading range tombstone block, with rt_ptr={rt_handle:?}");
+            let block = Block::from_file(&file, rt_handle, crate::CompressionType::None)?;
+
+            if block.header.block_type != BlockType::RangeTombstone {
+                return Err(crate::Error::InvalidTag((
+                    "BlockType",
+                    block.header.block_type.into(),
+                )));
+            }
+
+            Self::decode_range_tombstones(&block)?
+        } else {
+            Vec::new()
+        };
+
         log::debug!(
             "Recovered table #{} from {}",
             metadata.id,
@@ -598,12 +616,93 @@ impl Table {
             metrics,
 
             cached_blob_bytes: std::sync::OnceLock::new(),
+            range_tombstones,
         })))
     }
 
     #[must_use]
     pub fn checksum(&self) -> Checksum {
         self.0.checksum
+    }
+
+    /// Decodes range tombstones from a raw block.
+    ///
+    /// Wire format (repeated): `[start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]`
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is malformed.
+    fn decode_range_tombstones(block: &Block) -> crate::Result<Vec<RangeTombstone>> {
+        use byteorder::{ReadBytesExt, LE};
+        use std::io::{Cursor, Read};
+
+        let mut tombstones = Vec::new();
+        let data = block.data.as_ref();
+        let mut cursor = Cursor::new(data);
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "block size always fits in usize"
+        )]
+        while (cursor.position() as usize) < data.len() {
+            let start_len = cursor
+                .read_u16::<LE>()
+                .map_err(|_| crate::Error::Unrecoverable)? as usize;
+
+            // Validate length against remaining data before allocating
+            let remaining = data.len() - cursor.position() as usize;
+            if start_len > remaining {
+                log::error!(
+                    "Range tombstone block: start_len {start_len} exceeds remaining {remaining}"
+                );
+                return Err(crate::Error::Unrecoverable);
+            }
+
+            let mut start_buf = vec![0u8; start_len];
+            cursor
+                .read_exact(&mut start_buf)
+                .map_err(|_| crate::Error::Unrecoverable)?;
+
+            let end_len = cursor
+                .read_u16::<LE>()
+                .map_err(|_| crate::Error::Unrecoverable)? as usize;
+
+            let remaining = data.len() - cursor.position() as usize;
+            if end_len > remaining {
+                log::error!(
+                    "Range tombstone block: end_len {end_len} exceeds remaining {remaining}"
+                );
+                return Err(crate::Error::Unrecoverable);
+            }
+
+            let mut end_buf = vec![0u8; end_len];
+            cursor
+                .read_exact(&mut end_buf)
+                .map_err(|_| crate::Error::Unrecoverable)?;
+
+            let seqno = cursor
+                .read_u64::<LE>()
+                .map_err(|_| crate::Error::Unrecoverable)?;
+
+            let start = UserKey::from(start_buf);
+            let end = UserKey::from(end_buf);
+
+            // Validate invariant: start < end (reject corrupted data)
+            if start >= end {
+                log::error!("Range tombstone block: invalid interval (start >= end)");
+                return Err(crate::Error::Unrecoverable);
+            }
+
+            tombstones.push(RangeTombstone::new(start, end, seqno));
+        }
+
+        Ok(tombstones)
+    }
+
+    /// Returns the range tombstones stored in this table.
+    #[must_use]
+    pub(crate) fn range_tombstones(&self) -> &[RangeTombstone] {
+        &self.0.range_tombstones
     }
 
     pub(crate) fn mark_as_deleted(&self) {

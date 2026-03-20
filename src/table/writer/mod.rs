@@ -14,6 +14,7 @@ use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
+    range_tombstone::RangeTombstone,
     table::{
         writer::{
             filter::{FilterWriter, FullFilterWriter},
@@ -91,6 +92,9 @@ pub struct Writer {
 
     linked_blob_files: Vec<LinkedFile>,
 
+    /// Range tombstones to be written as a separate block
+    range_tombstones: Vec<RangeTombstone>,
+
     initial_level: u8,
 }
 
@@ -140,6 +144,7 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+            range_tombstones: Vec::new(),
         })
     }
 
@@ -231,6 +236,13 @@ impl Writer {
         self.bloom_policy = bloom_policy;
         self.filter_writer = self.filter_writer.set_filter_policy(bloom_policy);
         self
+    }
+
+    /// Adds a range tombstone to be written into this table's RT block.
+    pub(crate) fn write_range_tombstone(&mut self, rt: RangeTombstone) {
+        self.meta.lowest_seqno = self.meta.lowest_seqno.min(rt.seqno);
+        self.meta.highest_seqno = self.meta.highest_seqno.max(rt.seqno);
+        self.range_tombstones.push(rt);
     }
 
     /// Writes an item.
@@ -373,10 +385,81 @@ impl Writer {
 
         self.spill_block()?;
 
-        // No items written! Just delete table file and return nothing
-        if self.meta.item_count == 0 {
+        // No items and no range tombstones — delete the empty table file.
+        if self.meta.item_count == 0 && self.range_tombstones.is_empty() {
             std::fs::remove_file(&self.path)?;
             return Ok(None);
+        }
+
+        // If we have range tombstones but no KV items, write a synthetic
+        // weak tombstone at the first RT's start key to produce a valid index.
+        // Preserve seqno bounds for real entries by saving/restoring metadata
+        // around the sentinel write. The sentinel uses the table's lowest RT
+        // seqno and should not influence user-visible metadata.
+        // Also ensure the table metadata key range covers all range tombstones.
+        if self.meta.item_count == 0 {
+            // Compute the coverage of all range tombstones.
+            let mut min_start: Option<UserKey> = None;
+            let mut max_end: Option<UserKey> = None;
+            let mut sentinel_start: Option<UserKey> = None;
+            let mut sentinel_seqno: Option<crate::SeqNo> = None;
+            for rt in &self.range_tombstones {
+                match &min_start {
+                    None => min_start = Some(rt.start.clone()),
+                    Some(cur_min) if rt.start < *cur_min => min_start = Some(rt.start.clone()),
+                    _ => {}
+                }
+                match &max_end {
+                    None => max_end = Some(rt.end.clone()),
+                    Some(cur_max) if rt.end > *cur_max => max_end = Some(rt.end.clone()),
+                    _ => {}
+                }
+
+                match (sentinel_seqno, &sentinel_start) {
+                    (None, _) => {
+                        sentinel_seqno = Some(rt.seqno);
+                        sentinel_start = Some(rt.start.clone());
+                    }
+                    (Some(cur_seqno), Some(cur_start))
+                        if rt.seqno < cur_seqno
+                            || (rt.seqno == cur_seqno && rt.start < *cur_start) =>
+                    {
+                        sentinel_seqno = Some(rt.seqno);
+                        sentinel_start = Some(rt.start.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            if let (Some(start), Some(end), Some(sentinel_key), Some(sentinel_seqno)) =
+                (min_start, max_end, sentinel_start, sentinel_seqno)
+            {
+                let saved_lo = self.meta.lowest_seqno;
+                let saved_hi = self.meta.highest_seqno;
+
+                // Write a sentinel key to force index block creation in RT-only
+                // tables. The sentinel must use the start key of the same
+                // tombstone that contributes the lowest seqno; otherwise it can
+                // become visible at a key that is not yet covered by any visible
+                // range tombstone and incorrectly mask older values.
+                self.write(InternalValue::new_weak_tombstone(
+                    sentinel_key,
+                    sentinel_seqno,
+                ))?;
+                self.spill_block()?;
+
+                // Restore seqno bounds — sentinel seqno is derived from RT
+                // metadata, not from user data, so it should not shift the
+                // table's seqno range. Item/key counts are NOT decremented:
+                // the sentinel IS an on-disk entry and counts must match
+                // actual block contents for consistency with recovery/tests.
+                self.meta.lowest_seqno = saved_lo;
+                self.meta.highest_seqno = saved_hi;
+
+                // Ensure the table's key range covers all range tombstones.
+                self.meta.first_key = Some(start);
+                self.meta.last_key = Some(end);
+            }
         }
 
         // Write index
@@ -386,6 +469,43 @@ impl Writer {
         // Write filter
         log::trace!("Finishing filter writer");
         let filter_block_count = self.filter_writer.finish(&mut self.file_writer)?;
+
+        // Write range tombstones block (if any)
+        if !self.range_tombstones.is_empty() {
+            use byteorder::{WriteBytesExt, LE};
+
+            self.file_writer.start("range_tombstones")?;
+
+            // Wire format (repeated): [start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]
+            self.block_buffer.clear();
+            for rt in &self.range_tombstones {
+                let start_len = u16::try_from(rt.start.len()).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "range tombstone start key length exceeds u16::MAX",
+                    )
+                })?;
+                let end_len = u16::try_from(rt.end.len()).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "range tombstone end key length exceeds u16::MAX",
+                    )
+                })?;
+
+                self.block_buffer.write_u16::<LE>(start_len)?;
+                self.block_buffer.extend_from_slice(&rt.start);
+                self.block_buffer.write_u16::<LE>(end_len)?;
+                self.block_buffer.extend_from_slice(&rt.end);
+                self.block_buffer.write_u64::<LE>(rt.seqno)?;
+            }
+
+            Block::write_into(
+                &mut self.file_writer,
+                &self.block_buffer,
+                crate::table::block::BlockType::RangeTombstone,
+                CompressionType::None,
+            )?;
+        }
 
         if !self.linked_blob_files.is_empty() {
             use byteorder::{WriteBytesExt, LE};
@@ -466,6 +586,10 @@ impl Writer {
                 meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
                 meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta(
+                    "range_tombstone_count",
+                    &(self.range_tombstones.len() as u64).to_le_bytes(),
+                ),
                 meta(
                     "restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),

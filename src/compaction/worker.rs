@@ -369,6 +369,16 @@ fn merge_tables(
         return Ok(());
     };
 
+    // Collect range tombstones from input tables before they are moved.
+    // Canonicalize to avoid duplicate RTs across input tables (MultiWriter
+    // rotation copies the same RT into every output table during flush).
+    let mut input_range_tombstones: Vec<crate::range_tombstone::RangeTombstone> = tables
+        .iter()
+        .flat_map(|t| t.range_tombstones().iter().cloned())
+        .collect();
+    input_range_tombstones.sort();
+    input_range_tombstones.dedup();
+
     let mut blob_frag_map = FragmentationMap::default();
 
     let Some(mut merge_iter) = create_compaction_stream(
@@ -384,11 +394,7 @@ fn merge_tables(
     };
 
     let dst_lvl = payload.canonical_level.into();
-    let last_level = opts.config.level_count - 1;
-
-    // NOTE: Only evict tombstones when reaching the last level,
-    // That way we don't resurrect data beneath the tombstone
-    let is_last_level = payload.dest_level == last_level;
+    let is_last_level = payload.dest_level == opts.config.level_count - 1;
 
     merge_iter = merge_iter
         .evict_tombstones(is_last_level)
@@ -489,6 +495,21 @@ fn merge_tables(
     drop(compaction_state);
 
     hidden_guard(payload, opts, || {
+        // Propagate range tombstones to output tables BEFORE writing KV items,
+        // so that if the compactor rotates tables during the merge loop,
+        // earlier tables already carry the RT metadata.
+        //
+        // Keep RTs even at the last level until compaction itself becomes
+        // RT-aware and can physically drop covered KVs. Dropping the RT first
+        // would only remove the logical delete marker and can resurrect data.
+        if !input_range_tombstones.is_empty() {
+            log::debug!(
+                "Propagating {} range tombstones to compaction output",
+                input_range_tombstones.len(),
+            );
+            compactor.write_range_tombstones(&input_range_tombstones);
+        }
+
         for (idx, item) in merge_iter.enumerate() {
             let item = item?;
 

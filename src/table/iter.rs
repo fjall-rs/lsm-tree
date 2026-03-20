@@ -119,9 +119,13 @@ pub struct Iter {
 }
 
 impl Iter {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "cfg(metrics) adds an extra parameter"
+    // cfg_attr: expect only fires when metrics feature adds the extra parameter
+    #[cfg_attr(
+        feature = "metrics",
+        expect(
+            clippy::too_many_arguments,
+            reason = "metrics adds the extra parameter; without that feature this stays at the lint threshold"
+        )
     )]
     pub fn new(
         table_id: GlobalTableId,
