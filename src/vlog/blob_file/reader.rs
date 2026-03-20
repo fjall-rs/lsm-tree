@@ -51,8 +51,7 @@ impl<'a> Reader<'a> {
         let _seqno = reader.read_u64::<LittleEndian>()?;
         let key_len = reader.read_u16::<LittleEndian>()?;
 
-        #[allow(unused, reason = "only used in feature flagged branch")]
-        let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
+        let real_val_len = reader.read_u32::<LittleEndian>()?;
 
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
@@ -95,6 +94,13 @@ impl<'a> Reader<'a> {
                 builder.freeze().into()
             }
         };
+
+        debug_assert_eq!(real_val_len, {
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
+            {
+                value.len() as u32
+            }
+        });
 
         Ok(value)
     }
