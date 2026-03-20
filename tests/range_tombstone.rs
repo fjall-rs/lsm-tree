@@ -988,8 +988,20 @@ fn range_tombstone_disjoint_survives_multiple_compactions() -> lsm_tree::Result<
 
 #[test]
 fn range_tombstone_multi_table_flush_keeps_newer_values_reachable() -> lsm_tree::Result<()> {
+    use lsm_tree::config::CompressionPolicy;
+    use lsm_tree::CompressionType;
+
     let folder = get_tmp_folder();
-    let tree = open_tree(folder.path());
+    // Disable compression: large repetitive payloads compress to almost nothing
+    // under lz4/zstd, preventing MultiWriter rotation and making the test flaky.
+    let tree = Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_compression_policy(CompressionPolicy::all(CompressionType::None))
+    .open()
+    .expect("should open");
 
     // Standard-tree flush uses a fixed 64 MiB MultiWriter target. Multiple
     // large early values force rotation before the later "y" write, reproducing
