@@ -328,6 +328,11 @@ impl TreeIter {
                 Err(_) => true,
             });
 
+            // Deduplicate: MultiWriter rotation copies the same RTs into each
+            // output table, so collected tombstones can contain duplicates.
+            all_range_tombstones.sort();
+            all_range_tombstones.dedup();
+
             // Fast path: skip filter wrapping when no tombstone is visible at this
             // read seqno. We collect RTs while building the iterator inputs to
             // avoid a separate pre-scan over every memtable and SST.
