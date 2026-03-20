@@ -338,7 +338,11 @@ impl Default for IntervalTree {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, clippy::indexing_slicing)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "tests intentionally use direct unwraps and indexing for compact fixtures"
+)]
 mod tests {
     use super::*;
 
