@@ -1430,6 +1430,36 @@ fn table_global_seqno() -> crate::Result<()> {
     Ok(())
 }
 
+/// Build a Block from raw bytes for decode_range_tombstones tests.
+fn rt_block(data: Vec<u8>) -> Block {
+    let data_length = u32::try_from(data.len()).expect("test buffer fits in u32");
+    Block {
+        header: block::Header {
+            block_type: block::BlockType::RangeTombstone,
+            checksum: crate::Checksum::from_raw(0),
+            data_length,
+            uncompressed_length: data_length,
+        },
+        data: data.into(),
+    }
+}
+
+/// Assert decode_range_tombstones returns RangeTombstoneDecode with the given field.
+fn assert_rt_decode_error(data: Vec<u8>, expected_field: &str) {
+    let block = rt_block(data);
+    match Table::decode_range_tombstones(&block) {
+        Err(crate::Error::RangeTombstoneDecode { field, .. }) => {
+            assert_eq!(
+                field, expected_field,
+                "expected field '{expected_field}', got '{field}'"
+            );
+        }
+        other => panic!(
+            "expected RangeTombstoneDecode {{ field: \"{expected_field}\" }}, got: {other:?}"
+        ),
+    }
+}
+
 #[test]
 #[expect(clippy::unwrap_used)]
 fn decode_range_tombstones_invalid_interval_returns_error() {
@@ -1437,31 +1467,83 @@ fn decode_range_tombstones_invalid_interval_returns_error() {
 
     // Build a single tombstone where start ("z") >= end ("a")
     let mut buf = Vec::new();
-    let start = b"z";
-    let end = b"a";
-    let seqno: u64 = 1;
+    buf.write_u16::<LE>(1).unwrap(); // start_len
+    buf.extend_from_slice(b"z");
+    buf.write_u16::<LE>(1).unwrap(); // end_len
+    buf.extend_from_slice(b"a");
+    buf.write_u64::<LE>(1).unwrap(); // seqno
 
-    buf.write_u16::<LE>(start.len() as u16).unwrap();
-    buf.extend_from_slice(start);
-    buf.write_u16::<LE>(end.len() as u16).unwrap();
-    buf.extend_from_slice(end);
-    buf.write_u64::<LE>(seqno).unwrap();
+    assert_rt_decode_error(buf, "interval");
+}
 
-    let data_length = u32::try_from(buf.len()).expect("test buffer fits in u32");
-    let block = Block {
-        header: block::Header {
-            block_type: block::BlockType::RangeTombstone,
-            checksum: crate::Checksum::from_raw(0),
-            data_length,
-            uncompressed_length: data_length,
-        },
-        data: buf.into(),
-    };
+#[test]
+fn decode_range_tombstones_truncated_start_len_returns_error() {
+    // Only 1 byte — not enough for u16 start_len
+    assert_rt_decode_error(vec![0x01], "start_len");
+}
 
-    match Table::decode_range_tombstones(&block) {
-        Err(crate::Error::RangeTombstoneDecode {
-            field: "interval", ..
-        }) => {}
-        other => panic!("expected RangeTombstoneDecode {{ field: \"interval\" }}, got: {other:?}"),
-    }
+#[test]
+fn decode_range_tombstones_empty_block_returns_ok() {
+    // Empty block has no tombstones — should succeed with empty vec
+    let block = rt_block(Vec::new());
+    let result = Table::decode_range_tombstones(&block).expect("empty block should decode");
+    assert!(result.is_empty());
+}
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn decode_range_tombstones_start_len_exceeds_remaining_returns_error() {
+    use byteorder::{WriteBytesExt, LE};
+
+    // start_len = 100 but only 1 byte of data follows
+    let mut buf = Vec::new();
+    buf.write_u16::<LE>(100).unwrap();
+    buf.push(0xFF);
+
+    assert_rt_decode_error(buf, "start_len");
+}
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn decode_range_tombstones_truncated_end_len_returns_error() {
+    use byteorder::{WriteBytesExt, LE};
+
+    // Valid start_len + start, then truncated before end_len completes
+    let mut buf = Vec::new();
+    buf.write_u16::<LE>(1).unwrap(); // start_len = 1
+    buf.push(b'a'); // start key
+    buf.push(0x01); // only 1 byte of end_len (need 2)
+
+    assert_rt_decode_error(buf, "end_len");
+}
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn decode_range_tombstones_end_len_exceeds_remaining_returns_error() {
+    use byteorder::{WriteBytesExt, LE};
+
+    // Valid start, then end_len = 100 but only 1 byte follows
+    let mut buf = Vec::new();
+    buf.write_u16::<LE>(1).unwrap(); // start_len
+    buf.push(b'a'); // start key
+    buf.write_u16::<LE>(100).unwrap(); // end_len = 100
+    buf.push(0xFF); // only 1 byte
+
+    assert_rt_decode_error(buf, "end_len");
+}
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn decode_range_tombstones_truncated_seqno_returns_error() {
+    use byteorder::{WriteBytesExt, LE};
+
+    // Valid start + end, but seqno truncated (only 4 of 8 bytes)
+    let mut buf = Vec::new();
+    buf.write_u16::<LE>(1).unwrap(); // start_len
+    buf.push(b'a'); // start key
+    buf.write_u16::<LE>(1).unwrap(); // end_len
+    buf.push(b'z'); // end key
+    buf.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // 4 bytes of seqno (need 8)
+
+    assert_rt_decode_error(buf, "seqno");
 }
