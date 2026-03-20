@@ -634,7 +634,7 @@ impl Table {
     /// Will return `Err` if the block data is malformed.
     fn decode_range_tombstones(block: &Block) -> crate::Result<Vec<RangeTombstone>> {
         use byteorder::{ReadBytesExt, LE};
-        use std::io::{Cursor, Read};
+        use std::io::Cursor;
 
         let mut tombstones = Vec::new();
         let data = block.data.as_ref();
@@ -666,14 +666,10 @@ impl Table {
                 });
             }
 
-            let mut start_buf = vec![0u8; start_len];
-            let offset = cursor.position();
-            cursor
-                .read_exact(&mut start_buf)
-                .map_err(|_| crate::Error::RangeTombstoneDecode {
-                    field: "start_buf",
-                    offset,
-                })?;
+            // Bounds already validated: start_len <= remaining
+            let pos = cursor.position() as usize;
+            let start_buf = data[pos..pos + start_len].to_vec();
+            cursor.set_position((pos + start_len) as u64);
 
             let offset = cursor.position();
             let end_len =
@@ -695,14 +691,10 @@ impl Table {
                 });
             }
 
-            let mut end_buf = vec![0u8; end_len];
-            let offset = cursor.position();
-            cursor
-                .read_exact(&mut end_buf)
-                .map_err(|_| crate::Error::RangeTombstoneDecode {
-                    field: "end_buf",
-                    offset,
-                })?;
+            // Bounds already validated: end_len <= remaining
+            let pos = cursor.position() as usize;
+            let end_buf = data[pos..pos + end_len].to_vec();
+            cursor.set_position((pos + end_len) as u64);
 
             let offset = cursor.position();
             let seqno =
