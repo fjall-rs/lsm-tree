@@ -843,13 +843,51 @@ impl Tree {
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
 
-        for table in version
-            .iter_levels()
-            .flat_map(|lvl| lvl.iter())
-            .filter_map(|run| run.get_for_key(key))
-        {
-            if let Some(item) = table.get(key, seqno, key_hash)? {
-                return Ok(ignore_tombstone_value(item));
+        // L0: optimize_runs may merge disjoint SSTs from different temporal
+        // epochs into the same run, so run iteration order does not guarantee
+        // newest-first. We must check ALL runs and keep the highest seqno.
+        //
+        // L1+: key ranges within a level do not overlap, so at most one run
+        // can contain the key — return on the first match.
+        //
+        // Once a level yields a match, lower levels cannot contain newer data,
+        // so we stop early.
+        for (level_idx, level) in version.iter_levels().enumerate() {
+            if level_idx == 0 {
+                let mut best: Option<InternalValue> = None;
+
+                for run in level.iter() {
+                    if let Some(table) = run.get_for_key(key) {
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                            match &best {
+                                // >= keeps first-seen on tie. Seqno is monotonically
+                                // unique per write; equal seqno for the same user key
+                                // across tables is impossible in normal operation.
+                                Some(current) if current.key.seqno >= item.key.seqno => {}
+                                _ => {
+                                    // Short-circuit: seqno is the read horizon, so no
+                                    // other run in this level can have a higher one.
+                                    if item.key.seqno == seqno {
+                                        return Ok(ignore_tombstone_value(item));
+                                    }
+                                    best = Some(item);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(entry) = best {
+                    return Ok(ignore_tombstone_value(entry));
+                }
+            } else {
+                for run in level.iter() {
+                    if let Some(table) = run.get_for_key(key) {
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                    }
+                }
             }
         }
 
