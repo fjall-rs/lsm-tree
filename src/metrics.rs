@@ -133,27 +133,27 @@ impl Metrics {
             + self.range_tombstone_block_load_io.load(Relaxed)
     }
 
-    /// Number of data blocks that were loaded from disk or OS page cache.
+    /// Number of data blocks that were served from block cache.
     pub fn data_block_load_cached_count(&self) -> usize {
         self.data_block_load_cached.load(Relaxed)
     }
 
-    /// Number of index blocks that were loaded from disk or OS page cache.
+    /// Number of index blocks that were served from block cache.
     pub fn index_block_load_cached_count(&self) -> usize {
         self.index_block_load_cached.load(Relaxed)
     }
 
-    /// Number of filter blocks that were loaded from disk or OS page cache.
+    /// Number of filter blocks that were served from block cache.
     pub fn filter_block_load_cached_count(&self) -> usize {
         self.filter_block_load_cached.load(Relaxed)
     }
 
-    /// Number of range tombstone blocks that were loaded from block cache.
+    /// Number of range tombstone blocks that were served from block cache.
     pub fn range_tombstone_block_load_cached_count(&self) -> usize {
         self.range_tombstone_block_load_cached.load(Relaxed)
     }
 
-    /// Number of blocks that were loaded from disk or OS page cache.
+    /// Number of blocks that were served from block cache.
     pub fn block_load_cached_count(&self) -> usize {
         self.data_block_load_cached.load(Relaxed)
             + self.index_block_load_cached.load(Relaxed)
