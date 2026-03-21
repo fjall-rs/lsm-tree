@@ -667,7 +667,8 @@ impl Table {
                 });
             }
 
-            // Bounds already validated: start_len <= remaining
+            // Bounds already validated: start_len <= remaining.
+            // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
             let pos = cursor.position() as usize;
             let start_buf = data
                 .get(pos..pos + start_len)
@@ -698,7 +699,8 @@ impl Table {
                 });
             }
 
-            // Bounds already validated: end_len <= remaining
+            // Bounds already validated: end_len <= remaining.
+            // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
             let pos = cursor.position() as usize;
             let end_buf = data
                 .get(pos..pos + end_len)
