@@ -312,22 +312,22 @@ mod tests {
         let mt = Memtable::new(0);
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
 
-        // Barrier synchronises the "guard held" rendezvous. A one-way mpsc
-        // channel releases the holder: if the main thread panics, the sender
-        // is dropped, recv() returns Err, and the spawned thread unblocks —
-        // so thread::scope can join without hanging.
-        let barrier = Barrier::new(2);
+        // Two one-way channels avoid Barrier entirely — if either side
+        // panics, the sender drops and recv() returns Err, unblocking the
+        // peer so thread::scope can join without hanging.
+        let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
         let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let rt_ref = &mt.range_tombstones;
-        let barrier_ref = &barrier;
         std::thread::scope(|s| {
             s.spawn(move || {
                 let _guard = rt_ref.read().expect("lock is poisoned");
-                barrier_ref.wait(); // signal: guard held
-                let _ = release_rx.recv(); // sender drop also releases on unwind
+                let _ = held_tx.send(()); // signal: guard held
+                let _ = release_rx.recv(); // wait: main thread done
             });
 
-            barrier.wait(); // wait: guard is held in spawned thread
+            held_rx
+                .recv()
+                .expect("spawned thread panicked before acquiring guard");
             let guard2 = mt.range_tombstones.try_read();
             assert!(
                 guard2.is_ok(),
