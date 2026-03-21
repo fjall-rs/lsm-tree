@@ -379,7 +379,9 @@ mod tests {
     #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn range_tombstones_concurrent_read_write_writers_observable() {
         let mt = Arc::new(Memtable::new(0));
-        // 4 readers + 2 writers = 6 (main thread does not wait on the barrier)
+        // Barrier ensures all 6 threads start simultaneously; with 4 readers ×
+        // 500 iterations and 2 writers × 100 inserts they inevitably overlap.
+        // Post-join suppression asserts confirm writers completed successfully.
         let start = Arc::new(Barrier::new(6));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"m".to_vec().into(), 10);
