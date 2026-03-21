@@ -858,7 +858,14 @@ impl Tree {
                     if let Some(item) = table.get(key, seqno, key_hash)? {
                         match &best {
                             Some(current) if current.key.seqno >= item.key.seqno => {}
-                            _ => best = Some(item),
+                            _ => {
+                                // Short-circuit: seqno is the read horizon, so no
+                                // other run in this level can have a higher one.
+                                if item.key.seqno == seqno {
+                                    return Ok(ignore_tombstone_value(item));
+                                }
+                                best = Some(item);
+                            }
                         }
                     }
                 }

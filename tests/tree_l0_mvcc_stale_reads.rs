@@ -2,14 +2,15 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-//! Regression tests for issue #52: L0 MVCC stale reads when active memtable
-//! is non-empty.
+//! Regression tests for issue #52: L0 MVCC stale reads caused by L0 run
+//! reordering, with or without an active memtable.
 //!
 //! When optimize_runs merges disjoint SSTs from different temporal epochs into
 //! one run, the point read path may find a stale entry from an older run before
-//! reaching the newer entry in a merged run. These tests verify that
-//! get_internal_entry_from_tables always returns the entry with the highest
-//! visible seqno across all L0 runs.
+//! reaching the newer entry in a merged run, depending on how L0 runs are
+//! ordered and probed. These tests (both with and without active memtable
+//! data) verify that get_internal_entry_from_tables always returns the entry
+//! with the highest visible seqno across all L0 runs.
 
 use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
@@ -88,7 +89,7 @@ fn regression_three_ssts_plus_memtable() -> lsm_tree::Result<()> {
     tree.insert("c", "c1", 5);
 
     assert_eq!(
-        &*tree.get("a", 6)?.unwrap(),
+        &*tree.get("a", 6)?.expect("key=a should exist at seqno 6"),
         b"v3",
         "key=a should return newest value v3 from SST-3"
     );
