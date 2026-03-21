@@ -673,7 +673,7 @@ impl Table {
             let start_buf = data
                 .get(pos..pos + start_len)
                 .ok_or(crate::Error::RangeTombstoneDecode {
-                    field: "start_buf",
+                    field: "start",
                     offset: pos as u64,
                 })?
                 .to_vec();
@@ -705,7 +705,7 @@ impl Table {
             let end_buf = data
                 .get(pos..pos + end_len)
                 .ok_or(crate::Error::RangeTombstoneDecode {
-                    field: "end_buf",
+                    field: "end",
                     offset: pos as u64,
                 })?
                 .to_vec();

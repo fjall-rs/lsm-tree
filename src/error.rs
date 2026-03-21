@@ -54,11 +54,8 @@ pub enum Error {
     Utf8(std::str::Utf8Error),
 
     /// Range tombstone block decode failure.
-    ///
-    /// Both fields are accessible via pattern matching (enum variant fields
-    /// are inherently public in Rust).
     RangeTombstoneDecode {
-        /// Which wire-format field failed (e.g. `start_len`, `end_buf`, `seqno`)
+        /// Which wire-format field failed (e.g. `start_len`, `start`, `seqno`)
         field: &'static str,
 
         /// Byte offset within the block to the start of the field whose decoding failed
