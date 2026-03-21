@@ -300,29 +300,28 @@ mod tests {
 
     #[test]
     fn rwlock_read_while_read_held_succeeds() {
-        let mt = Arc::new(Memtable::new(0));
+        let mt = Memtable::new(0);
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
 
-        // Barrier ensures both threads are alive and the read guards overlap.
-        let start = Arc::new(Barrier::new(2));
-        let mt2 = Arc::clone(&mt);
-        let start2 = Arc::clone(&start);
-        let holder = std::thread::spawn(move || {
-            let guard1 = mt2.range_tombstones.read().expect("lock is poisoned");
-            start2.wait(); // signal: guard held
-            start2.wait(); // wait: other thread verified try_read
-            drop(guard1);
-        });
+        // std::thread::scope joins all spawned threads on drop, even during
+        // unwinding, so a panic in the assert cannot leave the holder blocked.
+        let barrier = Barrier::new(2);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _guard = mt.range_tombstones.read().expect("lock is poisoned");
+                barrier.wait(); // signal: guard held
+                barrier.wait(); // wait: main thread verified try_read
+            });
 
-        start.wait(); // wait: guard is held in other thread
-        let guard2 = mt.range_tombstones.try_read();
-        assert!(
-            guard2.is_ok(),
-            "second read lock must succeed while first is held"
-        );
-        drop(guard2);
-        start.wait(); // signal: done, let holder drop guard
-        holder.join().expect("reader thread panicked");
+            barrier.wait(); // wait: guard is held in spawned thread
+            let guard2 = mt.range_tombstones.try_read();
+            assert!(
+                guard2.is_ok(),
+                "second read lock must succeed while first is held"
+            );
+            drop(guard2);
+            barrier.wait(); // signal: done, let spawned thread drop guard
+        });
     }
 
     #[test]
