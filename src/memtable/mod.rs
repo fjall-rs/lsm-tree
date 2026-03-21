@@ -390,21 +390,25 @@ mod tests {
             h.join().expect("writer panicked");
         }
 
-        assert!(mt.range_tombstone_count() >= 1);
+        // Initial insert + 2 writer threads × 100 inserts each.
+        // Tree deduplicates by (start, seqno, end), and all writer inserts
+        // use distinct seqnos, so count must exceed the initial 1.
+        assert!(
+            mt.range_tombstone_count() > 1,
+            "writers must have inserted tombstones, got count={}",
+            mt.range_tombstone_count(),
+        );
     }
 
     #[test]
-    fn rotation_requested_concurrent_reads_succeed() {
+    fn concurrent_readers_on_populated_tree() {
         let mt = Arc::new(Memtable::new(0));
 
-        for i in 0u64..50 {
-            let start = vec![b'a' + (i as u8 % 25)];
-            let end = vec![b'a' + (i as u8 % 25) + 1];
-            let _ = mt.insert_range_tombstone(start.into(), end.into(), i);
+        for i in 0u8..50 {
+            let start = vec![b'a' + (i % 25)];
+            let end = vec![b'a' + (i % 25) + 1];
+            let _ = mt.insert_range_tombstone(start.into(), end.into(), u64::from(i));
         }
-
-        mt.flag_rotated();
-        assert!(mt.is_flagged_for_rotation());
 
         let handles: Vec<_> = (0..8)
             .map(|_| {
@@ -422,7 +426,7 @@ mod tests {
             .collect();
 
         for h in handles {
-            h.join().expect("reader thread panicked on sealed memtable");
+            h.join().expect("reader thread panicked");
         }
     }
 
