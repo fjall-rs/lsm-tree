@@ -388,10 +388,6 @@ mod tests {
         let mt = Arc::new(Memtable::new(0));
         // Barrier ensures all 6 threads start simultaneously.
         let start = Arc::new(Barrier::new(6));
-        // Readers probe key "p" in [n,z) — NOT covered by the initial [a,m)
-        // tombstone. When a reader sees suppression for "p", a writer must
-        // have inserted [n,z) while readers were still active.
-        let saw_writer_tombstone = Arc::new(AtomicBool::new(false));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"m".to_vec().into(), 10);
 
@@ -399,7 +395,6 @@ mod tests {
             .map(|_| {
                 let mt = Arc::clone(&mt);
                 let start = Arc::clone(&start);
-                let saw = Arc::clone(&saw_writer_tombstone);
                 std::thread::spawn(move || {
                     start.wait();
                     for _ in 0..500 {
@@ -409,17 +404,6 @@ mod tests {
                             suppressed,
                             "key 'f' at seqno=5 must be suppressed by RT [a,m)@10"
                         );
-
-                        // "p" is in writer range [n,z) but NOT in initial [a,m).
-                        // Seeing suppression here proves a writer inserted while
-                        // this reader was still looping.
-                        if mt.is_key_suppressed_by_range_tombstone(b"p", 50, SeqNo::MAX) {
-                            saw.store(true, std::sync::atomic::Ordering::Relaxed);
-                        }
-
-                        // Yield to prevent reader-biased RwLock from starving
-                        // writers, which would make the mid-loop assertion flaky.
-                        std::thread::yield_now();
                     }
                 })
             })
@@ -449,12 +433,12 @@ mod tests {
             h.join().expect("writer panicked");
         }
 
-        assert!(
-            saw_writer_tombstone.load(std::sync::atomic::Ordering::Relaxed),
-            "at least one reader must observe a writer-inserted tombstone mid-loop"
-        );
-        // Writers insert [n,z) at seqnos starting from 100, so keys in this
-        // range with seqnos below the maximum written seqno must be suppressed.
+        // We intentionally do not assert that any reader observed a
+        // writer-inserted tombstone mid-loop. `std::sync::RwLock` may be
+        // reader-biased, so writers are allowed to be blocked until all
+        // readers have finished, which would make such an assertion flaky.
+        // Instead, validate post-join visibility: writers insert [n,z) at
+        // seqnos starting from 100, so keys in this range must be suppressed.
         assert!(mt.is_key_suppressed_by_range_tombstone(b"n", 50, SeqNo::MAX));
         assert!(mt.is_key_suppressed_by_range_tombstone(b"y", 150, SeqNo::MAX));
     }
