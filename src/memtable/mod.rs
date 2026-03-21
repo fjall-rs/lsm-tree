@@ -36,6 +36,11 @@ pub struct Memtable {
     /// `requested_rotation`, the interval tree is treated as read-only by convention,
     /// and only readers are expected to access this field (the `RwLock` is still used
     /// for synchronization, but there should be no further writes).
+    ///
+    /// `std::sync::RwLock` may be reader-biased on some platforms, but writer
+    /// starvation is not a concern here: range deletes are rare, the write-side
+    /// critical section is O(log n) with n typically small, and the memtable
+    /// rotates (becoming read-only) well before contention could accumulate.
     pub(crate) range_tombstones: RwLock<interval_tree::IntervalTree>,
 
     /// Approximate active memtable size.
