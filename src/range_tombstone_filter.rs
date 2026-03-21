@@ -42,7 +42,8 @@ impl<I> RangeTombstoneFilter<I> {
     /// created for reverse iteration.
     #[must_use]
     pub fn new(inner: I, mut fwd_tombstones: Vec<(RangeTombstone, SeqNo)>) -> Self {
-        // Sort by RT natural order (start asc, seqno desc, end asc)
+        // Sort by RT natural order (start asc, seqno desc, end asc).
+        // Callers may pre-sort for dedup; re-sorting is O(n) on sorted input.
         fwd_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Build reverse-sorted copy: (end desc, seqno desc)

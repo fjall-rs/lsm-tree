@@ -39,7 +39,10 @@ fn build_ephemeral(kvs: &[(&[u8], &[u8], u64)], rts: &[(&[u8], &[u8], u64)]) -> 
         ));
     }
     for &(start, end, seqno) in rts {
-        let _ = mt.insert_range_tombstone(UserKey::from(start), UserKey::from(end), seqno);
+        assert!(
+            mt.insert_range_tombstone(UserKey::from(start), UserKey::from(end), seqno) > 0,
+            "insert_range_tombstone returned 0 (rejected)",
+        );
     }
     mt
 }
