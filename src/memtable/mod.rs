@@ -294,7 +294,24 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn concurrent_suppression_queries_do_not_block_each_other() {
+    fn rwlock_allows_concurrent_readers() {
+        let mt = Memtable::new(0);
+        let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
+
+        // Hold one read guard open and verify a second reader can acquire
+        // concurrently — this would deadlock or fail with a Mutex.
+        let guard1 = mt.range_tombstones.read().expect("lock is poisoned");
+        let guard2 = mt.range_tombstones.try_read();
+        assert!(
+            guard2.is_ok(),
+            "second read lock must succeed while first is held"
+        );
+        drop(guard2);
+        drop(guard1);
+    }
+
+    #[test]
+    fn concurrent_suppression_queries_run_without_panic() {
         let mt = Arc::new(Memtable::new(0));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
@@ -377,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn sealed_memtable_concurrent_reads_no_contention() {
+    fn rotation_requested_concurrent_reads_succeed() {
         let mt = Arc::new(Memtable::new(0));
 
         for i in 0u64..50 {
