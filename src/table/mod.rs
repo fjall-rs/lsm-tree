@@ -672,7 +672,7 @@ impl Table {
                 .get(pos..pos + start_len)
                 .ok_or(crate::Error::RangeTombstoneDecode {
                     field: "start_buf",
-                    offset,
+                    offset: pos as u64,
                 })?
                 .to_vec();
             cursor.set_position((pos + start_len) as u64);
@@ -703,7 +703,7 @@ impl Table {
                 .get(pos..pos + end_len)
                 .ok_or(crate::Error::RangeTombstoneDecode {
                     field: "end_buf",
-                    offset,
+                    offset: pos as u64,
                 })?
                 .to_vec();
             cursor.set_position((pos + end_len) as u64);
