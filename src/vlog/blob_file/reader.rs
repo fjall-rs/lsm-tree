@@ -24,7 +24,7 @@ const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
-    io::{Cursor, Read, Seek},
+    io::{Cursor, Read},
 };
 
 /// Reads a single blob from a blob file
@@ -108,10 +108,17 @@ impl<'a> Reader<'a> {
             });
         }
 
-        // NOTE: This seek is a no-op for the current code path (raw_data is sliced
-        // from `value` by offset, not read via `reader`), but kept to maintain the
-        // cursor position in case future code reads further fields after the key.
-        reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
+        // Zero-copy view of the on-disk key bytes for checksum and cross-check.
+        // The full blob record is already in `value`, so slicing avoids an extra
+        // allocation vs UserKey::from_reader (upstream #277).
+        let on_disk_key = value.slice(BLOB_HEADER_LEN..BLOB_HEADER_LEN + key_len as usize);
+
+        // Ensure the stored key bytes exactly match the caller-provided key.
+        // This protects against handles that point at a different key with the
+        // same length (e.g., due to corruption or misuse).
+        if on_disk_key != key {
+            return Err(crate::Error::InvalidHeader("Blob"));
+        }
 
         #[expect(
             clippy::cast_possible_truncation,
@@ -120,14 +127,12 @@ impl<'a> Reader<'a> {
         let raw_data = value.slice((add_size as usize)..);
 
         {
-            // NOTE: Checksum is computed over the caller-provided key (not the on-disk
-            // key bytes). This matches the writer, which hashes caller key + value.
-            // On-disk key corruption is caught by the key_len cross-check above;
-            // content-level key verification would require changing the checksum
-            // contract and is out of scope for this security hardening.
+            // Checksum covers on-disk key + raw value data (upstream #277).
+            // Key corruption is caught by the explicit cross-check above;
+            // checksum catches value/payload corruption.
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
-                hasher.update(key);
+                hasher.update(&on_disk_key);
                 hasher.update(&raw_data);
                 hasher.digest128()
             };
@@ -180,6 +185,8 @@ impl<'a> Reader<'a> {
                 UserValue::from(decompressed)
             }
         };
+
+        debug_assert_eq!(real_val_len, value.len());
 
         Ok(value)
     }
@@ -470,6 +477,223 @@ mod tests {
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
         assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
+
+        Ok(())
+    }
+
+    /// Tamper on-disk key bytes and verify two detection layers:
+    /// 1. Original caller key → InvalidHeader from cross-check (fast path)
+    /// 2. Tampered key as caller → ChecksumMismatch (checksum path, upstream #277)
+    #[test]
+    fn blob_reader_corrupted_on_disk_key_detected_by_cross_check_and_checksum() -> crate::Result<()>
+    {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"abc", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Tamper on-disk key bytes.
+        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + OnDiskValLen(4) = 38
+        // Key starts at offset 38 from blob start.
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        raw[key_offset] ^= 0xFF; // flip bits in first key byte
+        let corrupted_key = raw[key_offset..key_offset + 3].to_vec();
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // Layer 1: original caller key vs tampered on-disk key → InvalidHeader
+        let result = reader.get(b"abc", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader(Blob) from key cross-check, got: {result:?}",
+        );
+
+        // Layer 2: pass the tampered key as caller so cross-check passes,
+        // but checksum (computed over tampered key + value) won't match the
+        // stored checksum (computed over original key + value).
+        let result = reader.get(&corrupted_key, &handle);
+        assert!(
+            matches!(result, Err(crate::Error::ChecksumMismatch { .. })),
+            "expected ChecksumMismatch for tampered on-disk key, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Verify that reading a blob with a caller key that differs from the
+    /// stored key (same length, different bytes) is rejected.
+    #[test]
+    fn blob_reader_wrong_caller_key_same_length_returns_invalid_header() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"aaa", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // Correct key works
+        assert_eq!(reader.get(b"aaa", &handle)?, b"value");
+
+        // Wrong key with same length → InvalidHeader from cross-check
+        let result = reader.get(b"bbb", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader(Blob) for wrong caller key, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Wrong caller key with different length is caught by the key_len
+    /// cross-check (header field vs caller key length) before the on-disk
+    /// key bytes are even read.
+    #[test]
+    fn blob_reader_wrong_caller_key_different_length_returns_invalid_header() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"abc", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // Shorter key
+        let result = reader.get(b"ab", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader for shorter key, got: {result:?}",
+        );
+
+        // Longer key
+        let result = reader.get(b"abcd", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader for longer key, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Tamper the value payload bytes (after the key) and verify the checksum
+    /// catches the corruption. This validates the end-to-end checksum path
+    /// for uncompressed blobs.
+    #[test]
+    fn blob_reader_corrupted_value_payload_triggers_checksum_mismatch() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"key", 0, b"payload_data")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Value payload starts after header + key: offset + BLOB_HEADER_LEN + key_len
+        let payload_offset = handle.offset as usize + BLOB_HEADER_LEN + b"key".len();
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        raw[payload_offset] ^= 0xFF; // flip bits in first value byte
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"key", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::ChecksumMismatch { .. })),
+            "expected ChecksumMismatch for corrupted value, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Tamper on-disk key bytes in an lz4-compressed blob and verify the
+    /// cross-check catches the corruption before decompression runs.
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_reader_corrupted_on_disk_key_lz4_returns_invalid_header() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Lz4);
+
+        let handle = writer.write(b"abc", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        raw[key_offset] ^= 0xFF;
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"abc", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader for corrupted lz4 key, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Tamper on-disk key bytes in a zstd-compressed blob and verify the
+    /// cross-check catches the corruption before decompression runs.
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn blob_reader_corrupted_on_disk_key_zstd_returns_invalid_header() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Zstd(3));
+
+        let handle = writer.write(b"abc", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        raw[key_offset] ^= 0xFF;
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"abc", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader for corrupted zstd key, got: {result:?}",
+        );
 
         Ok(())
     }
