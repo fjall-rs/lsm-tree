@@ -645,7 +645,8 @@ impl Table {
             reason = "block size always fits in usize"
         )]
         while (cursor.position() as usize) < data.len() {
-            let offset = cursor.position();
+            let entry_offset = cursor.position();
+            let offset = entry_offset;
             let start_len =
                 cursor
                     .read_u16::<LE>()
@@ -725,7 +726,7 @@ impl Table {
                 log::error!("Range tombstone block: invalid interval (start >= end)");
                 return Err(crate::Error::RangeTombstoneDecode {
                     field: "interval",
-                    offset: cursor.position(),
+                    offset: entry_offset,
                 });
             }
 
