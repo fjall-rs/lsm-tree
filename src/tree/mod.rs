@@ -857,6 +857,9 @@ impl Tree {
                 if let Some(table) = run.get_for_key(key) {
                     if let Some(item) = table.get(key, seqno, key_hash)? {
                         match &best {
+                            // Tie on seqno (>=) is fine: each write gets a unique
+                            // monotonic seqno, so two entries for the same user key
+                            // with equal seqno in different tables cannot occur.
                             Some(current) if current.key.seqno >= item.key.seqno => {}
                             _ => {
                                 // Short-circuit: seqno is the read horizon, so no
