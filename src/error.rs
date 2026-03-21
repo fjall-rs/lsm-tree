@@ -55,7 +55,7 @@ pub enum Error {
 
     /// Range tombstone block decode failure.
     RangeTombstoneDecode {
-        /// Which wire-format field failed (e.g. `start_len`, `start`, `seqno`)
+        /// Which field or validation failed (e.g. `start_len`, `start`, `seqno`, `interval`)
         field: &'static str,
 
         /// Byte offset within the block to the start of the field whose decoding failed
