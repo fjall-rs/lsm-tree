@@ -342,7 +342,8 @@ impl TreeIter {
             all_range_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
             all_range_tombstones.dedup_by(|a, b| {
                 if a.0 == b.0 {
-                    // b is the element that survives; keep the higher cutoff
+                    // dedup_by passes (a=later, b=earlier); b survives, a is
+                    // removed.  Merge a's cutoff into the surviving b.
                     b.1 = b.1.max(a.1);
                     true
                 } else {
