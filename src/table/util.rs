@@ -60,9 +60,12 @@ pub fn load_block(
             BlockType::Index => {
                 metrics.index_block_load_cached.fetch_add(1, Relaxed);
             }
-            // TODO(#34): RangeTombstone counted under data_block metrics — add
-            // dedicated range_tombstone_block_load_cached/miss counters
-            BlockType::Data | BlockType::Meta | BlockType::RangeTombstone => {
+            BlockType::RangeTombstone => {
+                metrics
+                    .range_tombstone_block_load_cached
+                    .fetch_add(1, Relaxed);
+            }
+            BlockType::Data | BlockType::Meta => {
                 metrics.data_block_load_cached.fetch_add(1, Relaxed);
             }
         }
@@ -109,8 +112,14 @@ pub fn load_block(
                 .index_block_io_requested
                 .fetch_add(handle.size().into(), Relaxed);
         }
-        // TODO(#34): same as above — RangeTombstone uses data_block IO counters
-        BlockType::Data | BlockType::Meta | BlockType::RangeTombstone => {
+        BlockType::RangeTombstone => {
+            metrics.range_tombstone_block_load_io.fetch_add(1, Relaxed);
+
+            metrics
+                .range_tombstone_block_io_requested
+                .fetch_add(handle.size().into(), Relaxed);
+        }
+        BlockType::Data | BlockType::Meta => {
             metrics.data_block_load_io.fetch_add(1, Relaxed);
 
             metrics
