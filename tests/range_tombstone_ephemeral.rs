@@ -27,9 +27,12 @@ fn open_tree(path: &std::path::Path) -> AnyTree {
     .expect("should open")
 }
 
+/// Arbitrary ID for ephemeral memtables in tests (distinct from tree-managed IDs).
+const EPHEMERAL_MT_ID: lsm_tree::MemtableId = 999;
+
 /// Build an ephemeral memtable with the given KVs and range tombstones.
 fn build_ephemeral(kvs: &[(&[u8], &[u8], u64)], rts: &[(&[u8], &[u8], u64)]) -> Arc<Memtable> {
-    let mt = Arc::new(Memtable::new(999));
+    let mt = Arc::new(Memtable::new(EPHEMERAL_MT_ID));
     for &(key, val, seqno) in kvs {
         mt.insert(lsm_tree::InternalValue::from_components(
             key,
@@ -118,7 +121,7 @@ fn ephemeral_rt_not_visible_at_eph_seqno_does_not_suppress_base_keys() -> lsm_tr
     let folder = get_tmp_folder();
     let tree = open_tree(folder.path());
 
-    // Base tree: keys a..e at seqno 1
+    // Base tree: keys a..d at seqno 1
     tree.insert("a", "v", 1);
     tree.insert("b", "v", 1);
     tree.insert("c", "v", 1);
