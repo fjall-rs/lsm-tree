@@ -1496,13 +1496,10 @@ fn decode_range_tombstones_truncated_start_len_returns_error() {
 }
 
 #[test]
-fn decode_range_tombstones_empty_block_returns_ok() {
-    // Empty block has no tombstones — should succeed with empty vec
-    let block = rt_block(Vec::new());
-    match Table::decode_range_tombstones(&block) {
-        Ok(tombstones) => assert!(tombstones.is_empty()),
-        Err(err) => panic!("empty block should decode, got error: {err}"),
-    }
+fn decode_range_tombstones_empty_block_returns_error() {
+    // Empty RT block payload is corruption — writer only creates an RT block
+    // handle when at least one tombstone exists.
+    assert_rt_decode_error_at(Vec::new(), "start_len", Some(0));
 }
 
 #[test]

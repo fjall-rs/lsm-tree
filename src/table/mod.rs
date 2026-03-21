@@ -642,6 +642,17 @@ impl Table {
 
         let mut tombstones = Vec::new();
         let data = block.data.as_ref();
+
+        // A dedicated RT block with empty payload is corruption — the writer
+        // only creates an RT block handle when at least one tombstone exists.
+        if data.is_empty() {
+            log::error!("Range tombstone block: missing start_len");
+            return Err(crate::Error::RangeTombstoneDecode {
+                field: "start_len",
+                offset: 0,
+            });
+        }
+
         let mut cursor = Cursor::new(data);
 
         while (cursor.position() as usize) < data.len() {
