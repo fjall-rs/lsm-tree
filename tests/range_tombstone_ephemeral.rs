@@ -45,6 +45,8 @@ fn build_ephemeral(kvs: &[(&[u8], &[u8], u64)], rts: &[(&[u8], &[u8], u64)]) -> 
 }
 
 /// Collect keys from a forward iterator.
+/// Returns `Vec<Vec<u8>>` which compares correctly with `vec![b"a", b"b"]`
+/// via Rust's `PartialEq` blanket impl for `Vec<T>` where `T: PartialEq<U>`.
 fn collect_keys(
     tree: &AnyTree,
     seqno: u64,
