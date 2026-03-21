@@ -15,16 +15,20 @@ use crate::range_tombstone::RangeTombstone;
 use crate::{InternalValue, SeqNo};
 
 /// Wraps a bidirectional KV stream and suppresses entries covered by range tombstones.
+///
+/// Each tombstone is paired with a per-source visibility cutoff (`SeqNo`).
+/// Different sources may use different cutoffs — e.g., an ephemeral memtable
+/// uses its own `index_seqno` while disk segments use the outer scan seqno.
 pub struct RangeTombstoneFilter<I> {
     inner: I,
 
-    // Forward state
-    fwd_tombstones: Vec<RangeTombstone>,
+    // Forward state: (tombstone, per-source cutoff)
+    fwd_tombstones: Vec<(RangeTombstone, SeqNo)>,
     fwd_idx: usize,
     fwd_active: ActiveTombstoneSet,
 
-    // Reverse state
-    rev_tombstones: Vec<RangeTombstone>,
+    // Reverse state: (tombstone, per-source cutoff)
+    rev_tombstones: Vec<(RangeTombstone, SeqNo)>,
     rev_idx: usize,
     rev_active: ActiveTombstoneSetReverse,
 }
@@ -32,33 +36,36 @@ pub struct RangeTombstoneFilter<I> {
 impl<I> RangeTombstoneFilter<I> {
     /// Creates a new bidirectional filter.
     ///
-    /// `fwd_tombstones` need not be pre-sorted — the constructor sorts internally by natural Ord.
-    /// Internally, a second copy sorted by `(end desc, seqno desc)` is created for reverse.
+    /// Each tombstone is paired with its per-source visibility cutoff.
+    /// Forward tombstones need not be pre-sorted — the constructor sorts
+    /// internally. A second copy sorted by `(end desc, seqno desc)` is
+    /// created for reverse iteration.
     #[must_use]
-    pub fn new(inner: I, mut fwd_tombstones: Vec<RangeTombstone>, read_seqno: SeqNo) -> Self {
-        // Ensure forward tombstones are sorted by natural order (start asc, seqno desc, end asc)
-        fwd_tombstones.sort();
+    pub fn new(inner: I, mut fwd_tombstones: Vec<(RangeTombstone, SeqNo)>) -> Self {
+        // Sort by RT natural order (start asc, seqno desc, end asc).
+        // Callers may pre-sort for dedup; re-sorting is O(n) on sorted input.
+        fwd_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Build reverse-sorted copy: (end desc, seqno desc)
         let mut rev_tombstones = fwd_tombstones.clone();
-        rev_tombstones.sort_by(|a, b| (&b.end, &b.seqno).cmp(&(&a.end, &a.seqno)));
+        rev_tombstones.sort_by(|a, b| (&b.0.end, &b.0.seqno).cmp(&(&a.0.end, &a.0.seqno)));
 
         Self {
             inner,
             fwd_tombstones,
             fwd_idx: 0,
-            fwd_active: ActiveTombstoneSet::new(read_seqno),
+            fwd_active: ActiveTombstoneSet::new(),
             rev_tombstones,
             rev_idx: 0,
-            rev_active: ActiveTombstoneSetReverse::new(read_seqno),
+            rev_active: ActiveTombstoneSetReverse::new(),
         }
     }
 
     /// Activates forward tombstones whose start <= `current_key`.
     fn fwd_activate_up_to(&mut self, key: &[u8]) {
-        while let Some(rt) = self.fwd_tombstones.get(self.fwd_idx) {
+        while let Some((rt, cutoff)) = self.fwd_tombstones.get(self.fwd_idx) {
             if rt.start.as_ref() <= key {
-                self.fwd_active.activate(rt);
+                self.fwd_active.activate(rt, *cutoff);
                 self.fwd_idx += 1;
             } else {
                 break;
@@ -68,9 +75,9 @@ impl<I> RangeTombstoneFilter<I> {
 
     /// Activates reverse tombstones whose end > `current_key`.
     fn rev_activate_up_to(&mut self, key: &[u8]) {
-        while let Some(rt) = self.rev_tombstones.get(self.rev_idx) {
+        while let Some((rt, cutoff)) = self.rev_tombstones.get(self.rev_idx) {
             if rt.end.as_ref() > key {
-                self.rev_active.activate(rt);
+                self.rev_active.activate(rt, *cutoff);
                 self.rev_idx += 1;
             } else {
                 break;
@@ -148,12 +155,17 @@ mod tests {
         RangeTombstone::new(UserKey::from(start), UserKey::from(end), seqno)
     }
 
+    /// Helper: tag all tombstones with the same cutoff seqno.
+    fn tagged(tombstones: Vec<RangeTombstone>, cutoff: SeqNo) -> Vec<(RangeTombstone, SeqNo)> {
+        tombstones.into_iter().map(|rt| (rt, cutoff)).collect()
+    }
+
     #[test]
     fn items_no_tombstones_return_all() {
         let items: Vec<crate::Result<InternalValue>> =
             vec![Ok(kv(b"a", 1)), Ok(kv(b"b", 2)), Ok(kv(b"c", 3))];
 
-        let filter = RangeTombstoneFilter::new(items.into_iter(), vec![], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), vec![]);
         let results: Vec<_> = filter.flatten().collect();
         assert_eq!(results.len(), 3);
     }
@@ -168,8 +180,8 @@ mod tests {
             Ok(kv(b"e", 5)),
         ];
 
-        let tombstones = vec![rt(b"b", b"d", 10)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
+        let tombstones = tagged(vec![rt(b"b", b"d", 10)], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.flatten().collect();
 
         let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
@@ -180,8 +192,8 @@ mod tests {
     fn items_newer_than_tombstone_survive() {
         let items: Vec<crate::Result<InternalValue>> = vec![Ok(kv(b"b", 10)), Ok(kv(b"c", 3))];
 
-        let tombstones = vec![rt(b"a", b"z", 5)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
+        let tombstones = tagged(vec![rt(b"a", b"z", 5)], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.flatten().collect();
 
         let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
@@ -193,8 +205,8 @@ mod tests {
         let items: Vec<crate::Result<InternalValue>> =
             vec![Ok(kv(b"b", 5)), Ok(kv(b"c", 5)), Ok(kv(b"d", 5))];
 
-        let tombstones = vec![rt(b"b", b"d", 10)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
+        let tombstones = tagged(vec![rt(b"b", b"d", 10)], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.flatten().collect();
 
         let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
@@ -210,8 +222,8 @@ mod tests {
             Ok(kv(b"d", 1)),
         ];
 
-        let tombstones = vec![rt(b"a", b"c", 5), rt(b"b", b"e", 4)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
+        let tombstones = tagged(vec![rt(b"a", b"c", 5), rt(b"b", b"e", 4)], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.flatten().collect();
 
         let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
@@ -222,11 +234,31 @@ mod tests {
     fn tombstone_newer_than_read_seqno_not_visible() {
         let items: Vec<crate::Result<InternalValue>> = vec![Ok(kv(b"b", 3))];
 
-        let tombstones = vec![rt(b"a", b"z", 10)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, 5);
+        // RT at seqno 10 with cutoff 5 — not visible
+        let tombstones = tagged(vec![rt(b"a", b"z", 10)], 5);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.flatten().collect();
 
         assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn mixed_cutoffs_suppress_only_visible_source() {
+        // Two RTs with same seqno but different per-source cutoffs:
+        // RT from source A (cutoff 15) — visible (10 < 15), suppresses kv at seqno 5
+        // RT from source B (cutoff 5) — NOT visible (10 >= 5), does not suppress
+        let items: Vec<crate::Result<InternalValue>> = vec![Ok(kv(b"b", 5)), Ok(kv(b"x", 5))];
+
+        let tombstones = vec![
+            (rt(b"a", b"d", 10), 15), // source A: visible
+            (rt(b"w", b"z", 10), 5),  // source B: not visible
+        ];
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
+        let results: Vec<_> = filter.flatten().collect();
+
+        let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
+        // "b" suppressed by source-A RT, "x" survives (source-B RT invisible)
+        assert_eq!(keys, vec![b"x".as_ref()]);
     }
 
     #[test]
@@ -239,8 +271,8 @@ mod tests {
             Ok(kv(b"e", 5)),
         ];
 
-        let tombstones = vec![rt(b"b", b"d", 10)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
+        let tombstones = tagged(vec![rt(b"b", b"d", 10)], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.rev().flatten().collect();
 
         let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
@@ -252,8 +284,8 @@ mod tests {
         let items: Vec<crate::Result<InternalValue>> =
             vec![Ok(kv(b"a", 5)), Ok(kv(b"l", 5)), Ok(kv(b"m", 5))];
 
-        let tombstones = vec![rt(b"a", b"m", 10)];
-        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
+        let tombstones = tagged(vec![rt(b"a", b"m", 10)], SeqNo::MAX);
+        let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones);
         let results: Vec<_> = filter.rev().flatten().collect();
 
         let keys: Vec<&[u8]> = results.iter().map(|v| v.key.user_key.as_ref()).collect();
