@@ -197,6 +197,11 @@ impl Memtable {
     /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
+        debug_assert!(
+            !self.is_flagged_for_rotation(),
+            "insert_range_tombstone called after memtable was flagged for rotation"
+        );
+
         // Reject invalid intervals in release builds (debug_assert is not enough)
         if start >= end {
             return 0;
