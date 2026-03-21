@@ -1488,10 +1488,17 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
 
     let table_id = table.global_id();
 
-    // Use a fresh cache so the first load is guaranteed to be a miss.
+    // Recovery already loaded the RT block once via Block::from_file(),
+    // which increments the IO counters.
+    let io_after_recovery = metrics.range_tombstone_block_load_io.load(Relaxed);
+    let bytes_after_recovery = metrics.range_tombstone_block_io_requested.load(Relaxed);
+    assert_eq!(1, io_after_recovery);
+    assert!(bytes_after_recovery > 0);
+
+    // Use a fresh cache so the first load_block() call is a cache miss.
     let fresh_cache = Arc::new(Cache::with_capacity_bytes(10_000_000));
 
-    // First load: cache miss → IO path
+    // load_block cache miss → IO path
     let _block = load_block(
         table_id,
         &table.path,
@@ -1504,12 +1511,12 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         &metrics,
     )?;
 
-    assert_eq!(1, metrics.range_tombstone_block_load_io.load(Relaxed));
+    assert_eq!(2, metrics.range_tombstone_block_load_io.load(Relaxed));
     assert_eq!(0, metrics.range_tombstone_block_load_cached.load(Relaxed));
-    assert!(metrics.range_tombstone_block_io_requested.load(Relaxed) > 0);
+    assert!(metrics.range_tombstone_block_io_requested.load(Relaxed) > bytes_after_recovery);
     assert_eq!(0, metrics.data_block_load_io.load(Relaxed));
 
-    // Second load: cache hit (block was inserted into fresh_cache by first load)
+    // load_block cache hit (block was inserted into fresh_cache by previous call)
     let _block = load_block(
         table_id,
         &table.path,
@@ -1522,7 +1529,7 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         &metrics,
     )?;
 
-    assert_eq!(1, metrics.range_tombstone_block_load_io.load(Relaxed));
+    assert_eq!(2, metrics.range_tombstone_block_load_io.load(Relaxed));
     assert_eq!(1, metrics.range_tombstone_block_load_cached.load(Relaxed));
     assert_eq!(0, metrics.data_block_load_cached.load(Relaxed));
 
