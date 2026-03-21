@@ -1450,13 +1450,22 @@ fn rt_block(data: Vec<u8>) -> Block {
 
 /// Assert `decode_range_tombstones` returns [`RangeTombstoneDecode`](crate::Error::RangeTombstoneDecode) with the given field.
 fn assert_rt_decode_error(data: Vec<u8>, expected_field: &str) {
+    assert_rt_decode_error_at(data, expected_field, None);
+}
+
+/// Assert `decode_range_tombstones` returns [`RangeTombstoneDecode`](crate::Error::RangeTombstoneDecode)
+/// with the given field and optionally the expected byte offset.
+fn assert_rt_decode_error_at(data: Vec<u8>, expected_field: &str, expected_offset: Option<u64>) {
     let block = rt_block(data);
     match Table::decode_range_tombstones(&block) {
-        Err(crate::Error::RangeTombstoneDecode { field, .. }) => {
+        Err(crate::Error::RangeTombstoneDecode { field, offset }) => {
             assert_eq!(
                 field, expected_field,
                 "expected field '{expected_field}', got '{field}'"
             );
+            if let Some(expected) = expected_offset {
+                assert_eq!(offset, expected, "expected offset {expected}, got {offset}");
+            }
         }
         other => panic!(
             "expected RangeTombstoneDecode {{ field: \"{expected_field}\" }}, got: {other:?}"
@@ -1482,8 +1491,8 @@ fn decode_range_tombstones_invalid_interval_returns_error() {
 
 #[test]
 fn decode_range_tombstones_truncated_start_len_returns_error() {
-    // Only 1 byte — not enough for u16 start_len
-    assert_rt_decode_error(vec![0x01], "start_len");
+    // Only 1 byte — not enough for u16 start_len; offset = 0 (entry start)
+    assert_rt_decode_error_at(vec![0x01], "start_len", Some(0));
 }
 
 #[test]
@@ -1515,12 +1524,13 @@ fn decode_range_tombstones_truncated_end_len_returns_error() {
     use byteorder::{WriteBytesExt, LE};
 
     // Valid start_len + start, then truncated before end_len completes
+    // offset = 3 (after u16 start_len + 1-byte key)
     let mut buf = Vec::new();
     buf.write_u16::<LE>(1).unwrap(); // start_len = 1
     buf.push(b'a'); // start key
     buf.push(0x01); // only 1 byte of end_len (need 2)
 
-    assert_rt_decode_error(buf, "end_len");
+    assert_rt_decode_error_at(buf, "end_len", Some(3));
 }
 
 #[test]
@@ -1544,6 +1554,7 @@ fn decode_range_tombstones_truncated_seqno_returns_error() {
     use byteorder::{WriteBytesExt, LE};
 
     // Valid start + end, but seqno truncated (only 4 of 8 bytes)
+    // offset = 6 (after u16+1+u16+1 = 6 bytes for start/end fields)
     let mut buf = Vec::new();
     buf.write_u16::<LE>(1).unwrap(); // start_len
     buf.push(b'a'); // start key
@@ -1551,7 +1562,7 @@ fn decode_range_tombstones_truncated_seqno_returns_error() {
     buf.push(b'z'); // end key
     buf.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // 4 bytes of seqno (need 8)
 
-    assert_rt_decode_error(buf, "seqno");
+    assert_rt_decode_error_at(buf, "seqno", Some(6));
 }
 
 /// Exercises the `load_block` cache-miss and cache-hit paths for

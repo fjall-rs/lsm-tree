@@ -58,7 +58,8 @@ pub enum Error {
         /// Which wire-format field failed (e.g. `start_len`, `end_buf`, `seqno`)
         field: &'static str,
 
-        /// Byte offset in the block when the failure occurred
+        /// Byte offset within the block to the start of the field whose decoding failed
+        /// (captured before reading bytes for that field).
         offset: u64,
     },
 }
