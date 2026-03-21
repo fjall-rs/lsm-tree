@@ -295,24 +295,34 @@ impl Memtable {
 mod tests {
     use super::*;
     use crate::ValueType;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier};
     use test_log::test;
 
     #[test]
     fn rwlock_allows_concurrent_readers() {
-        let mt = Memtable::new(0);
+        let mt = Arc::new(Memtable::new(0));
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
 
-        // Hold one read guard open and verify a second reader can acquire
-        // concurrently — this would deadlock or fail with a Mutex.
-        let guard1 = mt.range_tombstones.read().expect("lock is poisoned");
+        // Barrier ensures both threads are alive and the read guards overlap.
+        let start = Arc::new(Barrier::new(2));
+        let mt2 = Arc::clone(&mt);
+        let start2 = Arc::clone(&start);
+        let holder = std::thread::spawn(move || {
+            let guard1 = mt2.range_tombstones.read().expect("lock is poisoned");
+            start2.wait(); // signal: guard held
+            start2.wait(); // wait: other thread verified try_read
+            drop(guard1);
+        });
+
+        start.wait(); // wait: guard is held in other thread
         let guard2 = mt.range_tombstones.try_read();
         assert!(
             guard2.is_ok(),
             "second read lock must succeed while first is held"
         );
         drop(guard2);
-        drop(guard1);
+        start.wait(); // signal: done, let holder drop guard
+        holder.join().expect("reader thread panicked");
     }
 
     #[test]
@@ -351,13 +361,17 @@ mod tests {
     #[test]
     fn concurrent_reads_and_writes_preserve_correctness() {
         let mt = Arc::new(Memtable::new(0));
+        // 4 readers + 2 writers + this thread = 7
+        let start = Arc::new(Barrier::new(6));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"m".to_vec().into(), 10);
 
         let readers: Vec<_> = (0..4)
             .map(|_| {
                 let mt = Arc::clone(&mt);
+                let start = Arc::clone(&start);
                 std::thread::spawn(move || {
+                    start.wait();
                     for _ in 0..500 {
                         let suppressed =
                             mt.is_key_suppressed_by_range_tombstone(b"f", 5, SeqNo::MAX);
@@ -375,7 +389,9 @@ mod tests {
         let writers: Vec<_> = (0..2)
             .map(|t| {
                 let mt = Arc::clone(&mt);
+                let start = Arc::clone(&start);
                 std::thread::spawn(move || {
+                    start.wait();
                     for i in 0u64..100 {
                         let seqno = 100 + t * 1000 + i;
                         let _ = mt.insert_range_tombstone(
@@ -395,14 +411,8 @@ mod tests {
             h.join().expect("writer panicked");
         }
 
-        // Initial insert + 2 writer threads × 100 inserts each.
-        // Tree deduplicates by (start, seqno, end), and all writer inserts
-        // use distinct seqnos, so count must exceed the initial 1.
-        assert!(
-            mt.range_tombstone_count() > 1,
-            "writers must have inserted tombstones, got count={}",
-            mt.range_tombstone_count(),
-        );
+        // 1 initial + 2 writers × 100 inserts with distinct seqnos = 201.
+        assert_eq!(201, mt.range_tombstone_count());
     }
 
     #[test]
