@@ -625,6 +625,31 @@ impl Table {
         self.0.checksum
     }
 
+    /// Read `len` bytes from the cursor position with checked arithmetic.
+    /// Uses `.get()` instead of direct indexing to satisfy `clippy::indexing_slicing`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "block sizes are bounded well within usize on all supported platforms"
+    )]
+    fn read_checked_slice(
+        cursor: &mut std::io::Cursor<&[u8]>,
+        field: &'static str,
+        len: usize,
+    ) -> crate::Result<Vec<u8>> {
+        let offset = cursor.position();
+        let data = cursor.get_ref();
+        let pos = offset as usize;
+        let end_pos = pos
+            .checked_add(len)
+            .ok_or(crate::Error::RangeTombstoneDecode { field, offset })?;
+        let buf = data
+            .get(pos..end_pos)
+            .ok_or(crate::Error::RangeTombstoneDecode { field, offset })?
+            .to_vec();
+        cursor.set_position(end_pos as u64);
+        Ok(buf)
+    }
+
     /// Decodes range tombstones from a raw block.
     ///
     /// Wire format (repeated): `[start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]`
@@ -632,22 +657,39 @@ impl Table {
     /// # Errors
     ///
     /// Will return `Err` if the block data is malformed.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "block sizes are bounded well within usize on all supported platforms"
+    )]
     fn decode_range_tombstones(block: &Block) -> crate::Result<Vec<RangeTombstone>> {
         use byteorder::{ReadBytesExt, LE};
-        use std::io::{Cursor, Read};
+        use std::io::Cursor;
 
         let mut tombstones = Vec::new();
         let data = block.data.as_ref();
+
+        // A dedicated RT block with empty payload is corruption — the writer
+        // only creates an RT block handle when at least one tombstone exists.
+        if data.is_empty() {
+            log::error!("Range tombstone block: missing start_len");
+            return Err(crate::Error::RangeTombstoneDecode {
+                field: "start_len",
+                offset: 0,
+            });
+        }
+
         let mut cursor = Cursor::new(data);
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "block size always fits in usize"
-        )]
         while (cursor.position() as usize) < data.len() {
-            let start_len = cursor
-                .read_u16::<LE>()
-                .map_err(|_| crate::Error::Unrecoverable)? as usize;
+            let entry_offset = cursor.position();
+            let start_len_offset = entry_offset;
+            let start_len =
+                cursor
+                    .read_u16::<LE>()
+                    .map_err(|_| crate::Error::RangeTombstoneDecode {
+                        field: "start_len",
+                        offset: start_len_offset,
+                    })? as usize;
 
             // Validate length against remaining data before allocating
             let remaining = data.len() - cursor.position() as usize;
@@ -655,34 +697,46 @@ impl Table {
                 log::error!(
                     "Range tombstone block: start_len {start_len} exceeds remaining {remaining}"
                 );
-                return Err(crate::Error::Unrecoverable);
+                return Err(crate::Error::RangeTombstoneDecode {
+                    field: "start_len",
+                    offset: start_len_offset,
+                });
             }
 
-            let mut start_buf = vec![0u8; start_len];
-            cursor
-                .read_exact(&mut start_buf)
-                .map_err(|_| crate::Error::Unrecoverable)?;
+            // Extract validated slice from cursor position.
+            // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
+            let start_buf = Self::read_checked_slice(&mut cursor, "start", start_len)?;
 
-            let end_len = cursor
-                .read_u16::<LE>()
-                .map_err(|_| crate::Error::Unrecoverable)? as usize;
+            let end_len_offset = cursor.position();
+            let end_len =
+                cursor
+                    .read_u16::<LE>()
+                    .map_err(|_| crate::Error::RangeTombstoneDecode {
+                        field: "end_len",
+                        offset: end_len_offset,
+                    })? as usize;
 
             let remaining = data.len() - cursor.position() as usize;
             if end_len > remaining {
                 log::error!(
                     "Range tombstone block: end_len {end_len} exceeds remaining {remaining}"
                 );
-                return Err(crate::Error::Unrecoverable);
+                return Err(crate::Error::RangeTombstoneDecode {
+                    field: "end_len",
+                    offset: end_len_offset,
+                });
             }
 
-            let mut end_buf = vec![0u8; end_len];
-            cursor
-                .read_exact(&mut end_buf)
-                .map_err(|_| crate::Error::Unrecoverable)?;
+            let end_buf = Self::read_checked_slice(&mut cursor, "end", end_len)?;
 
-            let seqno = cursor
-                .read_u64::<LE>()
-                .map_err(|_| crate::Error::Unrecoverable)?;
+            let seqno_offset = cursor.position();
+            let seqno =
+                cursor
+                    .read_u64::<LE>()
+                    .map_err(|_| crate::Error::RangeTombstoneDecode {
+                        field: "seqno",
+                        offset: seqno_offset,
+                    })?;
 
             let start = UserKey::from(start_buf);
             let end = UserKey::from(end_buf);
@@ -690,7 +744,10 @@ impl Table {
             // Validate invariant: start < end (reject corrupted data)
             if start >= end {
                 log::error!("Range tombstone block: invalid interval (start >= end)");
-                return Err(crate::Error::Unrecoverable);
+                return Err(crate::Error::RangeTombstoneDecode {
+                    field: "interval",
+                    offset: entry_offset,
+                });
             }
 
             tombstones.push(RangeTombstone::new(start, end, seqno));

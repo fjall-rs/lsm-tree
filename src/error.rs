@@ -52,6 +52,16 @@ pub enum Error {
 
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
+
+    /// Range tombstone block decode failure.
+    RangeTombstoneDecode {
+        /// Which field or validation failed (e.g. `start_len`, `start`, `seqno`, `interval`)
+        field: &'static str,
+
+        /// Byte offset within the block to the start of the field whose decoding failed
+        /// (captured before reading bytes for that field).
+        offset: u64,
+    },
 }
 
 impl std::fmt::Display for Error {
