@@ -625,13 +625,6 @@ impl Table {
         self.0.checksum
     }
 
-    /// Decodes range tombstones from a raw block.
-    ///
-    /// Wire format (repeated): `[start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]`
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if the block data is malformed.
     /// Read `len` bytes from the cursor position with checked arithmetic.
     /// Uses `.get()` instead of direct indexing to satisfy `clippy::indexing_slicing`.
     #[expect(
@@ -640,10 +633,10 @@ impl Table {
     )]
     fn read_checked_slice(
         cursor: &mut std::io::Cursor<&[u8]>,
-        data: &[u8],
         field: &'static str,
         len: usize,
     ) -> crate::Result<Vec<u8>> {
+        let data = cursor.get_ref();
         let pos = cursor.position() as usize;
         let end_pos = pos
             .checked_add(len)
@@ -662,6 +655,13 @@ impl Table {
         Ok(buf)
     }
 
+    /// Decodes range tombstones from a raw block.
+    ///
+    /// Wire format (repeated): `[start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]`
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is malformed.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "block sizes are bounded well within usize on all supported platforms"
@@ -710,7 +710,7 @@ impl Table {
 
             // Extract validated slice from cursor position.
             // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
-            let start_buf = Self::read_checked_slice(&mut cursor, data, "start", start_len)?;
+            let start_buf = Self::read_checked_slice(&mut cursor, "start", start_len)?;
 
             let end_len_offset = cursor.position();
             let end_len =
@@ -732,7 +732,7 @@ impl Table {
                 });
             }
 
-            let end_buf = Self::read_checked_slice(&mut cursor, data, "end", end_len)?;
+            let end_buf = Self::read_checked_slice(&mut cursor, "end", end_len)?;
 
             let seqno_offset = cursor.position();
             let seqno =
