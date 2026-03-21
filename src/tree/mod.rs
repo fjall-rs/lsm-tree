@@ -860,6 +860,9 @@ impl Tree {
                     if let Some(table) = run.get_for_key(key) {
                         if let Some(item) = table.get(key, seqno, key_hash)? {
                             match &best {
+                                // >= keeps first-seen on tie. Seqno is monotonically
+                                // unique per write; equal seqno for the same user key
+                                // across tables is impossible in normal operation.
                                 Some(current) if current.key.seqno >= item.key.seqno => {}
                                 _ => {
                                     // Short-circuit: seqno is the read horizon, so no
