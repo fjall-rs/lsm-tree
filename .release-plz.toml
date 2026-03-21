@@ -6,4 +6,4 @@ git_release_enable = true
 # Use conventional commits for changelog
 changelog_update = true
 # Fork tags use v-prefix (v4.0.0) to distinguish from upstream (3.1.2)
-tag_name = "v{{ version }}"
+git_tag_name = "v{{ version }}"
