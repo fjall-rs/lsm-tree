@@ -197,6 +197,9 @@ impl Memtable {
     /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
+        // flag_rotated() is called by the host crate (fjall) before rotation;
+        // this crate never sets it directly. The assert catches misuse by callers
+        // in debug builds — it is intentionally debug-only, not a release guard.
         debug_assert!(
             !self.is_flagged_for_rotation(),
             "insert_range_tombstone called after memtable was flagged for rotation"
