@@ -632,6 +632,10 @@ impl Table {
     /// # Errors
     ///
     /// Will return `Err` if the block data is malformed.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "block sizes are bounded well within usize on all supported platforms"
+    )]
     fn decode_range_tombstones(block: &Block) -> crate::Result<Vec<RangeTombstone>> {
         use byteorder::{ReadBytesExt, LE};
         use std::io::Cursor;
@@ -640,10 +644,6 @@ impl Table {
         let data = block.data.as_ref();
         let mut cursor = Cursor::new(data);
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "block size always fits in usize"
-        )]
         while (cursor.position() as usize) < data.len() {
             let entry_offset = cursor.position();
             let offset = entry_offset;
