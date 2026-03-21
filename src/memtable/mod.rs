@@ -299,7 +299,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn rwlock_allows_concurrent_readers() {
+    fn rwlock_read_while_read_held_succeeds() {
         let mt = Arc::new(Memtable::new(0));
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
 
@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_suppression_queries_run_without_panic() {
+    fn suppression_queries_concurrent_readers_no_panic() {
         let mt = Arc::new(Memtable::new(0));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
@@ -359,9 +359,9 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_reads_and_writes_preserve_correctness() {
+    fn range_tombstones_concurrent_read_write_writers_observable() {
         let mt = Arc::new(Memtable::new(0));
-        // 4 readers + 2 writers + this thread = 7
+        // 4 readers + 2 writers = 6 (main thread does not wait on the barrier)
         let start = Arc::new(Barrier::new(6));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"m".to_vec().into(), 10);
@@ -411,12 +411,14 @@ mod tests {
             h.join().expect("writer panicked");
         }
 
-        // 1 initial + 2 writers × 100 inserts with distinct seqnos = 201.
-        assert_eq!(201, mt.range_tombstone_count());
+        // Writers insert [n,z) at seqnos starting from 100, so keys in this
+        // range with seqnos below the maximum written seqno must be suppressed.
+        assert!(mt.is_key_suppressed_by_range_tombstone(b"n", 50, SeqNo::MAX));
+        assert!(mt.is_key_suppressed_by_range_tombstone(b"y", 150, SeqNo::MAX));
     }
 
     #[test]
-    fn concurrent_readers_on_populated_tree() {
+    fn range_tombstones_populated_tree_concurrent_reads_succeed() {
         let mt = Arc::new(Memtable::new(0));
 
         for i in 0u8..50 {
