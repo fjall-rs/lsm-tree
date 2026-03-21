@@ -646,6 +646,7 @@ impl Table {
 
         while (cursor.position() as usize) < data.len() {
             let entry_offset = cursor.position();
+            // `offset` is intentionally shadowed per field to capture the pre-read position.
             let offset = entry_offset;
             let start_len =
                 cursor
@@ -670,14 +671,20 @@ impl Table {
             // Bounds already validated: start_len <= remaining.
             // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
             let pos = cursor.position() as usize;
+            let start_end =
+                pos.checked_add(start_len)
+                    .ok_or(crate::Error::RangeTombstoneDecode {
+                        field: "start",
+                        offset: pos as u64,
+                    })?;
             let start_buf = data
-                .get(pos..pos + start_len)
+                .get(pos..start_end)
                 .ok_or(crate::Error::RangeTombstoneDecode {
                     field: "start",
                     offset: pos as u64,
                 })?
                 .to_vec();
-            cursor.set_position((pos + start_len) as u64);
+            cursor.set_position(start_end as u64);
 
             let offset = cursor.position();
             let end_len =
@@ -702,14 +709,20 @@ impl Table {
             // Bounds already validated: end_len <= remaining.
             // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
             let pos = cursor.position() as usize;
+            let end_pos = pos
+                .checked_add(end_len)
+                .ok_or(crate::Error::RangeTombstoneDecode {
+                    field: "end",
+                    offset: pos as u64,
+                })?;
             let end_buf = data
-                .get(pos..pos + end_len)
+                .get(pos..end_pos)
                 .ok_or(crate::Error::RangeTombstoneDecode {
                     field: "end",
                     offset: pos as u64,
                 })?
                 .to_vec();
-            cursor.set_position((pos + end_len) as u64);
+            cursor.set_position(end_pos as u64);
 
             let offset = cursor.position();
             let seqno =
