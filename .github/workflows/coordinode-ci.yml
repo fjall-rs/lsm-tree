@@ -10,12 +10,15 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   lint:
-    # Fast gate — runs on every push and PR
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
@@ -30,20 +33,19 @@ jobs:
         run: cargo clippy --all-features -- -D warnings
 
   test:
-    # Full matrix — only on push to main/feature branches (not on PRs)
-    if: github.event_name == 'push'
     needs: lint
     timeout-minutes: 20
     strategy:
+      fail-fast: true
       matrix:
-        rust_version: [stable, "1.90.0"]
+        rust: [stable, "1.90.0"]
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust_version }}
+          toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ runner.os }}-cargo
@@ -53,24 +55,28 @@ jobs:
       - name: Run doc tests
         run: cargo test --doc --features lz4
 
-  test-pr:
-    # Lightweight — only on PRs (ubuntu stable)
-    if: github.event_name == 'pull_request'
+  cross:
     needs: lint
     timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+          - i686-unknown-linux-gnu
+          - powerpc64-unknown-linux-gnu
+          - riscv64gc-unknown-linux-gnu
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@nextest
-      - name: Run tests
-        run: cargo nextest run --all-features
-      - name: Run doc tests
-        run: cargo test --doc --features lz4
+      - name: Install cross
+        run: cargo install cross
+      - name: Cross test
+        run: cross test -r --features lz4 --target ${{ matrix.target }}
 
   codecov:
-    if: github.event_name == 'push'
     needs: lint
     timeout-minutes: 20
     runs-on: ubuntu-latest
