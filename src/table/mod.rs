@@ -579,15 +579,6 @@ impl Table {
                 )));
             }
 
-            #[cfg(feature = "metrics")]
-            {
-                use std::sync::atomic::Ordering::Relaxed;
-                metrics.range_tombstone_block_load_io.fetch_add(1, Relaxed);
-                metrics
-                    .range_tombstone_block_io_requested
-                    .fetch_add(rt_handle.size().into(), Relaxed);
-            }
-
             Self::decode_range_tombstones(&block)?
         } else {
             Vec::new()

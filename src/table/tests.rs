@@ -1463,17 +1463,23 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         crate::ValueType::Value,
     ))?;
     writer.write_range_tombstone(RangeTombstone::new(b"b".into(), b"y".into(), 3));
+    #[expect(
+        clippy::unwrap_used,
+        reason = "finish() returns Some after writing data items"
+    )]
     let (_, checksum) = writer.finish()?.unwrap();
 
     let metrics = Arc::new(crate::metrics::Metrics::default());
-    let cache = Arc::new(Cache::with_capacity_bytes(10_000_000));
 
     let table = Table::recover(
         file,
         checksum,
         0,
         0,
-        cache.clone(),
+        // Recovery bypasses load_block() (reads via Block::from_file() directly),
+        // so it intentionally does NOT increment block-load metrics — consistent
+        // with how filter and index recovery reads are handled.
+        Arc::new(Cache::with_capacity_bytes(10_000_000)),
         Some(Arc::new(DescriptorTable::new(10))),
         false,
         false,
@@ -1488,12 +1494,8 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
 
     let table_id = table.global_id();
 
-    // Recovery already loaded the RT block once via Block::from_file(),
-    // which increments the IO counters.
-    let io_after_recovery = metrics.range_tombstone_block_load_io.load(Relaxed);
-    let bytes_after_recovery = metrics.range_tombstone_block_io_requested.load(Relaxed);
-    assert_eq!(1, io_after_recovery);
-    assert!(bytes_after_recovery > 0);
+    // Recovery does NOT increment block-load counters (bypasses load_block).
+    assert_eq!(0, metrics.range_tombstone_block_load_io.load(Relaxed));
 
     // Use a fresh cache so the first load_block() call is a cache miss.
     let fresh_cache = Arc::new(Cache::with_capacity_bytes(10_000_000));
@@ -1511,9 +1513,9 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         &metrics,
     )?;
 
-    assert_eq!(2, metrics.range_tombstone_block_load_io.load(Relaxed));
+    assert_eq!(1, metrics.range_tombstone_block_load_io.load(Relaxed));
     assert_eq!(0, metrics.range_tombstone_block_load_cached.load(Relaxed));
-    assert!(metrics.range_tombstone_block_io_requested.load(Relaxed) > bytes_after_recovery);
+    assert!(metrics.range_tombstone_block_io_requested.load(Relaxed) > 0);
     assert_eq!(0, metrics.data_block_load_io.load(Relaxed));
 
     // load_block cache hit (block was inserted into fresh_cache by previous call)
@@ -1529,7 +1531,7 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         &metrics,
     )?;
 
-    assert_eq!(2, metrics.range_tombstone_block_load_io.load(Relaxed));
+    assert_eq!(1, metrics.range_tombstone_block_load_io.load(Relaxed));
     assert_eq!(1, metrics.range_tombstone_block_load_cached.load(Relaxed));
     assert_eq!(0, metrics.data_block_load_cached.load(Relaxed));
 
