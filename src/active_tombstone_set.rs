@@ -354,7 +354,12 @@ mod tests {
         // RT from source with cutoff 5 — NOT visible (10 >= 5)
         set.activate(&rt(b"a", b"z", 10), 5);
         assert_eq!(set.max_active_seqno(), Some(10));
-        // Only one RT activated, not two
+        assert!(!set.is_empty());
+
+        // Expire past the first RT's end; the set should now be empty if the
+        // second RT was never incorrectly activated.
+        set.expire_until(b"m");
+        assert!(set.is_empty());
     }
 
     // ──── Reverse tests ────
@@ -426,9 +431,16 @@ mod tests {
     fn reverse_per_source_cutoff_mixed() {
         let mut set = ActiveTombstoneSetReverse::new();
         // RT from source with cutoff 15 — visible (10 < 15)
-        set.activate(&rt(b"a", b"m", 10), 15);
+        set.activate(&rt(b"n", b"z", 10), 15);
         // RT from source with cutoff 5 — NOT visible (10 >= 5)
-        set.activate(&rt(b"a", b"z", 10), 5);
+        set.activate(&rt(b"a", b"m", 10), 5);
         assert_eq!(set.max_active_seqno(), Some(10));
+
+        // Advance expiry past the visible tombstone's start but not the
+        // invisible one's.  If only the visible RT was activated, the set
+        // should become empty.
+        set.expire_until(b"l");
+        assert_eq!(set.max_active_seqno(), None);
+        assert!(set.is_empty());
     }
 }
