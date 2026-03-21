@@ -668,7 +668,13 @@ impl Table {
 
             // Bounds already validated: start_len <= remaining
             let pos = cursor.position() as usize;
-            let start_buf = data[pos..pos + start_len].to_vec();
+            let start_buf = data
+                .get(pos..pos + start_len)
+                .ok_or(crate::Error::RangeTombstoneDecode {
+                    field: "start_buf",
+                    offset,
+                })?
+                .to_vec();
             cursor.set_position((pos + start_len) as u64);
 
             let offset = cursor.position();
@@ -693,7 +699,13 @@ impl Table {
 
             // Bounds already validated: end_len <= remaining
             let pos = cursor.position() as usize;
-            let end_buf = data[pos..pos + end_len].to_vec();
+            let end_buf = data
+                .get(pos..pos + end_len)
+                .ok_or(crate::Error::RangeTombstoneDecode {
+                    field: "end_buf",
+                    offset,
+                })?
+                .to_vec();
             cursor.set_position((pos + end_len) as u64);
 
             let offset = cursor.position();

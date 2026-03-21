@@ -1430,7 +1430,7 @@ fn table_global_seqno() -> crate::Result<()> {
     Ok(())
 }
 
-/// Build a Block from raw bytes for decode_range_tombstones tests.
+/// Build a [`Block`] from raw bytes for `decode_range_tombstones` tests.
 #[expect(
     clippy::expect_used,
     reason = "test helper: data length is controlled and fits in u32"
@@ -1448,7 +1448,7 @@ fn rt_block(data: Vec<u8>) -> Block {
     }
 }
 
-/// Assert decode_range_tombstones returns RangeTombstoneDecode with the given field.
+/// Assert `decode_range_tombstones` returns [`RangeTombstoneDecode`](crate::Error::RangeTombstoneDecode) with the given field.
 fn assert_rt_decode_error(data: Vec<u8>, expected_field: &str) {
     let block = rt_block(data);
     match Table::decode_range_tombstones(&block) {
