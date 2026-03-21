@@ -10,6 +10,7 @@
 //     must still suppress keys that entered the merged stream through the
 //     ephemeral source).
 
+// Guard: trait import required for .key() method on iterator items (IterGuard trait)
 use lsm_tree::{
     get_tmp_folder, AbstractTree, AnyTree, Config, Guard, Memtable, SequenceNumberCounter, UserKey,
 };
