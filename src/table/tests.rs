@@ -1448,14 +1448,9 @@ fn rt_block(data: Vec<u8>) -> Block {
     }
 }
 
-/// Assert `decode_range_tombstones` returns [`RangeTombstoneDecode`](crate::Error::RangeTombstoneDecode) with the given field.
-fn assert_rt_decode_error(data: Vec<u8>, expected_field: &str) {
-    assert_rt_decode_error_at(data, expected_field, None);
-}
-
 /// Assert `decode_range_tombstones` returns [`RangeTombstoneDecode`](crate::Error::RangeTombstoneDecode)
-/// with the given field and optionally the expected byte offset.
-fn assert_rt_decode_error_at(data: Vec<u8>, expected_field: &str, expected_offset: Option<u64>) {
+/// with the given field and expected byte offset.
+fn assert_rt_decode_error(data: Vec<u8>, expected_field: &str, expected_offset: u64) {
     let block = rt_block(data);
     match Table::decode_range_tombstones(&block) {
         Err(crate::Error::RangeTombstoneDecode { field, offset }) => {
@@ -1463,9 +1458,10 @@ fn assert_rt_decode_error_at(data: Vec<u8>, expected_field: &str, expected_offse
                 field, expected_field,
                 "expected field '{expected_field}', got '{field}'"
             );
-            if let Some(expected) = expected_offset {
-                assert_eq!(offset, expected, "expected offset {expected}, got {offset}");
-            }
+            assert_eq!(
+                offset, expected_offset,
+                "expected offset {expected_offset}, got {offset}"
+            );
         }
         other => panic!(
             "expected RangeTombstoneDecode {{ field: \"{expected_field}\" }}, got: {other:?}"
@@ -1486,20 +1482,20 @@ fn decode_range_tombstones_invalid_interval_returns_error() {
     buf.extend_from_slice(b"a");
     buf.write_u64::<LE>(1).unwrap(); // seqno
 
-    assert_rt_decode_error_at(buf, "interval", Some(0));
+    assert_rt_decode_error(buf, "interval", 0);
 }
 
 #[test]
 fn decode_range_tombstones_truncated_start_len_returns_error() {
     // Only 1 byte — not enough for u16 start_len; offset = 0 (entry start)
-    assert_rt_decode_error_at(vec![0x01], "start_len", Some(0));
+    assert_rt_decode_error(vec![0x01], "start_len", 0);
 }
 
 #[test]
 fn decode_range_tombstones_empty_block_returns_error() {
     // Empty RT block payload is corruption — writer only creates an RT block
     // handle when at least one tombstone exists.
-    assert_rt_decode_error_at(Vec::new(), "start_len", Some(0));
+    assert_rt_decode_error(Vec::new(), "start_len", 0);
 }
 
 #[test]
@@ -1512,7 +1508,7 @@ fn decode_range_tombstones_start_len_exceeds_remaining_returns_error() {
     buf.write_u16::<LE>(100).unwrap();
     buf.push(0xFF);
 
-    assert_rt_decode_error_at(buf, "start_len", Some(0));
+    assert_rt_decode_error(buf, "start_len", 0);
 }
 
 #[test]
@@ -1527,7 +1523,7 @@ fn decode_range_tombstones_truncated_end_len_returns_error() {
     buf.push(b'a'); // start key
     buf.push(0x01); // only 1 byte of end_len (need 2)
 
-    assert_rt_decode_error_at(buf, "end_len", Some(3));
+    assert_rt_decode_error(buf, "end_len", 3);
 }
 
 #[test]
@@ -1543,7 +1539,7 @@ fn decode_range_tombstones_end_len_exceeds_remaining_returns_error() {
     buf.write_u16::<LE>(100).unwrap(); // end_len = 100
     buf.push(0xFF); // only 1 byte
 
-    assert_rt_decode_error_at(buf, "end_len", Some(3));
+    assert_rt_decode_error(buf, "end_len", 3);
 }
 
 #[test]
@@ -1560,7 +1556,7 @@ fn decode_range_tombstones_truncated_seqno_returns_error() {
     buf.push(b'z'); // end key
     buf.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // 4 bytes of seqno (need 8)
 
-    assert_rt_decode_error_at(buf, "seqno", Some(6));
+    assert_rt_decode_error(buf, "seqno", 6);
 }
 
 /// Exercises the `load_block` cache-miss and cache-hit paths for
