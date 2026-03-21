@@ -228,6 +228,10 @@ impl Memtable {
 
         let size = (start.len() + end.len() + std::mem::size_of::<RangeTombstone>()) as u64;
 
+        // Panic on poison is intentional — a poisoned lock indicates a prior panic
+        // during a write, leaving the tree in an unknown state. Recovery would
+        // require validating AVL invariants which is not worth the complexity.
+        // This pattern is consistent with the original Mutex implementation.
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
             .write()
@@ -427,13 +431,12 @@ mod tests {
                 let start = Arc::clone(&start);
                 std::thread::spawn(move || {
                     start.wait();
+                    let start_key: UserKey = b"n".to_vec().into();
+                    let end_key: UserKey = b"z".to_vec().into();
                     for i in 0u64..100 {
                         let seqno = 100 + t * 1000 + i;
-                        let _ = mt.insert_range_tombstone(
-                            b"n".to_vec().into(),
-                            b"z".to_vec().into(),
-                            seqno,
-                        );
+                        let _ =
+                            mt.insert_range_tombstone(start_key.clone(), end_key.clone(), seqno);
                     }
                 })
             })
