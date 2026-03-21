@@ -843,13 +843,29 @@ impl Tree {
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
 
-        for table in version
-            .iter_levels()
-            .flat_map(|lvl| lvl.iter())
-            .filter_map(|run| run.get_for_key(key))
-        {
-            if let Some(item) = table.get(key, seqno, key_hash)? {
-                return Ok(ignore_tombstone_value(item));
+        // Within a level (especially L0), optimize_runs may merge disjoint SSTs
+        // from different temporal epochs into the same run, so run iteration order
+        // does not guarantee newest-first. We must check ALL runs in a level and
+        // keep the entry with the highest seqno.
+        //
+        // Once a level yields a match, lower levels cannot contain newer data, so
+        // we stop early.
+        for level in version.iter_levels() {
+            let mut best: Option<InternalValue> = None;
+
+            for run in level.iter() {
+                if let Some(table) = run.get_for_key(key) {
+                    if let Some(item) = table.get(key, seqno, key_hash)? {
+                        match &best {
+                            Some(current) if current.key.seqno >= item.key.seqno => {}
+                            _ => best = Some(item),
+                        }
+                    }
+                }
+            }
+
+            if let Some(entry) = best {
+                return Ok(ignore_tombstone_value(entry));
             }
         }
 
