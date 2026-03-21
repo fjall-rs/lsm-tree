@@ -632,6 +632,36 @@ impl Table {
     /// # Errors
     ///
     /// Will return `Err` if the block data is malformed.
+    /// Read `len` bytes from the cursor position with checked arithmetic.
+    /// Uses `.get()` instead of direct indexing to satisfy `clippy::indexing_slicing`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "block sizes are bounded well within usize on all supported platforms"
+    )]
+    fn read_checked_slice(
+        cursor: &mut std::io::Cursor<&[u8]>,
+        data: &[u8],
+        field: &'static str,
+        len: usize,
+    ) -> crate::Result<Vec<u8>> {
+        let pos = cursor.position() as usize;
+        let end_pos = pos
+            .checked_add(len)
+            .ok_or(crate::Error::RangeTombstoneDecode {
+                field,
+                offset: pos as u64,
+            })?;
+        let buf = data
+            .get(pos..end_pos)
+            .ok_or(crate::Error::RangeTombstoneDecode {
+                field,
+                offset: pos as u64,
+            })?
+            .to_vec();
+        cursor.set_position(end_pos as u64);
+        Ok(buf)
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "block sizes are bounded well within usize on all supported platforms"
@@ -678,23 +708,9 @@ impl Table {
                 });
             }
 
-            // Bounds already validated: start_len <= remaining.
+            // Extract validated slice from cursor position.
             // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
-            let pos = cursor.position() as usize;
-            let start_end =
-                pos.checked_add(start_len)
-                    .ok_or(crate::Error::RangeTombstoneDecode {
-                        field: "start",
-                        offset: pos as u64,
-                    })?;
-            let start_buf = data
-                .get(pos..start_end)
-                .ok_or(crate::Error::RangeTombstoneDecode {
-                    field: "start",
-                    offset: pos as u64,
-                })?
-                .to_vec();
-            cursor.set_position(start_end as u64);
+            let start_buf = Self::read_checked_slice(&mut cursor, data, "start", start_len)?;
 
             let end_len_offset = cursor.position();
             let end_len =
@@ -716,23 +732,7 @@ impl Table {
                 });
             }
 
-            // Bounds already validated: end_len <= remaining.
-            // Using .get() instead of direct indexing to satisfy clippy::indexing_slicing.
-            let pos = cursor.position() as usize;
-            let end_pos = pos
-                .checked_add(end_len)
-                .ok_or(crate::Error::RangeTombstoneDecode {
-                    field: "end",
-                    offset: pos as u64,
-                })?;
-            let end_buf = data
-                .get(pos..end_pos)
-                .ok_or(crate::Error::RangeTombstoneDecode {
-                    field: "end",
-                    offset: pos as u64,
-                })?
-                .to_vec();
-            cursor.set_position(end_pos as u64);
+            let end_buf = Self::read_checked_slice(&mut cursor, data, "end", end_len)?;
 
             let seqno_offset = cursor.position();
             let seqno =
