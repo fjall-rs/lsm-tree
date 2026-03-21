@@ -5,5 +5,5 @@ publish = false
 git_release_enable = true
 # Use conventional commits for changelog
 changelog_update = true
-# v-prefixed tags distinguish fork releases (v4.0.0) from upstream (3.1.2)
+# Fork tags use v-prefix (v4.0.0) to distinguish from upstream (3.1.2)
 tag_name = "v{{ version }}"
