@@ -197,8 +197,9 @@ impl Memtable {
     /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
-        // flag_rotated() is called by the host crate (fjall) before rotation;
-        // this crate never sets it directly. The assert catches misuse by callers
+        // flag_rotated() (which sets requested_rotation) is called by the host
+        // crate (fjall) before rotation; this crate never sets it directly.
+        // The assert catches misuse by callers
         // in debug builds — intentionally debug-only because post-rotation writes
         // are structurally prevented by the host (sealed memtables are behind Arc
         // with no write path exposed), and an atomic load here would add overhead
