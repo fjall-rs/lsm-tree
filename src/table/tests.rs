@@ -1507,12 +1507,12 @@ fn decode_range_tombstones_empty_block_returns_error() {
 fn decode_range_tombstones_start_len_exceeds_remaining_returns_error() {
     use byteorder::{WriteBytesExt, LE};
 
-    // start_len = 100 but only 1 byte of data follows
+    // start_len = 100 but only 1 byte of data follows; offset = 0 (entry start)
     let mut buf = Vec::new();
     buf.write_u16::<LE>(100).unwrap();
     buf.push(0xFF);
 
-    assert_rt_decode_error(buf, "start_len");
+    assert_rt_decode_error_at(buf, "start_len", Some(0));
 }
 
 #[test]
@@ -1536,13 +1536,14 @@ fn decode_range_tombstones_end_len_exceeds_remaining_returns_error() {
     use byteorder::{WriteBytesExt, LE};
 
     // Valid start, then end_len = 100 but only 1 byte follows
+    // offset = 3 (after u16 start_len + 1-byte key)
     let mut buf = Vec::new();
     buf.write_u16::<LE>(1).unwrap(); // start_len
     buf.push(b'a'); // start key
     buf.write_u16::<LE>(100).unwrap(); // end_len = 100
     buf.push(0xFF); // only 1 byte
 
-    assert_rt_decode_error(buf, "end_len");
+    assert_rt_decode_error_at(buf, "end_len", Some(3));
 }
 
 #[test]
