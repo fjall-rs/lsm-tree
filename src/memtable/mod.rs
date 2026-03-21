@@ -299,6 +299,10 @@ mod tests {
     use test_log::test;
 
     #[test]
+    #[expect(
+        clippy::expect_used,
+        reason = "tests use expect for lock and thread join"
+    )]
     fn rwlock_read_while_read_held_succeeds() {
         let mt = Memtable::new(0);
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
@@ -325,6 +329,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn suppression_queries_concurrent_readers_no_panic() {
         let mt = Arc::new(Memtable::new(0));
 
@@ -358,6 +363,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn range_tombstones_concurrent_read_write_writers_observable() {
         let mt = Arc::new(Memtable::new(0));
         // 4 readers + 2 writers = 6 (main thread does not wait on the barrier)
@@ -417,6 +423,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn range_tombstones_populated_tree_concurrent_reads_succeed() {
         let mt = Arc::new(Memtable::new(0));
 
