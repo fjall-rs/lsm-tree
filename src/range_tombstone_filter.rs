@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn per_source_cutoff_different_visibility() {
+    fn mixed_cutoffs_suppress_only_visible_source() {
         // Two RTs with same seqno but different per-source cutoffs:
         // RT from source A (cutoff 15) — visible (10 < 15), suppresses kv at seqno 5
         // RT from source B (cutoff 5) — NOT visible (10 >= 5), does not suppress

@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn forward_per_source_cutoff_mixed() {
+    fn forward_mixed_cutoffs_activates_only_visible_rt() {
         let mut set = ActiveTombstoneSet::new();
         // RT from source with cutoff 15 — visible (10 < 15)
         set.activate(&rt(b"a", b"m", 10), 15);
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn reverse_per_source_cutoff_mixed() {
+    fn reverse_mixed_cutoffs_activates_only_visible_rt() {
         let mut set = ActiveTombstoneSetReverse::new();
         // RT from source with cutoff 15 — visible (10 < 15)
         set.activate(&rt(b"n", b"z", 10), 15);
