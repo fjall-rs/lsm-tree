@@ -1486,7 +1486,7 @@ fn decode_range_tombstones_invalid_interval_returns_error() {
     buf.extend_from_slice(b"a");
     buf.write_u64::<LE>(1).unwrap(); // seqno
 
-    assert_rt_decode_error(buf, "interval");
+    assert_rt_decode_error_at(buf, "interval", Some(0));
 }
 
 #[test]
