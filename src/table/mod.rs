@@ -636,20 +636,15 @@ impl Table {
         field: &'static str,
         len: usize,
     ) -> crate::Result<Vec<u8>> {
+        let offset = cursor.position();
         let data = cursor.get_ref();
-        let pos = cursor.position() as usize;
+        let pos = offset as usize;
         let end_pos = pos
             .checked_add(len)
-            .ok_or(crate::Error::RangeTombstoneDecode {
-                field,
-                offset: pos as u64,
-            })?;
+            .ok_or(crate::Error::RangeTombstoneDecode { field, offset })?;
         let buf = data
             .get(pos..end_pos)
-            .ok_or(crate::Error::RangeTombstoneDecode {
-                field,
-                offset: pos as u64,
-            })?
+            .ok_or(crate::Error::RangeTombstoneDecode { field, offset })?
             .to_vec();
         cursor.set_position(end_pos as u64);
         Ok(buf)
