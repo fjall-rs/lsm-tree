@@ -12,7 +12,7 @@ use crate::{
     range_tombstone_filter::RangeTombstoneFilter,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
-    version::SuperVersion,
+    version::{Run, SuperVersion},
     BoxedIterator, InternalValue,
 };
 use self_cell::self_cell;
@@ -255,6 +255,9 @@ impl TreeIter {
                         }
                     }
                     _ => {
+                        // Collect range tombstones from ALL tables in the run
+                        // regardless of bloom filtering — they may affect keys
+                        // in other tables/levels.
                         for table in run.iter() {
                             all_range_tombstones.extend(
                                 table
@@ -265,7 +268,65 @@ impl TreeIter {
                             );
                         }
 
-                        multi_runs.push(run.clone());
+                        // If a prefix hash is available, filter individual tables
+                        // within the multi-table run using their bloom filters.
+                        if let Some(prefix_hash) = lock.prefix_hash {
+                            let bounds = (
+                                user_range.0.as_ref().map(std::convert::AsRef::as_ref),
+                                user_range.1.as_ref().map(std::convert::AsRef::as_ref),
+                            );
+
+                            let surviving: Vec<_> = run
+                                .iter()
+                                .filter(|table| {
+                                    // Cheap key-range metadata check first to avoid
+                                    // bloom filter I/O for non-overlapping tables.
+                                    if !table.check_key_range_overlap(&bounds) {
+                                        return false;
+                                    }
+
+                                    // On I/O error reading the filter, include the
+                                    // table conservatively to avoid missing data.
+                                    table
+                                        .maybe_contains_prefix(prefix_hash)
+                                        .inspect_err(|e| {
+                                            log::debug!(
+                                                "prefix bloom check failed for table {:?}: {e}",
+                                                table.id(),
+                                            );
+                                        })
+                                        .unwrap_or(true)
+                                })
+                                .cloned()
+                                .collect();
+
+                            match surviving.len() {
+                                0 => {
+                                    // All tables in this run were filtered out.
+                                }
+                                1 => {
+                                    // Demote to single-table path so it also
+                                    // benefits from the range-tombstone table-skip
+                                    // optimization below.
+                                    if let Some(table) = surviving.into_iter().next() {
+                                        single_tables.push(table);
+                                    }
+                                }
+                                _ => {
+                                    // surviving.len() >= 2, so Run::new cannot
+                                    // return None (only empty vecs yield None).
+                                    #[expect(
+                                        clippy::expect_used,
+                                        reason = "Run::new returns None only for empty vecs"
+                                    )]
+                                    let new_run =
+                                        Run::new(surviving).expect("non-empty surviving tables");
+                                    multi_runs.push(Arc::new(new_run));
+                                }
+                            }
+                        } else {
+                            multi_runs.push(run.clone());
+                        }
                     }
                 }
             }

@@ -18,6 +18,20 @@ impl PrefixExtractor for ColonSeparatedPrefix {
     }
 }
 
+/// Asserts that L0 contains at least one run with `min_tables` tables.
+///
+/// Panics with a descriptive message if the largest L0 run is too small.
+fn assert_l0_multi_table_run(tree: &Tree, min_tables: usize) {
+    let version = tree.current_version();
+    let l0 = version.level(0).expect("L0 should exist");
+    let max_run_len = l0.iter().map(|r| r.len()).max().unwrap_or(0);
+    assert!(
+        max_run_len >= min_tables,
+        "expected L0 run with >={min_tables} tables, \
+         but largest run has {max_run_len} table(s)",
+    );
+}
+
 fn tree_with_prefix_bloom(folder: &tempfile::TempDir) -> lsm_tree::Result<Tree> {
     let tree = Config::new(
         folder,
@@ -518,6 +532,218 @@ fn prefix_bloom_negative_lookup_in_key_range_gap() -> lsm_tree::Result<()> {
         .create_prefix("zzz:", 20, None)
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(results.len(), 10);
+
+    Ok(())
+}
+
+/// Multi-table runs (typically L0) now support per-table prefix bloom
+/// skipping. This test creates multiple flushes WITHOUT compaction so
+/// the tables remain in a single multi-table L0 run, then verifies
+/// that prefix scans still return correct results (tables whose bloom
+/// reports no match are skipped transparently).
+#[test]
+fn prefix_bloom_multi_table_run_skipping() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = tree_with_prefix_bloom(&folder)?;
+
+    // Flush 4 batches — each batch has a distinct prefix group.
+    // Without compaction these stay in L0 as a multi-table run.
+    tree.insert("alpha:1", "v1", 0);
+    tree.insert("alpha:2", "v2", 1);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("beta:1", "v3", 2);
+    tree.insert("beta:2", "v4", 3);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("gamma:1", "v5", 4);
+    tree.insert("gamma:2", "v6", 5);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("delta:1", "v7", 6);
+    tree.insert("delta:2", "v8", 7);
+    tree.flush_active_memtable(0)?;
+
+    // Verify L0 contains a fused multi-table run (4 disjoint flushes).
+    assert_l0_multi_table_run(&tree, 4);
+
+    // Each prefix scan should find exactly 2 keys — the bloom filter
+    // skips tables that definitely don't contain the queried prefix.
+    for prefix in &["alpha:", "beta:", "gamma:", "delta:"] {
+        let results: Vec<_> = tree
+            .create_prefix(prefix, 8, None)
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            results.len(),
+            2,
+            "prefix '{prefix}' should match exactly 2 keys",
+        );
+    }
+
+    // Non-existent prefix returns nothing.
+    let results: Vec<_> = tree
+        .create_prefix("omega:", 8, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 0);
+
+    Ok(())
+}
+
+/// Exercises the bloom Ok(false) path within a multi-table run.
+///
+/// When a table's key range overlaps the prefix scan bounds but its
+/// bloom filter correctly reports the prefix as absent, the table must
+/// be skipped. This is distinct from the key-range guard (which is a
+/// cheaper metadata-only check) and requires the bloom to be consulted.
+#[test]
+fn prefix_bloom_multi_table_run_bloom_rejection() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = tree_with_prefix_bloom(&folder)?;
+
+    // Create two disjoint tables that will be fused into one multi-table
+    // run by optimize_runs. Each table spans a wide key range so that
+    // a prefix scan for a non-existent prefix overlaps the table's
+    // key_range but gets rejected by the bloom.
+    //
+    // Table 1: keys "a:*" and "c:*"
+    //   → key_range = [a:1, c:9]
+    // Table 2: keys "d:*" and "f:*"
+    //   → key_range = [d:1, f:9]
+    //
+    // These are lexicographically disjoint (c:9 < d:1) so optimize_runs
+    // fuses them into a single multi-table run.
+    //
+    // Scanning "b:" has bounds [b:, b;). Table 1 overlaps (a:1 < b: < c:9),
+    // but "b:" was never written → bloom returns Ok(false).
+    //
+    // False-positive note: each table has 18 keys + 9 prefixes = 27 hashes
+    // at the default 10 bits-per-key, giving a bloom with ~270 bits. The
+    // probability that a single random probe returns a false positive is
+    // ≈0.8% — negligible for a deterministic test with fixed keys.
+    for i in 1..=9 {
+        tree.insert(format!("a:{i}"), "v", i - 1);
+        tree.insert(format!("c:{i}"), "v", 9 + i - 1);
+    }
+    tree.flush_active_memtable(0)?;
+
+    for i in 1..=9 {
+        tree.insert(format!("d:{i}"), "v", 18 + i - 1);
+        tree.insert(format!("f:{i}"), "v", 27 + i - 1);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // Verify L0 has a multi-table run (disjoint tables fused).
+    assert_l0_multi_table_run(&tree, 2);
+
+    // "b:" overlaps table 1's key range [a:1, c:9] but isn't in its bloom.
+    // This exercises the Ok(false) bloom rejection path in the multi-table
+    // run filter (not just the key-range guard).
+    let results: Vec<_> = tree
+        .create_prefix("b:", 36, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 0);
+
+    // "e:" overlaps table 2's key range [d:1, f:9] but isn't in its bloom.
+    let results: Vec<_> = tree
+        .create_prefix("e:", 36, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 0);
+
+    // Real prefixes still work through the multi-table run.
+    let results: Vec<_> = tree
+        .create_prefix("a:", 36, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 9);
+
+    let results: Vec<_> = tree
+        .create_prefix("d:", 36, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 9);
+
+    Ok(())
+}
+
+/// Exercises the multi-table run path where 2+ tables survive both
+/// the key-range guard and bloom check (the `_ =>` match arm that
+/// constructs a new Run from survivors).
+///
+/// Tables share a common broad prefix ("ns:") but have disjoint
+/// sub-prefixes ("ns:a:", "ns:b:", "ns:c:"). Scanning "ns:" matches
+/// all tables' blooms, keeping 3 survivors in the multi-table path.
+#[test]
+fn prefix_bloom_multi_table_run_multiple_survivors() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = tree_with_prefix_bloom(&folder)?;
+
+    // 3 disjoint flushes that share the broad prefix "ns:".
+    tree.insert("ns:a:1", "v1", 0);
+    tree.insert("ns:a:2", "v2", 1);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("ns:b:1", "v3", 2);
+    tree.insert("ns:b:2", "v4", 3);
+    tree.flush_active_memtable(0)?;
+
+    tree.insert("ns:c:1", "v5", 4);
+    tree.insert("ns:c:2", "v6", 5);
+    tree.flush_active_memtable(0)?;
+
+    // Verify L0 has a multi-table run.
+    assert_l0_multi_table_run(&tree, 3);
+
+    // Scanning "ns:" matches ALL 3 tables' blooms (all indexed "ns:"
+    // at write time). All 3 pass key-range and bloom → surviving.len() >= 2
+    // → hits the `_ =>` branch that builds a new Run from survivors.
+    let results: Vec<_> = tree
+        .create_prefix("ns:", 6, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 6);
+
+    // Narrow prefix: only 1 table survives → demoted to single-table path.
+    let results: Vec<_> = tree
+        .create_prefix("ns:b:", 6, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 2);
+
+    Ok(())
+}
+
+/// Verify that prefix bloom skipping works correctly with overlapping
+/// key ranges at L0 (where tables may overlap). Two flushes with
+/// interleaved keys ensure the tables' key ranges overlap, and prefix
+/// bloom filtering must still produce correct results. Because the
+/// key ranges overlap, `optimize_runs` keeps them as separate
+/// single-table runs (not fused into one multi-table run).
+#[test]
+fn prefix_bloom_overlapping_l0_tables() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = tree_with_prefix_bloom(&folder)?;
+
+    // First flush: mix of prefixes
+    tree.insert("user:1:name", "Alice", 0);
+    tree.insert("order:1:item", "widget", 1);
+    tree.flush_active_memtable(0)?;
+
+    // Second flush: overlapping key range with different prefix mix
+    tree.insert("user:2:name", "Bob", 2);
+    tree.insert("order:2:item", "gadget", 3);
+    tree.flush_active_memtable(0)?;
+
+    assert!(tree.table_count() >= 2);
+
+    // Both flushes contain "user:" keys — prefix scan must find all of them
+    let results: Vec<_> = tree
+        .create_prefix("user:", 4, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].0.as_ref(), b"user:1:name");
+    assert_eq!(results[1].0.as_ref(), b"user:2:name");
+
+    // Both flushes contain "order:" keys
+    let results: Vec<_> = tree
+        .create_prefix("order:", 4, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 2);
 
     Ok(())
 }
