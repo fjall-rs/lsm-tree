@@ -816,6 +816,9 @@ impl Tree {
         // or widens metadata in the inclusive-upper-bound fallback. That makes
         // `metadata.key_range.contains_key(key)` a sound early reject here and
         // avoids scanning RT blocks for unrelated SSTs on point reads.
+        //
+        // Per-table RT lists are sorted by start key on load,
+        // so binary search narrows candidates to RTs with start <= key.
         for table in super_version
             .version
             .iter_levels()
@@ -824,7 +827,12 @@ impl Tree {
             .filter(|t| !t.range_tombstones().is_empty())
             .filter(|t| t.metadata.key_range.contains_key(key))
         {
-            for rt in table.range_tombstones() {
+            let rts = table.range_tombstones();
+            let candidate_end = rts.partition_point(|rt| rt.start.as_ref() <= key);
+
+            for rt in rts.iter().take(candidate_end) {
+                // Binary search already narrowed to start <= key; should_suppress
+                // re-checks contains_key (harmless) and avoids semantic drift.
                 if rt.should_suppress(key, key_seqno, read_seqno) {
                     return true;
                 }

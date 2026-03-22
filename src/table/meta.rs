@@ -42,6 +42,12 @@ pub struct ParsedMeta {
     pub index_block_count: u64,
     pub key_range: KeyRange,
     pub(super) seqnos: (SeqNo, SeqNo),
+
+    /// Highest seqno from KV entries only (excludes range tombstones).
+    ///
+    /// Falls back to `seqnos.1` (overall max) for tables written before
+    /// this field was introduced, which is conservative but correct.
+    pub(super) highest_kv_seqno: SeqNo,
     pub file_size: u64,
     pub item_count: u64,
     pub tombstone_count: u64,
@@ -72,6 +78,21 @@ macro_rules! read_u64 {
         let mut bytes = &bytes.value[..];
         bytes.read_u64::<LittleEndian>()?
     }};
+}
+
+/// Validates that `kv_seqno` does not exceed `max_seqno`.
+///
+/// KV-only seqno must be ≤ overall max (which includes both KV and RT seqnos).
+/// A value above `max_seqno` indicates on-disk corruption.
+fn validated_kv_seqno(kv_seqno: SeqNo, max_seqno: SeqNo) -> crate::Result<SeqNo> {
+    if kv_seqno > max_seqno {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "seqno#kv_max exceeds seqno#max",
+        )
+        .into());
+    }
+    Ok(kv_seqno)
 }
 
 impl ParsedMeta {
@@ -189,6 +210,20 @@ impl ParsedMeta {
             (min, max)
         };
 
+        // Optional field introduced for table-skip optimization.
+        // Old tables lack this key; fall back to overall max seqno
+        // (conservative: table-skip compares rt.seqno > highest_kv_seqno,
+        // so falling back to the higher overall max just disables the
+        // optimization for legacy tables — correct but not optimal).
+        // If the key exists but is truncated, propagate the I/O error to
+        // surface metadata corruption rather than silently falling back.
+        let highest_kv_seqno = if let Some(item) = block.point_read(b"seqno#kv_max", SeqNo::MAX) {
+            let mut bytes = &item.value[..];
+            validated_kv_seqno(bytes.read_u64::<LittleEndian>()?, seqnos.1)?
+        } else {
+            seqnos.1
+        };
+
         let data_block_compression = {
             let bytes = block
                 .point_read(b"compression#data", SeqNo::MAX)
@@ -214,6 +249,7 @@ impl ParsedMeta {
             index_block_count,
             key_range,
             seqnos,
+            highest_kv_seqno,
             file_size,
             item_count,
             tombstone_count,
@@ -222,5 +258,31 @@ impl ParsedMeta {
             data_block_compression,
             index_block_compression,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validated_kv_seqno_within_bounds() {
+        assert_eq!(validated_kv_seqno(5, 10).unwrap(), 5);
+    }
+
+    #[test]
+    fn validated_kv_seqno_equal_to_max() {
+        assert_eq!(validated_kv_seqno(10, 10).unwrap(), 10);
+    }
+
+    #[test]
+    fn validated_kv_seqno_zero() {
+        assert_eq!(validated_kv_seqno(0, 10).unwrap(), 0);
+    }
+
+    #[test]
+    fn validated_kv_seqno_exceeds_max_returns_error() {
+        let err = validated_kv_seqno(11, 10).unwrap_err();
+        assert!(matches!(err, crate::Error::Io(e) if e.kind() == std::io::ErrorKind::InvalidData));
     }
 }

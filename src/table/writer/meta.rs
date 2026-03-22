@@ -38,8 +38,15 @@ pub struct Metadata {
     /// Lowest encountered seqno
     pub lowest_seqno: SeqNo,
 
-    /// Highest encountered seqno
+    /// Highest encountered seqno (includes both KV and RT)
     pub highest_seqno: SeqNo,
+
+    /// Highest encountered seqno from KV entries only (excludes range tombstones).
+    ///
+    /// Used for table-skip decisions: a covering RT stored in the same table
+    /// can now trigger skip because `rt.seqno > highest_kv_seqno` may be true
+    /// even when `rt.seqno <= highest_seqno`.
+    pub highest_kv_seqno: SeqNo,
 }
 
 impl Default for Metadata {
@@ -60,6 +67,7 @@ impl Default for Metadata {
 
             lowest_seqno: SeqNo::MAX,
             highest_seqno: 0,
+            highest_kv_seqno: 0,
         }
     }
 }
