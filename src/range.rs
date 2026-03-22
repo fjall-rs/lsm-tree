@@ -175,6 +175,200 @@ fn bloom_passes(state: &IterState, table: &crate::table::Table) -> bool {
 }
 
 impl TreeIter {
+    /// Fast path for single-key point-read merge resolution.
+    ///
+    /// Unlike [`create_range`], this skips:
+    /// - RT sort + dedup + table-skip computation
+    /// - `RangeTombstoneFilter` wrapper (uses inline post-merge RT check instead)
+    /// - Reverse-direction RT clone+sort (point reads are forward-only)
+    ///
+    /// Range tombstones are still collected from all tables (not just
+    /// bloom-passing) because an RT in a bloom-negative table can suppress
+    /// the target key. Only iterator construction is bloom-gated.
+    ///
+    /// `MvccStream::is_rt_suppressed` handles merge-internal suppression; the
+    /// post-merge filter catches RT-suppressed resolved entries that would
+    /// otherwise leak through.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "mirrors create_range structure for the point-read fast path; splitting would reduce clarity"
+    )]
+    #[must_use]
+    pub fn create_range_point(guard: IterState, key: &[u8], seqno: SeqNo) -> Self {
+        let key_slice = UserKey::from(key);
+
+        Self::new(guard, |lock| {
+            let user_range = (
+                Bound::Included(key_slice.clone()),
+                Bound::Included(key_slice.clone()),
+            );
+
+            let range = (
+                Bound::Included(InternalKey::new(
+                    key_slice.as_ref(),
+                    SeqNo::MAX,
+                    crate::ValueType::Tombstone,
+                )),
+                Bound::Included(InternalKey::new(
+                    key_slice.as_ref(),
+                    0,
+                    crate::ValueType::Value,
+                )),
+            );
+
+            let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
+            let mut range_tombstones: Vec<(RangeTombstone, SeqNo)> = Vec::new();
+
+            // Constant for a point key — computed once and reused for
+            // key-range overlap checks and bloom filtering across all runs.
+            let bounds = (
+                user_range.0.as_ref().map(std::convert::AsRef::as_ref),
+                user_range.1.as_ref().map(std::convert::AsRef::as_ref),
+            );
+
+            for run in lock
+                .version
+                .version
+                .iter_levels()
+                .flat_map(|lvl| lvl.iter())
+            {
+                // Collect RTs from all key-range-overlapping tables regardless
+                // of bloom — an RT in a bloom-negative table can still suppress
+                // the target key. The key-range check avoids loading RTs from
+                // tables that cannot possibly contain a covering tombstone.
+                for table in run.iter() {
+                    if !table.check_key_range_overlap(&bounds) {
+                        continue;
+                    }
+                    range_tombstones.extend(
+                        table
+                            .range_tombstones()
+                            .iter()
+                            .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                            .map(|rt| (rt.clone(), seqno)),
+                    );
+                }
+
+                // Build iterators only from bloom-passing tables.
+                match run.len() {
+                    0 => {}
+                    1 => {
+                        #[expect(clippy::expect_used, reason = "we checked for length")]
+                        let table = run.first().expect("should exist");
+
+                        if table.check_key_range_overlap(&bounds) && bloom_passes(lock, table) {
+                            let reader =
+                                table
+                                    .range(user_range.clone())
+                                    .filter(move |item| match item {
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                        Err(_) => true,
+                                    });
+                            iters.push(Box::new(reader));
+                        }
+                    }
+                    _ => {
+                        let surviving: Vec<_> = run
+                            .iter()
+                            .filter(|table| {
+                                table.check_key_range_overlap(&bounds) && bloom_passes(lock, table)
+                            })
+                            .cloned()
+                            .collect();
+
+                        match surviving.len() {
+                            0 => {}
+                            1 => {
+                                if let Some(table) = surviving.into_iter().next() {
+                                    let reader =
+                                        table.range(user_range.clone()).filter(move |item| {
+                                            match item {
+                                                Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                                Err(_) => true,
+                                            }
+                                        });
+                                    iters.push(Box::new(reader));
+                                }
+                            }
+                            _ => {
+                                #[expect(
+                                    clippy::expect_used,
+                                    reason = "Run::new returns None only for empty vecs"
+                                )]
+                                let new_run =
+                                    Run::new(surviving).expect("non-empty surviving tables");
+                                if let Some(reader) =
+                                    RunReader::new(Arc::new(new_run), user_range.clone())
+                                {
+                                    iters.push(Box::new(reader.filter(move |item| match item {
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                        Err(_) => true,
+                                    })));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sealed memtables
+            for memtable in lock.version.sealed_memtables.iter() {
+                range_tombstones.extend(
+                    memtable
+                        .range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                        .map(|rt| (rt, seqno)),
+                );
+
+                let iter = memtable.range_internal(range.clone());
+                iters.push(Box::new(
+                    iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
+                        .map(Ok),
+                ));
+            }
+
+            // Active memtable
+            {
+                range_tombstones.extend(
+                    lock.version
+                        .active_memtable
+                        .range_tombstones_sorted()
+                        .into_iter()
+                        .filter(|rt| range_tombstone_overlaps_bounds(rt, &user_range))
+                        .map(|rt| (rt, seqno)),
+                );
+
+                let iter = lock.version.active_memtable.range_internal(range);
+                iters.push(Box::new(
+                    iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
+                        .map(Ok),
+                ));
+            }
+
+            let merged = Merger::new(iters, lock.comparator.clone());
+            // Clone is cheap: point-read RT sets are typically 0-2 entries.
+            // An Arc would add indirection overhead that exceeds the clone cost.
+            let iter = MvccStream::new(merged, lock.merge_operator.clone())
+                .with_range_tombstones(range_tombstones.clone());
+
+            // Post-merge RT suppression: unlike create_range which uses
+            // RangeTombstoneFilter (requires sorted RTs + O(n log n) init),
+            // point reads just do a linear scan over the (typically tiny) RT set.
+            Box::new(iter.filter(move |x| match x {
+                Ok(value) => {
+                    if value.key.is_tombstone() {
+                        return false;
+                    }
+                    !range_tombstones.iter().any(|(rt, cutoff)| {
+                        rt.should_suppress(&value.key.user_key, value.key.seqno, *cutoff)
+                    })
+                }
+                Err(_) => true,
+            }))
+        })
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "create_range wires up multiple iterator sources, filters, and tombstone handling; splitting further would reduce clarity"

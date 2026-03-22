@@ -4,17 +4,40 @@
 
 use crate::{version::Run, BoxedIterator, InternalValue, Table, UserKey};
 use std::{
-    ops::{Deref, RangeBounds},
+    ops::{Bound, Deref, RangeBounds},
     sync::Arc,
 };
 
-/// Reads through a disjoint run
+type OwnedRange = (Bound<UserKey>, Bound<UserKey>);
+
+fn to_owned_range<R: RangeBounds<UserKey>>(range: &R) -> OwnedRange {
+    (
+        match range.start_bound() {
+            Bound::Included(k) => Bound::Included(k.clone()),
+            Bound::Excluded(k) => Bound::Excluded(k.clone()),
+            Bound::Unbounded => Bound::Unbounded,
+        },
+        match range.end_bound() {
+            Bound::Included(k) => Bound::Included(k.clone()),
+            Bound::Excluded(k) => Bound::Excluded(k.clone()),
+            Bound::Unbounded => Bound::Unbounded,
+        },
+    )
+}
+
+/// Reads through a disjoint run with lazy reader initialization.
+///
+/// `lo_reader` and `hi_reader` are constructed on first `next()` /
+/// `next_back()` respectively, deferring the `table.range()` seek.
 pub struct RunReader {
     run: Arc<Run<Table>>,
+    range: OwnedRange,
     lo: usize,
     hi: usize,
     lo_reader: Option<BoxedIterator<'static>>,
     hi_reader: Option<BoxedIterator<'static>>,
+    lo_initialized: bool,
+    hi_initialized: bool,
 }
 
 impl RunReader {
@@ -38,33 +61,41 @@ impl RunReader {
     ) -> Self {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
+        let owned_range = to_owned_range(&range);
 
-        // TODO: lazily init readers?
-        #[expect(
-            clippy::expect_used,
-            reason = "we trust the caller to pass valid indexes"
-        )]
-        let lo_table = run.deref().get(lo).expect("should exist");
-        let lo_reader = lo_table.range(range.clone());
+        Self {
+            run,
+            range: owned_range,
+            lo,
+            hi,
+            lo_reader: None,
+            hi_reader: None,
+            lo_initialized: false,
+            hi_initialized: lo >= hi,
+        }
+    }
 
-        // TODO: lazily init readers?
-        let hi_reader = if hi > lo {
+    fn ensure_lo_initialized(&mut self) {
+        if !self.lo_initialized {
             #[expect(
                 clippy::expect_used,
                 reason = "we trust the caller to pass valid indexes"
             )]
-            let hi_table = run.deref().get(hi).expect("should exist");
-            Some(hi_table.range(range))
-        } else {
-            None
-        };
+            let lo_table = self.run.deref().get(self.lo).expect("should exist");
+            self.lo_reader = Some(Box::new(lo_table.range(self.range.clone())));
+            self.lo_initialized = true;
+        }
+    }
 
-        Self {
-            run,
-            lo,
-            hi,
-            lo_reader: Some(Box::new(lo_reader)),
-            hi_reader: hi_reader.map(|x| Box::new(x) as BoxedIterator),
+    fn ensure_hi_initialized(&mut self) {
+        if !self.hi_initialized {
+            #[expect(
+                clippy::expect_used,
+                reason = "we trust the caller to pass valid indexes"
+            )]
+            let hi_table = self.run.deref().get(self.hi).expect("should exist");
+            self.hi_reader = Some(Box::new(hi_table.range(self.range.clone())));
+            self.hi_initialized = true;
         }
     }
 }
@@ -73,6 +104,8 @@ impl Iterator for RunReader {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        self.ensure_lo_initialized();
+
         loop {
             if let Some(lo_reader) = &mut self.lo_reader {
                 if let Some(item) = lo_reader.next() {
@@ -83,6 +116,10 @@ impl Iterator for RunReader {
                 self.lo_reader = None;
                 self.lo += 1;
 
+                // Strict `<`: when lo reaches hi, this branch is skipped and
+                // the hi table is read via ensure_hi_initialized (which uses
+                // table.range() to respect the range end bound). `.iter()` is
+                // only used for middle tables that are fully consumed.
                 if self.lo < self.hi {
                     self.lo_reader = Some(Box::new(
                         #[expect(
@@ -92,12 +129,13 @@ impl Iterator for RunReader {
                         self.run.get(self.lo).expect("should exist").iter(),
                     ));
                 }
-            } else if let Some(hi_reader) = &mut self.hi_reader {
-                // NOTE: We reached the hi marker, so consume from it instead
-                //
-                // If it returns nothing, it is empty, so we are done
-                return hi_reader.next();
             } else {
+                // Lo exhausted — initialize hi reader if needed and consume from it
+                self.ensure_hi_initialized();
+
+                if let Some(hi_reader) = &mut self.hi_reader {
+                    return hi_reader.next();
+                }
                 return None;
             }
         }
@@ -106,6 +144,8 @@ impl Iterator for RunReader {
 
 impl DoubleEndedIterator for RunReader {
     fn next_back(&mut self) -> Option<Self::Item> {
+        self.ensure_hi_initialized();
+
         loop {
             if let Some(hi_reader) = &mut self.hi_reader {
                 if let Some(item) = hi_reader.next_back() {
@@ -125,12 +165,13 @@ impl DoubleEndedIterator for RunReader {
                         self.run.get(self.hi).expect("should exist").iter(),
                     ));
                 }
-            } else if let Some(lo_reader) = &mut self.lo_reader {
-                // NOTE: We reached the lo marker, so consume from it instead
-                //
-                // If it returns nothing, it is empty, so we are done
-                return lo_reader.next_back();
             } else {
+                // Hi exhausted — initialize lo reader if needed and consume from it
+                self.ensure_lo_initialized();
+
+                if let Some(lo_reader) = &mut self.lo_reader {
+                    return lo_reader.next_back();
+                }
                 return None;
             }
         }

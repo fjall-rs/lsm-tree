@@ -820,8 +820,6 @@ impl Tree {
         use crate::range::{IterState, TreeIter};
 
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
-        let key_slice = crate::Slice::from(key);
-        let range = key_slice.clone()..=key_slice;
         let comparator = version.active_memtable.comparator.clone();
 
         let iter_state = IterState {
@@ -835,10 +833,10 @@ impl Tree {
             metrics: None,
         };
 
-        // Intentionally reuses the full TreeIter pipeline (with bloom pre-filter)
-        // rather than a hand-rolled loop, to share merge/RT/Indirection logic
-        // with range scans. The bloom hash skips most tables at the filter level.
-        let mut iter = TreeIter::create_range(iter_state, range, seqno);
+        // Point-read fast path: skips eager RT collection, sort+dedup, table-skip,
+        // and RangeTombstoneFilter wrapper. MvccStream handles merge-internal RT
+        // suppression; a post-merge linear RT check catches the rest.
+        let mut iter = TreeIter::create_range_point(iter_state, key, seqno);
 
         match iter.next() {
             Some(Ok(entry)) => Ok(Some(entry.value)),

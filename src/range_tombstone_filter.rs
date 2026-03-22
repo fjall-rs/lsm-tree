@@ -26,38 +26,54 @@ pub struct RangeTombstoneFilter<I> {
     fwd_tombstones: Vec<(RangeTombstone, SeqNo)>,
     fwd_idx: usize,
     fwd_active: ActiveTombstoneSet,
+    fwd_initialized: bool,
 
     // Reverse state: (tombstone, per-source cutoff)
     rev_tombstones: Vec<(RangeTombstone, SeqNo)>,
     rev_idx: usize,
     rev_active: ActiveTombstoneSetReverse,
+    rev_initialized: bool,
 }
 
 impl<I> RangeTombstoneFilter<I> {
     /// Creates a new bidirectional filter.
     ///
     /// Each tombstone is paired with its per-source visibility cutoff.
-    /// Forward tombstones need not be pre-sorted — the constructor sorts
-    /// internally. A second copy sorted by `(end desc, seqno desc)` is
-    /// created for reverse iteration.
+    /// Forward and reverse sorting is deferred to first `next()` /
+    /// `next_back()` respectively, so construction is O(1).
     #[must_use]
-    pub fn new(inner: I, mut fwd_tombstones: Vec<(RangeTombstone, SeqNo)>) -> Self {
-        // Sort by RT natural order (start asc, seqno desc, end asc).
-        // Callers may pre-sort for dedup; re-sorting is O(n) on sorted input.
-        fwd_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
-
-        // Build reverse-sorted copy: (end desc, seqno desc)
-        let mut rev_tombstones = fwd_tombstones.clone();
-        rev_tombstones.sort_by(|a, b| (&b.0.end, &b.0.seqno).cmp(&(&a.0.end, &a.0.seqno)));
-
+    pub fn new(inner: I, fwd_tombstones: Vec<(RangeTombstone, SeqNo)>) -> Self {
         Self {
             inner,
             fwd_tombstones,
             fwd_idx: 0,
             fwd_active: ActiveTombstoneSet::new(),
-            rev_tombstones,
+            fwd_initialized: false,
+            rev_tombstones: Vec::new(),
             rev_idx: 0,
             rev_active: ActiveTombstoneSetReverse::new(),
+            rev_initialized: false,
+        }
+    }
+
+    /// Ensures forward tombstones are sorted (start asc, seqno desc, end asc).
+    fn ensure_fwd_initialized(&mut self) {
+        if !self.fwd_initialized {
+            self.fwd_tombstones.sort_by(|a, b| a.0.cmp(&b.0));
+            self.fwd_initialized = true;
+        }
+    }
+
+    /// Ensures reverse tombstones are built and sorted (end desc, seqno desc).
+    fn ensure_rev_initialized(&mut self) {
+        if !self.rev_initialized {
+            // Sort fwd first so both directions share a canonical base order,
+            // preserving tie-breaking semantics from the pre-lazy implementation.
+            self.ensure_fwd_initialized();
+            self.rev_tombstones = self.fwd_tombstones.clone();
+            self.rev_tombstones
+                .sort_by(|a, b| (&b.0.end, &b.0.seqno).cmp(&(&a.0.end, &a.0.seqno)));
+            self.rev_initialized = true;
         }
     }
 
@@ -90,6 +106,8 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for RangeTombsto
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        self.ensure_fwd_initialized();
+
         loop {
             let item = self.inner.next()?;
 
@@ -118,6 +136,8 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
     for RangeTombstoneFilter<I>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
+        self.ensure_rev_initialized();
+
         loop {
             let item = self.inner.next_back()?;
 
