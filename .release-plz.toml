@@ -7,3 +7,21 @@ git_release_enable = true
 changelog_update = true
 # Fork tags use v-prefix (v4.0.0) to distinguish from upstream (3.1.2)
 git_tag_name = "v{{ version }}"
+
+[changelog]
+# Keep changelog focused on meaningful changes
+commit_parsers = [
+    { message = "^ci", skip = true },
+    { message = "^style", skip = true },
+    { message = "^chore\\(deps\\)", skip = true },
+    { message = "^chore\\(sync\\)", skip = true },
+    { message = "^docs\\(ci\\)", skip = true },
+    { message = "^docs\\(copilot\\)", skip = true },
+    { message = "^docs\\(memtable\\)", group = "Documentation" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactored" },
+    { message = "^test", group = "Testing" },
+]
