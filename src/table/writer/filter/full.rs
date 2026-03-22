@@ -6,6 +6,7 @@ use super::FilterWriter;
 use crate::{
     checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
+    encryption::EncryptionProvider,
     prefix::PrefixExtractor,
     table::{filter::standard_bloom::Builder, Block},
     CompressionType, UserKey,
@@ -19,6 +20,8 @@ pub struct FullFilterWriter {
     bloom_policy: BloomConstructionPolicy,
 
     prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
+
+    encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl FullFilterWriter {
@@ -27,6 +30,7 @@ impl FullFilterWriter {
             bloom_hash_buffer: Vec::new(),
             bloom_policy,
             prefix_extractor: None,
+            encryption: None,
         }
     }
 }
@@ -53,6 +57,14 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         extractor: Option<Arc<dyn PrefixExtractor>>,
     ) -> Box<dyn FilterWriter<W>> {
         self.prefix_extractor = extractor;
+        self
+    }
+
+    fn use_encryption(
+        mut self: Box<Self>,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
+    ) -> Box<dyn FilterWriter<W>> {
+        self.encryption = encryption;
         self
     }
 
@@ -111,6 +123,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
                 &filter_bytes,
                 crate::table::block::BlockType::Filter,
                 CompressionType::None,
+                self.encryption.as_deref(),
             )?;
         }
 

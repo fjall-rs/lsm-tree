@@ -9,8 +9,8 @@ pub use full::FullFilterWriter;
 pub use partitioned::PartitionedFilterWriter;
 
 use crate::{
-    checksum::ChecksummedWriter, config::BloomConstructionPolicy, prefix::PrefixExtractor,
-    CompressionType, UserKey,
+    checksum::ChecksummedWriter, config::BloomConstructionPolicy, encryption::EncryptionProvider,
+    prefix::PrefixExtractor, CompressionType, UserKey,
 };
 use std::{fs::File, io::BufWriter, sync::Arc};
 
@@ -45,5 +45,11 @@ pub trait FilterWriter<W: std::io::Write> {
     fn set_prefix_extractor(
         self: Box<Self>,
         extractor: Option<Arc<dyn PrefixExtractor>>,
+    ) -> Box<dyn FilterWriter<W>>;
+
+    /// Sets the encryption provider for filter blocks.
+    fn use_encryption(
+        self: Box<Self>,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
     ) -> Box<dyn FilterWriter<W>>;
 }

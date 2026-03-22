@@ -22,6 +22,7 @@ pub type PartitioningPolicy = PinningPolicy;
 use crate::{
     compaction::filter::Factory,
     comparator::{self, SharedComparator},
+    encryption::EncryptionProvider,
     merge_operator::MergeOperator,
     path::absolute_path,
     prefix::PrefixExtractor,
@@ -260,11 +261,21 @@ pub struct Config {
     #[doc(hidden)]
     pub(crate) comparator: SharedComparator,
 
-    /// The global sequence number generator
+    /// Block-level encryption provider for encryption at rest.
     ///
-    /// Should be shared between multiple trees of a database
+    /// When set, all blocks (data, index, filter, meta) are encrypted
+    /// using this provider after compression and before checksumming.
+    pub(crate) encryption: Option<Arc<dyn EncryptionProvider>>,
+
+    /// The global sequence number generator.
+    ///
+    /// Should be shared between multiple trees of a database.
     pub(crate) seqno: SharedSequenceNumberGenerator,
 
+    /// Sequence number watermark that is visible to readers.
+    ///
+    /// Used for MVCC snapshots and to control which updates are
+    /// observable in a given view of the database.
     pub(crate) visible_seqno: SharedSequenceNumberGenerator,
 }
 
@@ -327,6 +338,7 @@ impl Default for Config {
             kv_separation_opts: None,
 
             comparator: comparator::default_comparator(),
+            encryption: None,
         }
     }
 }
@@ -556,6 +568,29 @@ impl Config {
     #[must_use]
     pub fn comparator(mut self, comparator: SharedComparator) -> Self {
         self.comparator = comparator;
+        self
+    }
+
+    /// Sets the block-level encryption provider for encryption at rest.
+    ///
+    /// When set, all blocks written to SST files are encrypted after
+    /// compression and before checksumming, using the provided
+    /// [`EncryptionProvider`].
+    ///
+    /// The caller is responsible for key management and rotation.
+    /// See [`crate::Aes256GcmProvider`] (behind the `encryption` feature)
+    /// for a ready-to-use AES-256-GCM implementation.
+    ///
+    /// **Important constraints:**
+    /// - Encryption state is NOT recorded in SST metadata. Opening an
+    ///   encrypted tree without the correct provider (or vice versa) will
+    ///   cause block validation errors, not silent corruption.
+    /// - Blob files (KV-separated large values) are NOT covered by
+    ///   block-level encryption. Large values stored via KV separation
+    ///   remain in plaintext on disk.
+    #[must_use]
+    pub fn with_encryption(mut self, encryption: Option<Arc<dyn EncryptionProvider>>) -> Self {
+        self.encryption = encryption;
         self
     }
 

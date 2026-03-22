@@ -446,6 +446,7 @@ impl AbstractTree for BlobTree {
 
         table_writer =
             table_writer.use_prefix_extractor(self.index.config.prefix_extractor.clone());
+        table_writer = table_writer.use_encryption(self.index.config.encryption.clone());
 
         #[expect(
             clippy::expect_used,
@@ -532,6 +533,7 @@ impl AbstractTree for BlobTree {
                     self.index.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    self.index.config.encryption.clone(),
                     self.index.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.index.metrics.clone(),

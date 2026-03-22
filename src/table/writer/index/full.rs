@@ -4,17 +4,19 @@
 
 use crate::{
     checksum::ChecksummedWriter,
+    encryption::EncryptionProvider,
     table::{
         block::Header as BlockHeader, index_block::KeyedBlockHandle,
         writer::index::BlockIndexWriter, Block, IndexBlock,
     },
     CompressionType,
 };
-use std::{fs::File, io::BufWriter};
+use std::{fs::File, io::BufWriter, sync::Arc};
 
 pub struct FullIndexWriter {
     compression: CompressionType,
     block_handles: Vec<KeyedBlockHandle>,
+    encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl FullIndexWriter {
@@ -22,11 +24,20 @@ impl FullIndexWriter {
         Self {
             compression: CompressionType::None,
             block_handles: Vec::new(),
+            encryption: None,
         }
     }
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter {
+    fn use_encryption(
+        mut self: Box<Self>,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
+    ) -> Box<dyn BlockIndexWriter<W>> {
+        self.encryption = encryption;
+        self
+    }
+
     fn use_partition_size(self: Box<Self>, _: u32) -> Box<dyn BlockIndexWriter<W>> {
         self
     }
@@ -66,6 +77,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
             &bytes,
             crate::table::block::BlockType::Index,
             self.compression,
+            self.encryption.as_deref(),
         )?;
 
         #[expect(

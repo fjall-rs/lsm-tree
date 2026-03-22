@@ -70,6 +70,12 @@ pub enum Error {
     /// details before returning this error.
     MergeOperator,
 
+    /// Encryption failed
+    Encrypt(&'static str),
+
+    /// Decryption failed
+    Decrypt(&'static str),
+
     /// Range tombstone block decode failure.
     RangeTombstoneDecode {
         /// Which field or validation failed (e.g. `start_len`, `start`, `seqno`, `interval`)

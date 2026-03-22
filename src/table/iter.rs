@@ -5,6 +5,7 @@
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
     comparator::SharedComparator,
+    encryption::EncryptionProvider,
     file_accessor::FileAccessor,
     table::{
         block::ParsedItem,
@@ -104,6 +105,7 @@ pub struct Iter {
     file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
+    encryption: Option<Arc<dyn EncryptionProvider>>,
     comparator: SharedComparator,
 
     index_initialized: bool,
@@ -123,7 +125,7 @@ pub struct Iter {
 impl Iter {
     #[expect(
         clippy::too_many_arguments,
-        reason = "comparator + metrics add extra parameters"
+        reason = "encryption, comparator and metrics add extra parameters to the constructor"
     )]
     pub fn new(
         table_id: GlobalTableId,
@@ -133,6 +135,7 @@ impl Iter {
         file_accessor: FileAccessor,
         cache: Arc<Cache>,
         compression: CompressionType,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
         comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> Self {
@@ -146,6 +149,7 @@ impl Iter {
             file_accessor,
             cache,
             compression,
+            encryption,
             comparator,
 
             index_initialized: false,
@@ -265,6 +269,7 @@ impl Iterator for Iter {
                         &BlockHandle::new(handle.offset(), handle.size()),
                         crate::table::block::BlockType::Data,
                         self.compression,
+                        self.encryption.as_deref(),
                         #[cfg(feature = "metrics")]
                         &self.metrics,
                     ))
@@ -386,6 +391,7 @@ impl DoubleEndedIterator for Iter {
                         &BlockHandle::new(handle.offset(), handle.size()),
                         crate::table::block::BlockType::Data,
                         self.compression,
+                        self.encryption.as_deref(),
                         #[cfg(feature = "metrics")]
                         &self.metrics,
                     ))

@@ -102,6 +102,7 @@ impl<'a> Ingestion<'a> {
         }
 
         writer = writer.use_prefix_extractor(tree.config.prefix_extractor.clone());
+        writer = writer.use_encryption(tree.config.encryption.clone());
 
         Ok(Self {
             folder,
@@ -302,6 +303,7 @@ impl<'a> Ingestion<'a> {
                     self.tree.config.descriptor_table.clone(),
                     false,
                     false,
+                    self.tree.config.encryption.clone(),
                     self.tree.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.tree.metrics.clone(),

@@ -5,10 +5,11 @@
 use super::{Block, DataBlock};
 use crate::{
     comparator::SharedComparator,
+    encryption::EncryptionProvider,
     table::{block::BlockType, iter::OwnedDataBlockIter},
     CompressionType, InternalValue, SeqNo,
 };
-use std::{fs::File, io::BufReader, path::Path};
+use std::{fs::File, io::BufReader, path::Path, sync::Arc};
 
 /// Table reader that is optimized for consuming an entire table
 pub struct Scanner {
@@ -20,6 +21,8 @@ pub struct Scanner {
     read_count: usize,
 
     global_seqno: SeqNo,
+
+    encryption: Option<Arc<dyn EncryptionProvider>>,
     comparator: SharedComparator,
 }
 
@@ -29,12 +32,13 @@ impl Scanner {
         block_count: usize,
         compression: CompressionType,
         global_seqno: SeqNo,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
         comparator: SharedComparator,
     ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
-        let block = Self::fetch_next_block(&mut reader, compression)?;
+        let block = Self::fetch_next_block(&mut reader, compression, encryption.as_deref())?;
         let cmp = comparator.clone();
         let iter = OwnedDataBlockIter::new(block, |b| b.iter(cmp));
 
@@ -47,6 +51,7 @@ impl Scanner {
             read_count: 1,
 
             global_seqno,
+            encryption,
             comparator,
         })
     }
@@ -54,8 +59,9 @@ impl Scanner {
     fn fetch_next_block(
         reader: &mut BufReader<File>,
         compression: CompressionType,
+        encryption: Option<&dyn EncryptionProvider>,
     ) -> crate::Result<DataBlock> {
-        let block = Block::from_reader(reader, compression);
+        let block = Block::from_reader(reader, compression, encryption);
 
         match block {
             Ok(block) => {
@@ -88,7 +94,11 @@ impl Iterator for Scanner {
             }
 
             // Init new block
-            let block = fail_iter!(Self::fetch_next_block(&mut self.reader, self.compression));
+            let block = fail_iter!(Self::fetch_next_block(
+                &mut self.reader,
+                self.compression,
+                self.encryption.as_deref(),
+            ));
             let cmp = self.comparator.clone();
             self.iter = OwnedDataBlockIter::new(block, |b| b.iter(cmp));
 

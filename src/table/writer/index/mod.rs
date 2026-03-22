@@ -8,8 +8,11 @@ mod partitioned;
 pub use full::FullIndexWriter;
 pub use partitioned::PartitionedIndexWriter;
 
-use crate::{checksum::ChecksummedWriter, table::index_block::KeyedBlockHandle, CompressionType};
-use std::{fs::File, io::BufWriter};
+use crate::{
+    checksum::ChecksummedWriter, encryption::EncryptionProvider,
+    table::index_block::KeyedBlockHandle, CompressionType,
+};
+use std::{fs::File, io::BufWriter, sync::Arc};
 
 pub trait BlockIndexWriter<W: std::io::Write> {
     /// Registers a data block in the block index.
@@ -29,4 +32,10 @@ pub trait BlockIndexWriter<W: std::io::Write> {
     ) -> Box<dyn BlockIndexWriter<W>>;
 
     fn use_partition_size(self: Box<Self>, size: u32) -> Box<dyn BlockIndexWriter<W>>;
+
+    /// Sets the encryption provider for index blocks.
+    fn use_encryption(
+        self: Box<Self>,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
+    ) -> Box<dyn BlockIndexWriter<W>>;
 }

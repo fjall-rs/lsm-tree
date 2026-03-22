@@ -209,6 +209,7 @@ impl Table {
             handle,
             block_type,
             compression,
+            self.encryption.as_deref(),
             #[cfg(feature = "metrics")]
             &self.metrics,
         )
@@ -368,6 +369,7 @@ impl Table {
             block_count,
             self.metadata.data_block_compression,
             self.global_seqno(),
+            self.encryption.clone(),
             self.comparator.clone(),
         )
     }
@@ -404,6 +406,7 @@ impl Table {
             self.file_accessor.clone(),
             self.cache.clone(),
             self.metadata.data_block_compression,
+            self.encryption.clone(),
             self.comparator.clone(),
             #[cfg(feature = "metrics")]
             self.metrics.clone(),
@@ -428,10 +431,11 @@ impl Table {
         regions: &ParsedRegions,
         file: &File,
         compression: CompressionType,
+        encryption: Option<&dyn crate::encryption::EncryptionProvider>,
     ) -> crate::Result<IndexBlock> {
         log::trace!("Reading TLI block, with tli_ptr={:?}", regions.tli);
 
-        let block = Block::from_file(file, regions.tli, compression)?;
+        let block = Block::from_file(file, regions.tli, compression, encryption)?;
 
         if block.header.block_type != BlockType::Index {
             return Err(crate::Error::InvalidTag((
@@ -458,6 +462,7 @@ impl Table {
         descriptor_table: Option<Arc<DescriptorTable>>,
         pin_filter: bool,
         pin_index: bool,
+        encryption: Option<Arc<dyn crate::encryption::EncryptionProvider>>,
         comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
@@ -478,7 +483,8 @@ impl Table {
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
         log::trace!("Reading meta block, with meta_ptr={:?}", regions.metadata);
-        let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
+        let metadata =
+            ParsedMeta::load_with_handle(&file, &regions.metadata, encryption.as_deref())?;
 
         let file = Arc::new(file);
 
@@ -494,7 +500,12 @@ impl Table {
                 regions.tli,
             );
 
-            let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
+            let block = Self::read_tli(
+                &regions,
+                &file,
+                metadata.index_block_compression,
+                encryption.as_deref(),
+            )?;
 
             BlockIndexImpl::TwoLevel(TwoLevelBlockIndex {
                 top_level_index: block,
@@ -503,6 +514,7 @@ impl Table {
                 path: Arc::clone(&file_path),
                 file_accessor: file_accessor.clone(),
                 table_id: (tree_id, metadata.id).into(),
+                encryption: encryption.clone(),
                 comparator: comparator.clone(),
 
                 #[cfg(feature = "metrics")]
@@ -514,7 +526,12 @@ impl Table {
                 regions.tli,
             );
 
-            let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
+            let block = Self::read_tli(
+                &regions,
+                &file,
+                metadata.index_block_compression,
+                encryption.as_deref(),
+            )?;
             BlockIndexImpl::Full(FullBlockIndex::new(block, comparator.clone()))
         } else {
             log::trace!("Creating volatile, full block index");
@@ -526,6 +543,7 @@ impl Table {
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
+                encryption: encryption.clone(),
                 comparator: comparator.clone(),
 
                 #[cfg(feature = "metrics")]
@@ -534,8 +552,12 @@ impl Table {
         };
 
         let pinned_filter_index = if let Some(filter_tli_handle) = regions.filter_tli {
-            let block =
-                Block::from_file(&file, filter_tli_handle, metadata.index_block_compression)?;
+            let block = Block::from_file(
+                &file,
+                filter_tli_handle,
+                metadata.index_block_compression,
+                encryption.as_deref(),
+            )?;
             Some(IndexBlock::new(block))
         } else {
             None
@@ -554,6 +576,7 @@ impl Table {
                         &file,
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
+                        encryption.as_deref(),
                     )
                     .and_then(|block| {
                         if block.header.block_type == BlockType::Filter {
@@ -576,7 +599,12 @@ impl Table {
         // Load range tombstones (if present)
         let range_tombstones = if let Some(rt_handle) = regions.range_tombstones {
             log::trace!("Loading range tombstone block, with rt_ptr={rt_handle:?}");
-            let block = Block::from_file(&file, rt_handle, crate::CompressionType::None)?;
+            let block = Block::from_file(
+                &file,
+                rt_handle,
+                crate::CompressionType::None,
+                encryption.as_deref(),
+            )?;
 
             if block.header.block_type != BlockType::RangeTombstone {
                 return Err(crate::Error::InvalidTag((
@@ -635,6 +663,7 @@ impl Table {
 
             cached_blob_bytes: std::sync::OnceLock::new(),
             range_tombstones,
+            encryption,
         })))
     }
 

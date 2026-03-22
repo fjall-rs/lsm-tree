@@ -4,6 +4,7 @@
 
 use crate::{
     checksum::ChecksummedWriter,
+    encryption::EncryptionProvider,
     table::{
         block::Header as BlockHeader, index_block::KeyedBlockHandle,
         writer::index::BlockIndexWriter, Block, BlockHandle, BlockOffset, IndexBlock,
@@ -13,6 +14,7 @@ use crate::{
 use std::{
     fs::File,
     io::{BufWriter, Seek, Write},
+    sync::Arc,
 };
 
 pub struct PartitionedIndexWriter {
@@ -31,6 +33,8 @@ pub struct PartitionedIndexWriter {
     block_buffer: Vec<u8>,
 
     final_write_buffer: Vec<u8>,
+
+    encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl PartitionedIndexWriter {
@@ -48,6 +52,8 @@ impl PartitionedIndexWriter {
             block_buffer: Vec::with_capacity(4_096),
 
             final_write_buffer: Vec::new(),
+
+            encryption: None,
         }
     }
 
@@ -60,6 +66,7 @@ impl PartitionedIndexWriter {
             &bytes,
             crate::table::block::BlockType::Index,
             self.compression,
+            self.encryption.as_deref(),
         )?;
 
         #[expect(
@@ -122,6 +129,7 @@ impl PartitionedIndexWriter {
             &bytes,
             crate::table::block::BlockType::Index,
             self.compression,
+            self.encryption.as_deref(),
         )?;
 
         #[expect(
@@ -142,6 +150,14 @@ impl PartitionedIndexWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndexWriter {
+    fn use_encryption(
+        mut self: Box<Self>,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
+    ) -> Box<dyn BlockIndexWriter<W>> {
+        self.encryption = encryption;
+        self
+    }
+
     fn use_partition_size(mut self: Box<Self>, size: u32) -> Box<dyn BlockIndexWriter<W>> {
         self.partition_size = size;
         self

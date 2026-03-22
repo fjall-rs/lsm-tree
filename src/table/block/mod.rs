@@ -20,6 +20,7 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
+    encryption::EncryptionProvider,
     table::BlockHandle,
     Checksum, CompressionType, Slice,
 };
@@ -54,11 +55,15 @@ impl Block {
     }
 
     /// Encodes a block into a writer.
+    ///
+    /// Pipeline: raw data → compress → encrypt → checksum → write.
+    /// When `encryption` is `None`, the encrypt step is skipped.
     pub fn write_into<W: std::io::Write>(
         mut writer: &mut W,
         data: &[u8],
         block_type: BlockType,
         compression: CompressionType,
+        encryption: Option<&dyn EncryptionProvider>,
     ) -> crate::Result<Header> {
         if data.len() > MAX_DECOMPRESSION_SIZE as usize {
             return Err(crate::Error::DecompressedSizeTooLarge {
@@ -106,17 +111,45 @@ impl Block {
             }
         };
 
-        #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
-        {
-            header.data_length = payload.len() as u32;
-            header.checksum = Checksum::from_raw(crate::hash::hash128(payload));
+        // Encrypt the compressed payload if an encryption provider is configured.
+        // The encrypted bytes replace the compressed bytes on disk; checksums
+        // cover the encrypted form so corruption is detected before decryption.
+        let encrypted_buf = encryption.map(|enc| enc.encrypt(payload)).transpose()?;
+        let payload: &[u8] = encrypted_buf.as_deref().unwrap_or(payload);
+
+        // Validate the final on-disk payload against the same size limit
+        // enforced on the read path (MAX_DECOMPRESSION_SIZE + encryption overhead).
+        // Check in u64 first to produce the correct DecompressedSizeTooLarge error,
+        // then narrow to u32 for the header field.
+        //
+        // NOTE: max_overhead() is used only for the LIMIT — the actual ciphertext
+        // length is checked against it regardless. A buggy provider that expands
+        // beyond max_overhead() will be caught by this check (payload > limit).
+        // Cap at u32::MAX to guarantee the subsequent as-u32 cast is safe.
+        let max_payload = (u64::from(MAX_DECOMPRESSION_SIZE)
+            + encryption.map_or(0u64, |enc| u64::from(enc.max_overhead())))
+        .min(u64::from(u32::MAX));
+
+        if payload.len() as u64 > max_payload {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: payload.len() as u64,
+                limit: max_payload,
+            });
         }
+
+        // Safe: payload.len() <= max_payload <= MAX_DECOMPRESSION_SIZE + overhead,
+        // which is well within u32 range.
+        #[expect(clippy::cast_possible_truncation, reason = "bounded by check above")]
+        let payload_len = payload.len() as u32;
+
+        header.data_length = payload_len;
+        header.checksum = Checksum::from_raw(crate::hash::hash128(payload));
 
         header.encode_into(&mut writer)?;
         writer.write_all(payload)?;
 
         log::trace!(
-            "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
+            "Writing block with size {}B (on-disk: {}B) (excluding header of {}B)",
             header.uncompressed_length,
             header.data_length,
             Header::serialized_len(),
@@ -126,18 +159,35 @@ impl Block {
     }
 
     /// Reads a block from a reader.
+    ///
+    /// Pipeline: read → verify checksum → decrypt → decompress.
+    /// When `encryption` is `None`, the decrypt step is skipped.
+    ///
+    /// Encryption state is determined by the caller (via [`Config`]),
+    /// not recorded in the on-disk block header. With an authenticated
+    /// encryption provider (such as AES-256-GCM), using the wrong key
+    /// or provider will typically surface as a read/validation error
+    /// (checksum, length, or decompression failure) rather than
+    /// silently producing valid-looking plaintext.
     pub fn from_reader<R: std::io::Read>(
         reader: &mut R,
         compression: CompressionType,
+        encryption: Option<&dyn EncryptionProvider>,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
 
         // Validate both size fields before any I/O or hashing to fail fast
-        // on malformed headers.
-        if header.data_length > MAX_DECOMPRESSION_SIZE {
+        // on malformed headers. The on-disk data_length may include encryption
+        // overhead (nonce + auth tag), so allow the provider's declared margin.
+        // Use u64 arithmetic to avoid any possibility of u32 overflow
+        // (consistent with from_file).
+        let enc_overhead = encryption.map_or(0u64, |e| u64::from(e.max_overhead()));
+        let max_data_length = u64::from(MAX_DECOMPRESSION_SIZE) + enc_overhead;
+
+        if u64::from(header.data_length) > max_data_length {
             return Err(crate::Error::DecompressedSizeTooLarge {
                 declared: u64::from(header.data_length),
-                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+                limit: max_data_length,
             });
         }
 
@@ -160,23 +210,31 @@ impl Block {
             );
         })?;
 
+        // Decrypt the on-disk bytes before decompression.
+        let decrypted = encryption.map(|enc| enc.decrypt(&raw_data)).transpose()?;
+        let compressed_data: &[u8] = decrypted.as_deref().unwrap_or(&raw_data);
+
         let data = match compression {
             CompressionType::None => {
                 #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-                let actual_len = raw_data.len() as u32;
+                let actual_len = compressed_data.len() as u32;
 
                 if header.uncompressed_length != actual_len {
                     return Err(crate::Error::InvalidHeader("Block"));
                 }
 
-                raw_data
+                if let Some(plain) = decrypted {
+                    Slice::from(plain)
+                } else {
+                    raw_data
+                }
             }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
                 let mut buf = vec![0u8; header.uncompressed_length as usize];
 
-                let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
+                let bytes_written = lz4_flex::decompress_into(compressed_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
                 // Runtime validation: corrupted data may decompress to fewer bytes
@@ -190,7 +248,7 @@ impl Block {
             #[cfg(feature = "zstd")]
             CompressionType::Zstd(_) => {
                 let decompressed =
-                    zstd::bulk::decompress(&raw_data, header.uncompressed_length as usize)
+                    zstd::bulk::decompress(compressed_data, header.uncompressed_length as usize)
                         .map_err(|_| crate::Error::Decompress(compression))?;
 
                 if decompressed.len() != header.uncompressed_length as usize {
@@ -205,13 +263,20 @@ impl Block {
     }
 
     /// Reads a block from a file.
+    ///
+    /// Pipeline: read → verify checksum → decrypt → decompress.
+    /// When `encryption` is `None`, the decrypt step is skipped.
     pub fn from_file(
         file: &File,
         handle: BlockHandle,
         compression: CompressionType,
+        encryption: Option<&dyn EncryptionProvider>,
     ) -> crate::Result<Self> {
-        // handle.size() includes Header::serialized_len(), so allow that overhead
-        let max_on_disk_size = u64::from(MAX_DECOMPRESSION_SIZE) + Header::serialized_len() as u64;
+        // handle.size() includes Header::serialized_len(), so allow that overhead.
+        // Encrypted blocks add provider-specific overhead to the on-disk size.
+        let enc_overhead = encryption.map_or(0u64, |e| u64::from(e.max_overhead()));
+        let max_on_disk_size =
+            u64::from(MAX_DECOMPRESSION_SIZE) + Header::serialized_len() as u64 + enc_overhead;
 
         if u64::from(handle.size()) > max_on_disk_size {
             return Err(crate::Error::DecompressedSizeTooLarge {
@@ -248,30 +313,58 @@ impl Block {
             );
         })?;
 
+        // Decrypt the on-disk bytes before decompression.
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "header was decoded from buf, so it has at least Header::serialized_len() bytes"
+        )]
+        let decrypted = encryption
+            .map(|enc| enc.decrypt(&buf[Header::serialized_len()..]))
+            .transpose()?;
+
         let buf = match compression {
             CompressionType::None => {
-                let value = buf.slice(Header::serialized_len()..);
+                if let Some(plain) = decrypted {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "values are u32 length max"
+                    )]
+                    let actual_len = plain.len() as u32;
 
-                #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-                let actual_len = value.len() as u32;
+                    if header.uncompressed_length != actual_len {
+                        return Err(crate::Error::InvalidHeader("Block"));
+                    }
 
-                if header.uncompressed_length != actual_len {
-                    return Err(crate::Error::InvalidHeader("Block"));
+                    Slice::from(plain)
+                } else {
+                    let value = buf.slice(Header::serialized_len()..);
+
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "values are u32 length max"
+                    )]
+                    let actual_len = value.len() as u32;
+
+                    if header.uncompressed_length != actual_len {
+                        return Err(crate::Error::InvalidHeader("Block"));
+                    }
+
+                    value
                 }
-
-                value
             }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                // NOTE: We know that a header always exists and data is never empty
-                // So the slice is fine
-                #[expect(clippy::indexing_slicing)]
-                let raw_data = &buf[Header::serialized_len()..];
+                let compressed_data: &[u8] = if let Some(ref plain) = decrypted {
+                    plain
+                } else {
+                    #[expect(clippy::indexing_slicing)]
+                    &buf[Header::serialized_len()..]
+                };
 
                 let mut decompressed = vec![0u8; header.uncompressed_length as usize];
 
-                let bytes_written = lz4_flex::decompress_into(raw_data, &mut decompressed)
+                let bytes_written = lz4_flex::decompress_into(compressed_data, &mut decompressed)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
                 // Runtime validation: corrupted data may decompress to fewer bytes
@@ -284,11 +377,15 @@ impl Block {
 
             #[cfg(feature = "zstd")]
             CompressionType::Zstd(_) => {
-                #[expect(clippy::indexing_slicing)]
-                let raw_data = &buf[Header::serialized_len()..];
+                let compressed_data: &[u8] = if let Some(ref plain) = decrypted {
+                    plain
+                } else {
+                    #[expect(clippy::indexing_slicing)]
+                    &buf[Header::serialized_len()..]
+                };
 
                 let decompressed =
-                    zstd::bulk::decompress(raw_data, header.uncompressed_length as usize)
+                    zstd::bulk::decompress(compressed_data, header.uncompressed_length as usize)
                         .map_err(|_| crate::Error::Decompress(compression))?;
 
                 if decompressed.len() != header.uncompressed_length as usize {
@@ -314,7 +411,8 @@ mod tests {
 
         let data = b"abcdefabcdefabcdef";
         let mut buf = vec![];
-        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::None)?;
+        let header =
+            Block::write_into(&mut buf, data, BlockType::Data, CompressionType::None, None)?;
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("block");
@@ -328,7 +426,7 @@ mod tests {
             BlockOffset(0),
             header.data_length + Header::serialized_len() as u32,
         );
-        let block = Block::from_file(&file, handle, CompressionType::None)?;
+        let block = Block::from_file(&file, handle, CompressionType::None, None)?;
         assert_eq!(data, &*block.data);
 
         Ok(())
@@ -341,7 +439,8 @@ mod tests {
 
         let data = b"abcdefabcdefabcdef";
         let mut buf = vec![];
-        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Lz4)?;
+        let header =
+            Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Lz4, None)?;
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("block");
@@ -355,7 +454,7 @@ mod tests {
             BlockOffset(0),
             header.data_length + Header::serialized_len() as u32,
         );
-        let block = Block::from_file(&file, handle, CompressionType::Lz4)?;
+        let block = Block::from_file(&file, handle, CompressionType::Lz4, None)?;
         assert_eq!(data, &*block.data);
 
         Ok(())
@@ -368,7 +467,13 @@ mod tests {
 
         let data = b"abcdefabcdefabcdef";
         let mut buf = vec![];
-        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Zstd(3))?;
+        let header = Block::write_into(
+            &mut buf,
+            data,
+            BlockType::Data,
+            CompressionType::Zstd(3),
+            None,
+        )?;
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("block");
@@ -382,7 +487,7 @@ mod tests {
             BlockOffset(0),
             header.data_length + Header::serialized_len() as u32,
         );
-        let block = Block::from_file(&file, handle, CompressionType::Zstd(3))?;
+        let block = Block::from_file(&file, handle, CompressionType::Zstd(3), None)?;
         assert_eq!(data, &*block.data);
 
         Ok(())
@@ -397,11 +502,12 @@ mod tests {
             b"abcdefabcdefabcdef",
             BlockType::Data,
             CompressionType::None,
+            None,
         )?;
 
         {
             let mut reader = &writer[..];
-            let block = Block::from_reader(&mut reader, CompressionType::None)?;
+            let block = Block::from_reader(&mut reader, CompressionType::None, None)?;
             assert_eq!(b"abcdefabcdefabcdef", &*block.data);
         }
 
@@ -417,11 +523,12 @@ mod tests {
             b"abcdefabcdefabcdef",
             BlockType::Data,
             CompressionType::Lz4,
+            None,
         )?;
 
         {
             let mut reader = &writer[..];
-            let block = Block::from_reader(&mut reader, CompressionType::Lz4)?;
+            let block = Block::from_reader(&mut reader, CompressionType::Lz4, None)?;
             assert_eq!(b"abcdefabcdefabcdef", &*block.data);
         }
 
@@ -435,7 +542,14 @@ mod tests {
 
         // Write a valid lz4-compressed block first so we get the right header format
         let mut buf = vec![];
-        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+        Block::write_into(
+            &mut buf,
+            b"hello",
+            BlockType::Data,
+            CompressionType::Lz4,
+            None,
+        )
+        .unwrap();
 
         // Tamper the header: set uncompressed_length to u32::MAX.
         // The block checksum only covers the compressed payload bytes; it does not include
@@ -451,7 +565,7 @@ mod tests {
         tampered.extend_from_slice(&compressed_payload);
 
         let mut r = &tampered[..];
-        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+        let result = Block::from_reader(&mut r, CompressionType::Lz4, None);
 
         assert!(
             matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
@@ -469,7 +583,14 @@ mod tests {
         // the compressed payload is non-empty, lz4 decompression will fail because
         // the output buffer is zero-sized.
         let mut buf = vec![];
-        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+        Block::write_into(
+            &mut buf,
+            b"hello",
+            BlockType::Data,
+            CompressionType::Lz4,
+            None,
+        )
+        .unwrap();
 
         let mut reader = &buf[..];
         let mut header = Header::decode_from(&mut reader).unwrap();
@@ -480,7 +601,7 @@ mod tests {
         tampered.extend_from_slice(&compressed_payload);
 
         let mut r = &tampered[..];
-        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+        let result = Block::from_reader(&mut r, CompressionType::Lz4, None);
 
         assert!(
             matches!(&result, Err(crate::Error::Decompress(_))),
@@ -518,7 +639,7 @@ mod tests {
         buf.extend_from_slice(&compressed);
 
         let mut cursor = Cursor::new(buf);
-        let result = Block::from_reader(&mut cursor, CompressionType::Lz4);
+        let result = Block::from_reader(&mut cursor, CompressionType::Lz4, None);
 
         match result {
             Err(crate::Error::Decompress(CompressionType::Lz4)) => { /* expected */ }
@@ -534,7 +655,14 @@ mod tests {
         use std::io::Write;
 
         let mut buf = vec![];
-        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+        Block::write_into(
+            &mut buf,
+            b"hello",
+            BlockType::Data,
+            CompressionType::Lz4,
+            None,
+        )
+        .unwrap();
 
         // Tamper: set uncompressed_length to u32::MAX.
         // The block checksum only covers the compressed payload bytes; it does not include
@@ -555,7 +683,7 @@ mod tests {
         let file = std::fs::File::open(tmp.path()).unwrap();
 
         let handle = crate::table::BlockHandle::new(BlockOffset(0), tampered.len() as u32);
-        let result = Block::from_file(&file, handle, CompressionType::Lz4);
+        let result = Block::from_file(&file, handle, CompressionType::Lz4, None);
 
         assert!(
             matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
@@ -571,7 +699,14 @@ mod tests {
         use std::io::Write;
 
         let mut buf = vec![];
-        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+        Block::write_into(
+            &mut buf,
+            b"hello",
+            BlockType::Data,
+            CompressionType::Lz4,
+            None,
+        )
+        .unwrap();
 
         let mut reader = &buf[..];
         let mut header = Header::decode_from(&mut reader).unwrap();
@@ -587,7 +722,7 @@ mod tests {
         let file = std::fs::File::open(tmp.path()).unwrap();
 
         let handle = crate::table::BlockHandle::new(BlockOffset(0), tampered.len() as u32);
-        let result = Block::from_file(&file, handle, CompressionType::Lz4);
+        let result = Block::from_file(&file, handle, CompressionType::Lz4, None);
 
         assert!(
             matches!(&result, Err(crate::Error::Decompress(_))),
@@ -601,18 +736,26 @@ mod tests {
         use crate::coding::Encode;
 
         let mut buf = vec![];
-        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::None).unwrap();
+        Block::write_into(
+            &mut buf,
+            b"hello",
+            BlockType::Data,
+            CompressionType::None,
+            None,
+        )
+        .unwrap();
 
         let mut reader = &buf[..];
         let mut header = Header::decode_from(&mut reader).unwrap();
         let payload: Vec<u8> = reader.to_vec();
 
+        // Set data_length past the limit (no encryption → overhead is 0)
         header.data_length = MAX_DECOMPRESSION_SIZE + 1;
         let mut tampered = header.encode_into_vec();
         tampered.extend_from_slice(&payload);
 
         let mut r = &tampered[..];
-        let result = Block::from_reader(&mut r, CompressionType::None);
+        let result = Block::from_reader(&mut r, CompressionType::None, None);
 
         assert!(
             matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
@@ -631,7 +774,7 @@ mod tests {
         let file = std::fs::File::open(tmp.path()).unwrap();
 
         let handle = crate::table::BlockHandle::new(BlockOffset(0), u32::MAX);
-        let result = Block::from_file(&file, handle, CompressionType::None);
+        let result = Block::from_file(&file, handle, CompressionType::None, None);
 
         assert!(
             matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
@@ -666,7 +809,7 @@ mod tests {
         buf.extend_from_slice(&compressed);
 
         let mut cursor = Cursor::new(buf);
-        let result = Block::from_reader(&mut cursor, CompressionType::Zstd(3));
+        let result = Block::from_reader(&mut cursor, CompressionType::Zstd(3), None);
 
         match result {
             Err(crate::Error::Decompress(CompressionType::Zstd(_))) => { /* expected */ }
@@ -685,11 +828,12 @@ mod tests {
             b"abcdefabcdefabcdef",
             BlockType::Data,
             CompressionType::Zstd(3),
+            None,
         )?;
 
         {
             let mut reader = &writer[..];
-            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3))?;
+            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3), None)?;
             assert_eq!(b"abcdefabcdefabcdef", &*block.data);
         }
 
@@ -705,6 +849,7 @@ mod tests {
             &oversized,
             BlockType::Data,
             CompressionType::None,
+            None,
         );
         assert!(
             matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
@@ -723,6 +868,7 @@ mod tests {
             &data,
             BlockType::Data,
             CompressionType::Zstd(3),
+            None,
         )?;
 
         // Verify compression actually reduced size
@@ -733,7 +879,7 @@ mod tests {
 
         {
             let mut reader = &writer[..];
-            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3))?;
+            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3), None)?;
             assert_eq!(&*block.data, &data[..]);
         }
 

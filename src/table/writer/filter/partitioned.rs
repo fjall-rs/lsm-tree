@@ -6,6 +6,7 @@ use super::FilterWriter;
 use crate::{
     checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
+    encryption::EncryptionProvider,
     prefix::PrefixExtractor,
     table::{
         block::Header as BlockHeader, filter::standard_bloom::Builder, Block, BlockHandle,
@@ -42,6 +43,8 @@ pub struct PartitionedFilterWriter {
     // set_prefix_extractor but not read (partitioned filters cannot be
     // probed by prefix hash; see Table::maybe_contains_prefix).
     prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
+
+    encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl PartitionedFilterWriter {
@@ -63,6 +66,8 @@ impl PartitionedFilterWriter {
             compression: CompressionType::None,
 
             prefix_extractor: None,
+
+            encryption: None,
         }
     }
 
@@ -82,6 +87,7 @@ impl PartitionedFilterWriter {
             &filter_bytes,
             crate::table::block::BlockType::Filter,
             CompressionType::None,
+            self.encryption.as_deref(),
         )?;
 
         #[expect(
@@ -128,6 +134,7 @@ impl PartitionedFilterWriter {
             &bytes,
             crate::table::block::BlockType::Index,
             self.compression,
+            self.encryption.as_deref(),
         )?;
 
         #[expect(
@@ -148,6 +155,14 @@ impl PartitionedFilterWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWriter {
+    fn use_encryption(
+        mut self: Box<Self>,
+        encryption: Option<Arc<dyn EncryptionProvider>>,
+    ) -> Box<dyn FilterWriter<W>> {
+        self.encryption = encryption;
+        self
+    }
+
     fn use_partition_size(mut self: Box<Self>, size: u32) -> Box<dyn FilterWriter<W>> {
         self.partition_size = size;
         self

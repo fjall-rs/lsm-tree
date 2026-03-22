@@ -105,6 +105,7 @@ pub(super) fn prepare_table_writer(
         // filter writer (preserving the extractor). Only use_partitioned_filter
         // replaces the writer entirely (handled above, lines 85-90).
         .use_prefix_extractor(opts.config.prefix_extractor.clone())
+        .use_encryption(opts.config.encryption.clone())
         .use_bloom_policy({
             use crate::config::FilterPolicyEntry::{Bloom, None};
             use crate::table::filter::BloomConstructionPolicy;
@@ -376,6 +377,7 @@ impl StandardCompaction {
                     opts.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    opts.config.encryption.clone(),
                     opts.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     opts.metrics.clone(),

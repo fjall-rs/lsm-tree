@@ -86,6 +86,9 @@ pub mod coding;
 pub mod compaction;
 mod compression;
 
+/// Block-level encryption at rest.
+pub mod encryption;
+
 /// Configuration
 pub mod config;
 
@@ -181,6 +184,11 @@ pub use {
     tree::Guard as StandardGuard,
     value::InternalValue,
 };
+
+pub use encryption::EncryptionProvider;
+
+#[cfg(feature = "encryption")]
+pub use encryption::Aes256GcmProvider;
 
 pub use {
     abstract_tree::AbstractTree,

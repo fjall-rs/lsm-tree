@@ -13,6 +13,7 @@ use super::{
 use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
+    encryption::EncryptionProvider,
     file::fsync_directory,
     prefix::PrefixExtractor,
     range_tombstone::RangeTombstone,
@@ -100,6 +101,9 @@ pub struct Writer {
     range_tombstones: Vec<RangeTombstone>,
 
     initial_level: u8,
+
+    /// Block encryption provider (if encryption at rest is enabled)
+    encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl Writer {
@@ -151,6 +155,8 @@ impl Writer {
 
             linked_blob_files: Vec::new(),
             range_tombstones: Vec::new(),
+
+            encryption: None,
         })
     }
 
@@ -173,14 +179,16 @@ impl Writer {
     pub fn use_partitioned_filter(mut self) -> Self {
         self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy))
             .use_tli_compression(self.index_block_compression)
-            .set_prefix_extractor(self.prefix_extractor.clone());
+            .set_prefix_extractor(self.prefix_extractor.clone())
+            .use_encryption(self.encryption.clone());
         self
     }
 
     #[must_use]
     pub fn use_partitioned_index(mut self) -> Self {
         self.index_writer = Box::new(index::PartitionedIndexWriter::new())
-            .use_compression(self.index_block_compression);
+            .use_compression(self.index_block_compression)
+            .use_encryption(self.encryption.clone());
         self
     }
 
@@ -235,6 +243,18 @@ impl Writer {
         self.index_block_compression = compression;
         self.index_writer = self.index_writer.use_compression(compression);
         self.filter_writer = self.filter_writer.use_tli_compression(compression);
+        self
+    }
+
+    /// Sets the encryption provider for block-level encryption at rest.
+    ///
+    /// When set, all blocks (data, index, filter, meta) are encrypted after
+    /// compression and before checksumming.
+    #[must_use]
+    pub fn use_encryption(mut self, encryption: Option<Arc<dyn EncryptionProvider>>) -> Self {
+        self.index_writer = self.index_writer.use_encryption(encryption.clone());
+        self.filter_writer = self.filter_writer.use_encryption(encryption.clone());
+        self.encryption = encryption;
         self
     }
 
@@ -352,6 +372,7 @@ impl Writer {
             &self.block_buffer,
             super::block::BlockType::Data,
             self.data_block_compression,
+            self.encryption.as_deref(),
         )?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
@@ -527,6 +548,7 @@ impl Writer {
                 &self.block_buffer,
                 crate::table::block::BlockType::RangeTombstone,
                 CompressionType::None,
+                self.encryption.as_deref(),
             )?;
         }
 
@@ -658,6 +680,7 @@ impl Writer {
                 &self.block_buffer,
                 crate::table::block::BlockType::Meta,
                 CompressionType::None,
+                self.encryption.as_deref(),
             )?;
         };
 

@@ -230,6 +230,7 @@ impl<'a> BlobIngestion<'a> {
                     index.config.descriptor_table.clone(),
                     false,
                     false,
+                    index.config.encryption.clone(),
                     index.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     index.metrics.clone(),

@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::comparator::SharedComparator;
+use crate::encryption::EncryptionProvider;
 use crate::file_accessor::FileAccessor;
 use crate::table::{IndexBlock, KeyedBlockHandle};
 use crate::SeqNo;
@@ -29,6 +30,7 @@ pub struct TwoLevelBlockIndex {
     pub(crate) file_accessor: FileAccessor,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
+    pub(crate) encryption: Option<Arc<dyn EncryptionProvider>>,
     pub(crate) comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
@@ -49,6 +51,7 @@ impl TwoLevelBlockIndex {
             file_accessor: self.file_accessor.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
+            encryption: self.encryption.clone(),
             comparator: self.comparator.clone(),
 
             #[cfg(feature = "metrics")]
@@ -72,6 +75,7 @@ pub struct Iter {
     file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
+    encryption: Option<Arc<dyn EncryptionProvider>>,
     comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
@@ -138,6 +142,7 @@ impl Iterator for Iter {
                     &handle.into_inner(),
                     BlockType::Index,
                     self.compression,
+                    self.encryption.as_deref(),
                     #[cfg(feature = "metrics")]
                     &self.metrics,
                 ));
@@ -202,6 +207,7 @@ impl DoubleEndedIterator for Iter {
                     &handle.into_inner(),
                     BlockType::Index,
                     self.compression,
+                    self.encryption.as_deref(),
                     #[cfg(feature = "metrics")]
                     &self.metrics,
                 ));

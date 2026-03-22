@@ -97,8 +97,12 @@ fn validated_kv_seqno(kv_seqno: SeqNo, max_seqno: SeqNo) -> crate::Result<SeqNo>
 
 impl ParsedMeta {
     #[expect(clippy::expect_used, clippy::too_many_lines)]
-    pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
-        let block = Block::from_file(file, *handle, CompressionType::None)?;
+    pub fn load_with_handle(
+        file: &File,
+        handle: &BlockHandle,
+        encryption: Option<&dyn crate::encryption::EncryptionProvider>,
+    ) -> crate::Result<Self> {
+        let block = Block::from_file(file, *handle, CompressionType::None, encryption)?;
 
         if block.header.block_type != BlockType::Meta {
             return Err(crate::Error::InvalidTag((

@@ -5,6 +5,7 @@
 use super::KeyedBlockHandle;
 use crate::{
     comparator::SharedComparator,
+    encryption::EncryptionProvider,
     file_accessor::FileAccessor,
     table::{
         block::BlockType,
@@ -29,6 +30,7 @@ pub struct VolatileBlockIndex {
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
     pub(crate) compression: CompressionType,
+    pub(crate) encryption: Option<Arc<dyn EncryptionProvider>>,
     pub(crate) comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
@@ -55,6 +57,7 @@ pub struct Iter {
     cache: Arc<Cache>,
     handle: BlockHandle,
     compression: CompressionType,
+    encryption: Option<Arc<dyn EncryptionProvider>>,
     comparator: SharedComparator,
 
     lo: Option<(UserKey, SeqNo)>,
@@ -74,6 +77,7 @@ impl Iter {
             cache: index.cache.clone(),
             handle: index.handle,
             compression: index.compression,
+            encryption: index.encryption.clone(),
             comparator: index.comparator.clone(),
 
             lo: None,
@@ -112,6 +116,7 @@ impl Iterator for Iter {
                 &self.handle,
                 BlockType::Index,
                 self.compression,
+                self.encryption.as_deref(),
                 #[cfg(feature = "metrics")]
                 &self.metrics,
             ));
@@ -153,6 +158,7 @@ impl DoubleEndedIterator for Iter {
                 &self.handle,
                 BlockType::Index,
                 self.compression,
+                self.encryption.as_deref(),
                 #[cfg(feature = "metrics")]
                 &self.metrics,
             ));

@@ -98,11 +98,21 @@ impl Metadata {
         // TODO: no binary index
         let buf = DataBlock::encode_into_vec(&meta_items, 1, 0.0)?;
 
+        // Blob files are currently not encrypted at all: neither this metadata
+        // block nor the blob value frames/contents are covered by block-level
+        // encryption. The metadata contains structural fields (version, counts,
+        // compression) plus key_range (min/max keys), which may leak key
+        // prefixes, and KV separation can leave large values on disk in
+        // plaintext. Full blob-level encryption (metadata + contents) is
+        // planned as a follow-up to block-level encryption.
+        // TODO: encrypt blob metadata and blob contents when an encryption
+        // provider is threaded through the blob file writer/reader paths.
         Block::write_into(
             writer,
             &buf,
             crate::table::block::BlockType::Meta,
             CompressionType::None,
+            None,
         )?;
 
         Ok(())
@@ -120,7 +130,7 @@ impl Metadata {
         }
 
         // TODO: Block::from_slice
-        let block = Block::from_reader(reader, CompressionType::None)?;
+        let block = Block::from_reader(reader, CompressionType::None, None)?;
         let block = DataBlock::new(block);
 
         // Metadata keys are always lexicographic, so use the default comparator.
@@ -227,7 +237,14 @@ mod tests {
 
         let mut buf = Vec::new();
         buf.write_all(METADATA_HEADER_MAGIC).unwrap();
-        Block::write_into(&mut buf, &encoded, BlockType::Meta, CompressionType::None).unwrap();
+        Block::write_into(
+            &mut buf,
+            &encoded,
+            BlockType::Meta,
+            CompressionType::None,
+            None,
+        )
+        .unwrap();
 
         let buf = Slice::from(buf);
         let result = Metadata::from_slice(&buf);

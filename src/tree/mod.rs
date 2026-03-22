@@ -411,6 +411,7 @@ impl AbstractTree for Tree {
         }
 
         table_writer = table_writer.use_prefix_extractor(self.config.prefix_extractor.clone());
+        table_writer = table_writer.use_encryption(self.config.encryption.clone());
 
         // Set range tombstones BEFORE writing KV items so that if MultiWriter
         // rotates to a new table during the write loop, earlier tables already
@@ -441,6 +442,7 @@ impl AbstractTree for Tree {
                     self.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    self.config.encryption.clone(),
                     self.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.metrics.clone(),
@@ -1518,6 +1520,7 @@ impl Tree {
                     config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    config.encryption.clone(),
                     config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     metrics.clone(),

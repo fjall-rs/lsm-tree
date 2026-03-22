@@ -4,9 +4,9 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, prefix::PrefixExtractor, range_tombstone::RangeTombstone,
-    table::writer::LinkedFile, value::InternalValue, vlog::BlobFileId, Checksum, CompressionType,
-    HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, encryption::EncryptionProvider, prefix::PrefixExtractor,
+    range_tombstone::RangeTombstone, table::writer::LinkedFile, value::InternalValue,
+    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -61,6 +61,8 @@ pub struct MultiWriter {
     initial_level: u8,
 
     prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
+
+    encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl MultiWriter {
@@ -108,6 +110,8 @@ impl MultiWriter {
             clip_range_tombstones: false,
 
             prefix_extractor: None,
+
+            encryption: None,
         })
     }
 
@@ -300,6 +304,13 @@ impl MultiWriter {
         self
     }
 
+    #[must_use]
+    pub fn use_encryption(mut self, encryption: Option<Arc<dyn EncryptionProvider>>) -> Self {
+        self.encryption.clone_from(&encryption);
+        self.writer = self.writer.use_encryption(encryption);
+        self
+    }
+
     /// Flushes the current writer, stores its metadata, and sets up a new writer for the next table
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating table writer");
@@ -324,6 +335,7 @@ impl MultiWriter {
         }
 
         new_writer = new_writer.use_prefix_extractor(self.prefix_extractor.clone());
+        new_writer = new_writer.use_encryption(self.encryption.clone());
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
         old_writer.spill_block()?;

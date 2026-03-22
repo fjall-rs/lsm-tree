@@ -9,6 +9,7 @@ use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegion
 use crate::{
     cache::Cache,
     comparator::SharedComparator,
+    encryption::EncryptionProvider,
     file_accessor::FileAccessor,
     range_tombstone::RangeTombstone,
     table::{filter::block::FilterBlock, IndexBlock},
@@ -72,6 +73,9 @@ pub struct Inner {
 
     /// Range tombstones stored in this table. Loaded on open.
     pub(crate) range_tombstones: Vec<RangeTombstone>,
+
+    /// Block encryption provider for encryption at rest.
+    pub(crate) encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
 impl Inner {

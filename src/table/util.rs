@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    file_accessor::FileAccessor, table::block::BlockType, version::run::Ranged, Cache,
-    CompressionType, KeyRange, Table,
+    encryption::EncryptionProvider, file_accessor::FileAccessor, table::block::BlockType,
+    version::run::Ranged, Cache, CompressionType, KeyRange, Table,
 };
 use std::{path::Path, sync::Arc};
 
@@ -28,13 +28,9 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Loads a block from disk or block cache, if cached.
 ///
 /// Also handles file descriptor opening and caching.
-// cfg_attr: expect only fires when metrics feature adds the extra parameter
-#[cfg_attr(
-    feature = "metrics",
-    expect(
-        clippy::too_many_arguments,
-        reason = "metrics adds the extra parameter; without that feature this stays at the lint threshold"
-    )
+#[expect(
+    clippy::too_many_arguments,
+    reason = "block loading requires table id, path, file accessor, cache, handle, block type, compression, and encryption context"
 )]
 pub fn load_block(
     table_id: GlobalTableId,
@@ -44,6 +40,7 @@ pub fn load_block(
     handle: &BlockHandle,
     block_type: BlockType,
     compression: CompressionType,
+    encryption: Option<&dyn EncryptionProvider>,
     #[cfg(feature = "metrics")] metrics: &Metrics,
 ) -> crate::Result<Block> {
     #[cfg(feature = "metrics")]
@@ -87,7 +84,7 @@ pub fn load_block(
         (Arc::new(fd), true)
     };
 
-    let block = Block::from_file(&fd, *handle, compression)?;
+    let block = Block::from_file(&fd, *handle, compression, encryption)?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((

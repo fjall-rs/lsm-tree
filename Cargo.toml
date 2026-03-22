@@ -20,6 +20,7 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 zstd = ["dep:zstd"]
+encryption = ["dep:aes-gcm"]
 bytes_1 = ["dep:bytes"]
 metrics = []
 
@@ -40,6 +41,7 @@ sfa = "~1.0.0"
 tempfile = "3.20.0"
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+aes-gcm = { version = "0.10", optional = true, features = ["aes"] }
 
 [dev-dependencies]
 criterion = { version = "0.8.0", features = ["html_reports"] }
