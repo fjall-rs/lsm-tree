@@ -144,6 +144,31 @@ impl Memtable {
         })
     }
 
+    /// Collects all entries for a given key with seqno < `seqno`,
+    /// ordered by descending sequence number (newest first).
+    ///
+    /// Used by the merge operator read path to collect all operands for a key.
+    // Allocates a Vec and clones entries — acceptable for the merge slow-path.
+    // A zero-copy iterator API would avoid this but changes the skiplist contract.
+    pub(crate) fn get_all_for_key(&self, key: &[u8], seqno: SeqNo) -> Vec<InternalValue> {
+        if seqno == 0 {
+            return Vec::new();
+        }
+
+        // ValueType is not part of InternalKey ordering (only user_key + Reverse(seqno)),
+        // so the value type here is arbitrary — it does not affect seek position.
+        let lower_bound = InternalKey::new(key, seqno - 1, ValueType::Value);
+
+        self.items
+            .range(lower_bound..)
+            .take_while(|entry| &*entry.key().user_key == key)
+            .map(|entry| InternalValue {
+                key: entry.key().clone(),
+                value: entry.value().clone(),
+            })
+            .collect()
+    }
+
     /// Gets approximate size of memtable in bytes.
     pub fn size(&self) -> u64 {
         self.approximate_size
@@ -667,5 +692,48 @@ mod tests {
             )),
             memtable.get(b"abc", 50)
         );
+    }
+
+    #[test]
+    fn get_all_for_key_seqno_zero_returns_empty() {
+        let memtable = Memtable::new(0);
+        memtable.insert(crate::InternalValue::from_components(
+            "key",
+            "val",
+            1,
+            ValueType::Value,
+        ));
+
+        // seqno=0 means nothing is visible — early return
+        assert!(memtable.get_all_for_key(b"key", 0).is_empty());
+    }
+
+    #[test]
+    fn get_all_for_key_returns_all_versions() {
+        let memtable = Memtable::new(0);
+        memtable.insert(crate::InternalValue::from_components(
+            "key",
+            "op2",
+            3,
+            ValueType::MergeOperand,
+        ));
+        memtable.insert(crate::InternalValue::from_components(
+            "key",
+            "op1",
+            2,
+            ValueType::MergeOperand,
+        ));
+        memtable.insert(crate::InternalValue::from_components(
+            "key",
+            "base",
+            1,
+            ValueType::Value,
+        ));
+
+        let entries = memtable.get_all_for_key(b"key", 4);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].key.seqno, 3);
+        assert_eq!(entries[1].key.seqno, 2);
+        assert_eq!(entries[2].key.seqno, 1);
     }
 }

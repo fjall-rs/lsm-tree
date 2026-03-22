@@ -15,6 +15,12 @@ pub enum ValueType {
     /// "Weak" deletion (a.k.a. `SingleDelete` in `RocksDB`)
     WeakTombstone,
 
+    /// Merge operand
+    ///
+    /// Stores a partial update that will be combined with other operands
+    /// and/or a base value via a user-provided [`crate::MergeOperator`].
+    MergeOperand = 3,
+
     /// Value pointer
     ///
     /// Points to a blob in a blob file.
@@ -31,6 +37,12 @@ impl ValueType {
     pub(crate) fn is_indirection(self) -> bool {
         self == Self::Indirection
     }
+
+    /// Returns `true` if the type is a merge operand.
+    #[must_use]
+    pub fn is_merge_operand(self) -> bool {
+        self == Self::MergeOperand
+    }
 }
 
 impl TryFrom<u8> for ValueType {
@@ -41,6 +53,7 @@ impl TryFrom<u8> for ValueType {
             0 => Ok(Self::Value),
             1 => Ok(Self::Tombstone),
             2 => Ok(Self::WeakTombstone),
+            3 => Ok(Self::MergeOperand),
             4 => Ok(Self::Indirection),
             _ => Err(()),
         }
@@ -53,6 +66,7 @@ impl From<ValueType> for u8 {
             ValueType::Value => 0,
             ValueType::Tombstone => 1,
             ValueType::WeakTombstone => 2,
+            ValueType::MergeOperand => 3,
             ValueType::Indirection => 4,
         }
     }

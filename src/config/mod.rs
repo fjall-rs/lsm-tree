@@ -20,9 +20,9 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    compaction::filter::Factory, path::absolute_path, prefix::PrefixExtractor,
-    version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType, DescriptorTable,
-    SequenceNumberCounter, SharedSequenceNumberGenerator, Tree,
+    compaction::filter::Factory, merge_operator::MergeOperator, path::absolute_path,
+    prefix::PrefixExtractor, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache,
+    CompressionType, DescriptorTable, SequenceNumberCounter, SharedSequenceNumberGenerator, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -237,6 +237,12 @@ pub struct Config {
     /// matching prefixes.
     pub prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 
+    /// Merge operator for commutative operations
+    ///
+    /// When set, enables `merge()` operations that store partial updates
+    /// which are lazily combined during reads and compaction.
+    pub merge_operator: Option<Arc<dyn MergeOperator>>,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -298,6 +304,7 @@ impl Default for Config {
             )),
 
             compaction_filter_factory: None,
+            merge_operator: None,
 
             prefix_extractor: None,
 
@@ -502,6 +509,16 @@ impl Config {
     #[must_use]
     pub fn prefix_extractor(mut self, extractor: Arc<dyn PrefixExtractor>) -> Self {
         self.prefix_extractor = Some(extractor);
+        self
+    }
+
+    /// Installs a merge operator for commutative operations.
+    ///
+    /// When set, enables [`crate::AbstractTree::merge`] which stores partial updates
+    /// (operands) that are lazily combined during reads and compaction.
+    #[must_use]
+    pub fn with_merge_operator(mut self, op: Option<Arc<dyn MergeOperator>>) -> Self {
+        self.merge_operator = op;
         self
     }
 

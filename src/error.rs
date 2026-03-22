@@ -63,6 +63,13 @@ pub enum Error {
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
 
+    /// Merge operator failed.
+    ///
+    /// No context payload — consistent with other unit variants
+    /// (`Unrecoverable`, `InvalidTrailer`). Operators should log
+    /// details before returning this error.
+    MergeOperator,
+
     /// Range tombstone block decode failure.
     RangeTombstoneDecode {
         /// Which field or validation failed (e.g. `start_len`, `start`, `seqno`, `interval`)

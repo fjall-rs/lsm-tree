@@ -86,6 +86,20 @@ impl InternalValue {
         Self::new(key, vec![])
     }
 
+    /// Creates a new merge operand.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is empty or longer than 2^16 bytes, or the value is longer than 2^32 bytes.
+    pub fn new_merge_operand<K: Into<UserKey>, V: Into<UserValue>>(
+        key: K,
+        value: V,
+        seqno: u64,
+    ) -> Self {
+        let key = InternalKey::new(key, seqno, ValueType::MergeOperand);
+        Self::new(key, value)
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn is_tombstone(&self) -> bool {

@@ -123,7 +123,10 @@ pub trait AbstractTree: sealed::Sealed {
                 .map(|mt| mt.iter().map(Ok))
                 .collect::<Vec<_>>(),
         );
-        let stream = CompactionStream::new(merger, seqno_threshold);
+        // RT suppression is not needed here: flush writes both entries and RTs
+        // to the output tables. Suppression happens at read time, not write time.
+        let stream = CompactionStream::new(merger, seqno_threshold)
+            .with_merge_operator(self.tree_config().merge_operator.clone());
 
         drop(version_history);
 
@@ -699,6 +702,41 @@ pub trait AbstractTree: sealed::Sealed {
     ///
     /// Will return `Err` if an IO error occurs.
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
+
+    /// Writes a merge operand for a key.
+    ///
+    /// The operand is stored as a partial update that will be combined with
+    /// other operands and/or a base value via the configured [`crate::MergeOperator`]
+    /// during reads and compaction.
+    ///
+    /// Returns the added item's size and new size of the memtable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// # use lsm_tree::{AbstractTree, Config, MergeOperator, UserValue};
+    /// # use std::sync::Arc;
+    /// # struct SumMerge;
+    /// # impl MergeOperator for SumMerge {
+    /// #     fn merge(&self, _key: &[u8], base: Option<&[u8]>, operands: &[&[u8]]) -> lsm_tree::Result<UserValue> {
+    /// #         let mut sum: i64 = base.map_or(0, |b| i64::from_le_bytes(b.try_into().unwrap()));
+    /// #         for op in operands { sum += i64::from_le_bytes((*op).try_into().unwrap()); }
+    /// #         Ok(sum.to_le_bytes().to_vec().into())
+    /// #     }
+    /// # }
+    /// # let tree = Config::new(folder, Default::default(), Default::default())
+    /// #     .with_merge_operator(Some(Arc::new(SumMerge)))
+    /// #     .open()?;
+    /// tree.merge("counter", 1_i64.to_le_bytes(), 0);
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    fn merge<K: Into<UserKey>, V: Into<UserValue>>(
+        &self,
+        key: K,
+        operand: V,
+        seqno: SeqNo,
+    ) -> (u64, u64);
 
     /// Removes an item from the tree.
     ///

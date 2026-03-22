@@ -255,6 +255,7 @@ impl AbstractTree for BlobTree {
                 &range,
                 seqno,
                 index,
+                None, // BlobTree does not use merge operators for prefix scans
                 prefix_hash,
             )
             .map(move |kv| {
@@ -277,15 +278,14 @@ impl AbstractTree for BlobTree {
         let tree = self.clone();
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
-                move |kv| {
+            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index, None)
+                .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
                         tree: tree.clone(),
                         version: super_version.version.clone(),
                         kv,
                     })
-                },
-            ),
+                }),
         )
     }
 
@@ -659,6 +659,15 @@ impl AbstractTree for BlobTree {
         keys.into_iter()
             .map(|key| self.resolve_key(&super_version, key.as_ref(), seqno))
             .collect()
+    }
+
+    fn merge<K: Into<UserKey>, V: Into<UserValue>>(
+        &self,
+        key: K,
+        operand: V,
+        seqno: SeqNo,
+    ) -> (u64, u64) {
+        self.index.merge(key, operand, seqno)
     }
 
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {

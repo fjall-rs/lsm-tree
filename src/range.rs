@@ -6,6 +6,7 @@ use crate::{
     key::InternalKey,
     memtable::Memtable,
     merge::Merger,
+    merge_operator::MergeOperator,
     mvcc_stream::MvccStream,
     range_tombstone::RangeTombstone,
     range_tombstone_filter::RangeTombstoneFilter,
@@ -70,6 +71,7 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 pub struct IterState {
     pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
+    pub(crate) merge_operator: Option<Arc<dyn MergeOperator>>,
 
     /// Optional prefix hash for prefix bloom filter skipping.
     ///
@@ -380,7 +382,11 @@ impl TreeIter {
             }
 
             let merged = Merger::new(iters);
-            let iter = MvccStream::new(merged);
+            // Clone needed: MvccStream uses the RT set for merge suppression,
+            // while RangeTombstoneFilter below consumes it for post-merge
+            // filtering. An Arc<[_]> could avoid the copy if RT sets grow large.
+            let iter = MvccStream::new(merged, lock.merge_operator.clone())
+                .with_range_tombstones(all_range_tombstones.clone());
 
             let iter = iter.filter(|x| match x {
                 Ok(value) => !value.key.is_tombstone(),
