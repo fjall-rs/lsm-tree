@@ -236,23 +236,34 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
+        use crate::prefix::compute_prefix_hash;
         use crate::range::prefix_to_range;
+
+        let prefix_bytes = prefix.as_ref();
+
+        let prefix_hash =
+            compute_prefix_hash(self.index.config.prefix_extractor.as_ref(), prefix_bytes);
 
         let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
-        let range = prefix_to_range(prefix.as_ref());
+        let range = prefix_to_range(prefix_bytes);
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
-                move |kv| {
-                    IterGuardImpl::Blob(Guard {
-                        tree: tree.clone(),
-                        version: super_version.version.clone(),
-                        kv,
-                    })
-                },
-            ),
+            crate::Tree::create_internal_range_with_prefix_hash(
+                super_version.clone(),
+                &range,
+                seqno,
+                index,
+                prefix_hash,
+            )
+            .map(move |kv| {
+                IterGuardImpl::Blob(Guard {
+                    tree: tree.clone(),
+                    version: super_version.version.clone(),
+                    kv,
+                })
+            }),
         )
     }
 
@@ -419,6 +430,9 @@ impl AbstractTree for BlobTree {
         if filter_partitioning {
             table_writer = table_writer.use_partitioned_filter();
         }
+
+        table_writer =
+            table_writer.use_prefix_extractor(self.index.config.prefix_extractor.clone());
 
         #[expect(
             clippy::expect_used,

@@ -6,16 +6,19 @@ use super::FilterWriter;
 use crate::{
     checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
+    prefix::PrefixExtractor,
     table::{filter::standard_bloom::Builder, Block},
     CompressionType, UserKey,
 };
-use std::{fs::File, io::BufWriter};
+use std::{fs::File, io::BufWriter, sync::Arc};
 
 pub struct FullFilterWriter {
     /// Key hashes for AMQ filter
     pub bloom_hash_buffer: Vec<u64>,
 
     bloom_policy: BloomConstructionPolicy,
+
+    prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 }
 
 impl FullFilterWriter {
@@ -23,6 +26,7 @@ impl FullFilterWriter {
         Self {
             bloom_hash_buffer: Vec::new(),
             bloom_policy,
+            prefix_extractor: None,
         }
     }
 }
@@ -44,8 +48,27 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         self
     }
 
+    fn set_prefix_extractor(
+        mut self: Box<Self>,
+        extractor: Option<Arc<dyn PrefixExtractor>>,
+    ) -> Box<dyn FilterWriter<W>> {
+        self.prefix_extractor = extractor;
+        self
+    }
+
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
         self.bloom_hash_buffer.push(Builder::get_hash(key));
+
+        // NOTE: Prefix hashes are intentionally not deduplicated — duplicate
+        // hashes set the same bloom bits (idempotent). This can significantly
+        // inflate the bloom entry count when many keys share few prefixes, but
+        // in exchange it lowers effective FPR and keeps construction simple.
+        if let Some(extractor) = &self.prefix_extractor {
+            for prefix in extractor.prefixes(key.as_ref()) {
+                self.bloom_hash_buffer.push(Builder::get_hash(prefix));
+            }
+        }
+
         Ok(())
     }
 

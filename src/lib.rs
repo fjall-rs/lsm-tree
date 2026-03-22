@@ -121,6 +121,7 @@ pub(crate) mod metrics;
 pub mod mvcc_stream;
 
 mod path;
+mod prefix;
 
 #[doc(hidden)]
 pub mod range;
@@ -191,6 +192,7 @@ pub use {
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},
+    prefix::PrefixExtractor,
     seqno::{
         SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator, MAX_SEQNO,
     },

@@ -399,6 +399,8 @@ impl AbstractTree for Tree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
+        table_writer = table_writer.use_prefix_extractor(self.config.prefix_extractor.clone());
+
         // Set range tombstones BEFORE writing KV items so that if MultiWriter
         // rotates to a new table during the write loop, earlier tables already
         // carry the RT metadata.
@@ -716,6 +718,23 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
+        Self::create_internal_range_with_prefix_hash(version, range, seqno, ephemeral, None)
+    }
+
+    /// Like [`Tree::create_internal_range`], but with an optional prefix hash
+    /// for prefix bloom filter skipping during prefix scans.
+    #[doc(hidden)]
+    pub(crate) fn create_internal_range_with_prefix_hash<
+        'a,
+        K: AsRef<[u8]> + 'a,
+        R: RangeBounds<K> + 'a,
+    >(
+        version: SuperVersion,
+        range: &'a R,
+        seqno: SeqNo,
+        ephemeral: Option<(Arc<Memtable>, SeqNo)>,
+        prefix_hash: Option<u64>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
@@ -733,7 +752,11 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let iter_state = { IterState { version, ephemeral } };
+        let iter_state = IterState {
+            version,
+            ephemeral,
+            prefix_hash,
+        };
 
         TreeIter::create_range(iter_state, bounds, seqno)
     }
@@ -1058,10 +1081,32 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        use crate::range::prefix_to_range;
+        use crate::prefix::compute_prefix_hash;
+        use crate::range::{prefix_to_range, IterState, TreeIter};
 
-        let range = prefix_to_range(prefix.as_ref());
-        self.create_range(&range, seqno, ephemeral)
+        let prefix_bytes = prefix.as_ref();
+
+        let prefix_hash = compute_prefix_hash(self.config.prefix_extractor.as_ref(), prefix_bytes);
+
+        let range = prefix_to_range(prefix_bytes);
+
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        let iter_state = IterState {
+            version: super_version,
+            ephemeral,
+            prefix_hash,
+        };
+
+        TreeIter::create_range(iter_state, range, seqno).map(|item| match item {
+            Ok(kv) => Ok((kv.key.user_key, kv.value)),
+            Err(e) => Err(e),
+        })
     }
 
     /// Adds an item to the active memtable.

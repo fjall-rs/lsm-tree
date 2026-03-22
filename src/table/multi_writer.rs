@@ -4,11 +4,11 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, range_tombstone::RangeTombstone, table::writer::LinkedFile,
-    value::InternalValue, vlog::BlobFileId, Checksum, CompressionType, HashMap,
-    SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, prefix::PrefixExtractor, range_tombstone::RangeTombstone,
+    table::writer::LinkedFile, value::InternalValue, vlog::BlobFileId, Checksum, CompressionType,
+    HashMap, SequenceNumberCounter, TableId, UserKey,
 };
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 /// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
@@ -59,6 +59,8 @@ pub struct MultiWriter {
 
     /// Level the tables are written to
     initial_level: u8,
+
+    prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 }
 
 impl MultiWriter {
@@ -104,6 +106,8 @@ impl MultiWriter {
             linked_blobs: HashMap::default(),
             range_tombstones: Vec::new(),
             clip_range_tombstones: false,
+
+            prefix_extractor: None,
         })
     }
 
@@ -289,6 +293,13 @@ impl MultiWriter {
         self
     }
 
+    #[must_use]
+    pub fn use_prefix_extractor(mut self, extractor: Option<Arc<dyn PrefixExtractor>>) -> Self {
+        self.prefix_extractor.clone_from(&extractor);
+        self.writer = self.writer.use_prefix_extractor(extractor);
+        self
+    }
+
     /// Flushes the current writer, stores its metadata, and sets up a new writer for the next table
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating table writer");
@@ -311,6 +322,8 @@ impl MultiWriter {
         if self.use_partitioned_filter {
             new_writer = new_writer.use_partitioned_filter();
         }
+
+        new_writer = new_writer.use_prefix_extractor(self.prefix_extractor.clone());
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
         old_writer.spill_block()?;

@@ -780,6 +780,46 @@ impl Table {
         self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
+    /// Checks the bloom filter for a prefix hash.
+    ///
+    /// Returns `Ok(true)` if the prefix may exist in this table (or if no
+    /// filter is available), `Ok(false)` if the prefix is definitely absent.
+    ///
+    /// This is used by prefix scans to skip segments that contain no keys
+    /// with a matching prefix. The prefix must have been indexed at write
+    /// time via a [`PrefixExtractor`](crate::PrefixExtractor).
+    pub(crate) fn maybe_contains_prefix(&self, prefix_hash: u64) -> crate::Result<bool> {
+        // Full (non-partitioned) filter — single bloom covers the entire table
+        if let Some(block) = &self.pinned_filter_block {
+            return block.maybe_contains_hash(prefix_hash);
+        }
+
+        // Partitioned / TLI filters: partition index is keyed by user key, not
+        // prefix hash — we would need to scan ALL partitions to check the prefix,
+        // which is O(partitions) I/O and defeats the purpose of bloom skip.
+        // Returning Ok(true) is correct (conservative: segment is NOT skipped).
+        // Future: accept prefix bounds to seek overlapping partitions only.
+        if self.pinned_filter_index.is_some() || self.regions.filter_tli.is_some() {
+            return Ok(true);
+        }
+
+        // Unpinned full filter — load from disk.
+        // Safe: if we reach here, filter_tli is None (no partitioned filter),
+        // so regions.filter is a single full-table bloom, not a concatenation.
+        if let Some(filter_block_handle) = &self.regions.filter {
+            let block = self.load_block(
+                filter_block_handle,
+                BlockType::Filter,
+                CompressionType::None, // NOTE: Filter blocks are never compressed (crate invariant)
+            )?;
+            let block = FilterBlock::new(block);
+            return block.maybe_contains_hash(prefix_hash);
+        }
+
+        // No filter available — cannot rule out the prefix
+        Ok(true)
+    }
+
     /// Returns the highest effective sequence number in the table.
     ///
     /// For tables produced by flush/compaction (`global_seqno == 0`), this

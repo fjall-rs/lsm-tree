@@ -20,9 +20,9 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter,
-    SharedSequenceNumberGenerator, Tree,
+    compaction::filter::Factory, path::absolute_path, prefix::PrefixExtractor,
+    version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType, DescriptorTable,
+    SequenceNumberCounter, SharedSequenceNumberGenerator, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -230,6 +230,13 @@ pub struct Config {
     /// Compaction filter factory
     pub compaction_filter_factory: Option<Arc<dyn Factory>>,
 
+    /// Prefix extractor for prefix bloom filters.
+    ///
+    /// When set, the bloom filter indexes extracted prefixes in addition to
+    /// full keys, allowing prefix scans to skip segments that contain no
+    /// matching prefixes.
+    pub prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -291,6 +298,8 @@ impl Default for Config {
             )),
 
             compaction_filter_factory: None,
+
+            prefix_extractor: None,
 
             expect_point_read_hits: false,
 
@@ -482,6 +491,17 @@ impl Config {
     #[must_use]
     pub fn with_compaction_filter_factory(mut self, factory: Option<Arc<dyn Factory>>) -> Self {
         self.compaction_filter_factory = factory;
+        self
+    }
+
+    /// Sets the prefix extractor for prefix bloom filters.
+    ///
+    /// When configured, bloom filters will index key prefixes returned by
+    /// the extractor. Prefix scans can then skip segments whose bloom
+    /// filter reports no match for the scan prefix.
+    #[must_use]
+    pub fn prefix_extractor(mut self, extractor: Arc<dyn PrefixExtractor>) -> Self {
+        self.prefix_extractor = Some(extractor);
         self
     }
 

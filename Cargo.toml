@@ -110,3 +110,9 @@ name = "partition_point"
 harness = false
 path = "benches/partition_point.rs"
 required-features = []
+
+[[bench]]
+name = "prefix_bloom"
+harness = false
+path = "benches/prefix_bloom.rs"
+required-features = []

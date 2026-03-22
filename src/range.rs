@@ -70,6 +70,12 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 pub struct IterState {
     pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
+
+    /// Optional prefix hash for prefix bloom filter skipping.
+    ///
+    /// When set, segments whose bloom filter reports no match for this
+    /// hash will be skipped entirely during the scan.
+    pub(crate) prefix_hash: Option<u64>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -217,7 +223,33 @@ impl TreeIter {
                             user_range.0.as_ref().map(std::convert::AsRef::as_ref),
                             user_range.1.as_ref().map(std::convert::AsRef::as_ref),
                         )) {
-                            single_tables.push(table.clone());
+                            // If a prefix hash is available (prefix scan with prefix bloom
+                            // filters configured), check the bloom filter for the prefix.
+                            // Skip the segment if the prefix is definitely absent.
+                            if let Some(prefix_hash) = lock.prefix_hash {
+                                match table.maybe_contains_prefix(prefix_hash) {
+                                    Ok(false) => {
+                                        // Prefix bloom says this segment has no matching keys
+                                        // — skip it entirely.
+                                    }
+                                    Ok(true) => {
+                                        single_tables.push(table.clone());
+                                    }
+                                    Err(e) => {
+                                        // On I/O error reading the filter, include the segment
+                                        // conservatively to avoid missing data. Use debug level
+                                        // to avoid log noise during transient I/O issues in
+                                        // prefix-heavy workloads.
+                                        log::debug!(
+                                            "prefix bloom check failed for table {:?}: {e}",
+                                            table.id(),
+                                        );
+                                        single_tables.push(table.clone());
+                                    }
+                                }
+                            } else {
+                                single_tables.push(table.clone());
+                            }
                         }
                     }
                     _ => {

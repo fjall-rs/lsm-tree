@@ -101,6 +101,8 @@ impl<'a> Ingestion<'a> {
             writer = writer.use_partitioned_filter();
         }
 
+        writer = writer.use_prefix_extractor(tree.config.prefix_extractor.clone());
+
         Ok(Self {
             folder,
             tree,
