@@ -79,6 +79,12 @@ pub struct IterState {
     /// hash will be skipped entirely during the scan.
     pub(crate) prefix_hash: Option<u64>,
 
+    /// Optional key hash for standard bloom filter pre-filtering.
+    ///
+    /// When set (typically for single-key point-read pipelines), segments
+    /// whose bloom filter reports no match for this hash will be skipped.
+    pub(crate) key_hash: Option<u64>,
+
     /// Optional metrics handle for recording prefix-related statistics (e.g. bloom skips).
     ///
     /// `None` when the caller does not wish to record metrics; this is
@@ -128,6 +134,41 @@ fn range_tombstone_overlaps_bounds(
     };
 
     overlaps_lo && overlaps_hi
+}
+
+/// Checks prefix and key bloom filters for a table.
+///
+/// Returns `true` if the table should be included (bloom says "maybe" or no
+/// filter available), `false` if it can be safely skipped.
+fn bloom_passes(state: &IterState, table: &crate::table::Table) -> bool {
+    if let Some(prefix_hash) = state.prefix_hash {
+        match table.maybe_contains_prefix(prefix_hash) {
+            Ok(false) => {
+                #[cfg(feature = "metrics")]
+                if let Some(m) = &state.metrics {
+                    m.prefix_bloom_skips
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                return false;
+            }
+            Err(e) => {
+                log::debug!("prefix bloom check failed for table {:?}: {e}", table.id(),);
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(key_hash) = state.key_hash {
+        match table.bloom_may_contain_key_hash(key_hash) {
+            Ok(false) => return false,
+            Err(e) => {
+                log::debug!("key bloom check failed for table {:?}: {e}", table.id(),);
+            }
+            _ => {}
+        }
+    }
+
+    true
 }
 
 impl TreeIter {
@@ -231,39 +272,9 @@ impl TreeIter {
                         if table.check_key_range_overlap(&(
                             user_range.0.as_ref().map(std::convert::AsRef::as_ref),
                             user_range.1.as_ref().map(std::convert::AsRef::as_ref),
-                        )) {
-                            // If a prefix hash is available (prefix scan with prefix bloom
-                            // filters configured), check the bloom filter for the prefix.
-                            // Skip the segment if the prefix is definitely absent.
-                            if let Some(prefix_hash) = lock.prefix_hash {
-                                match table.maybe_contains_prefix(prefix_hash) {
-                                    Ok(false) => {
-                                        // Prefix bloom says this segment has no matching keys
-                                        // — skip it entirely.
-                                        #[cfg(feature = "metrics")]
-                                        if let Some(m) = &lock.metrics {
-                                            m.prefix_bloom_skips
-                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                        }
-                                    }
-                                    Ok(true) => {
-                                        single_tables.push(table.clone());
-                                    }
-                                    Err(e) => {
-                                        // On I/O error reading the filter, include the segment
-                                        // conservatively to avoid missing data. Use debug level
-                                        // to avoid log noise during transient I/O issues in
-                                        // prefix-heavy workloads.
-                                        log::debug!(
-                                            "prefix bloom check failed for table {:?}: {e}",
-                                            table.id(),
-                                        );
-                                        single_tables.push(table.clone());
-                                    }
-                                }
-                            } else {
-                                single_tables.push(table.clone());
-                            }
+                        )) && bloom_passes(lock, table)
+                        {
+                            single_tables.push(table.clone());
                         }
                     }
                     _ => {
@@ -280,9 +291,11 @@ impl TreeIter {
                             );
                         }
 
-                        // If a prefix hash is available, filter individual tables
-                        // within the multi-table run using their bloom filters.
-                        if let Some(prefix_hash) = lock.prefix_hash {
+                        // If a prefix or key hash is available, filter individual
+                        // tables within the multi-table run using their bloom
+                        // filters. This covers both prefix scans (prefix_hash)
+                        // and point-read merge pipelines (key_hash).
+                        if lock.prefix_hash.is_some() || lock.key_hash.is_some() {
                             let bounds = (
                                 user_range.0.as_ref().map(std::convert::AsRef::as_ref),
                                 user_range.1.as_ref().map(std::convert::AsRef::as_ref),
@@ -297,27 +310,7 @@ impl TreeIter {
                                         return false;
                                     }
 
-                                    // On I/O error reading the filter, include the
-                                    // table conservatively to avoid missing data.
-                                    let contains = table
-                                        .maybe_contains_prefix(prefix_hash)
-                                        .inspect_err(|e| {
-                                            log::debug!(
-                                                "prefix bloom check failed for table {:?}: {e}",
-                                                table.id(),
-                                            );
-                                        })
-                                        .unwrap_or(true);
-
-                                    #[cfg(feature = "metrics")]
-                                    if !contains {
-                                        if let Some(m) = &lock.metrics {
-                                            m.prefix_bloom_skips
-                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                        }
-                                    }
-
-                                    contains
+                                    bloom_passes(lock, table)
                                 })
                                 .cloned()
                                 .collect();

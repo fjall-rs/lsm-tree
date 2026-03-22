@@ -666,7 +666,7 @@ impl AbstractTree for Tree {
             &super_version,
             key,
             seqno,
-            self.config.merge_operator.as_deref(),
+            self.config.merge_operator.as_ref(),
         )
     }
 
@@ -683,7 +683,7 @@ impl AbstractTree for Tree {
                     &super_version,
                     key.as_ref(),
                     seqno,
-                    self.config.merge_operator.as_deref(),
+                    self.config.merge_operator.as_ref(),
                 )
             })
             .collect()
@@ -741,16 +741,22 @@ impl Tree {
         super_version: &SuperVersion,
         key: &[u8],
         seqno: SeqNo,
-        merge_operator: Option<&dyn crate::merge_operator::MergeOperator>,
+        merge_operator: Option<&Arc<dyn crate::merge_operator::MergeOperator>>,
     ) -> crate::Result<Option<UserValue>> {
         let entry = Self::get_internal_entry_from_version(super_version, key, seqno)?;
 
         match entry {
             Some(entry) if entry.key.value_type == ValueType::MergeOperand => {
                 if let Some(merge_op) = merge_operator {
-                    // Always resolve even for a single operand: there may be
-                    // older operands or a base value in lower storage layers.
-                    Self::resolve_merge_get(super_version, key, seqno, merge_op)
+                    // Build a bloom-filtered single-key iterator pipeline that
+                    // reuses MvccStream for merge/RT/Indirection resolution,
+                    // eliminating the previous hand-rolled merge collection.
+                    Self::resolve_merge_via_pipeline(
+                        super_version.clone(),
+                        key,
+                        seqno,
+                        Arc::clone(merge_op),
+                    )
                 } else if Self::is_suppressed_by_range_tombstones(
                     super_version,
                     key,
@@ -763,6 +769,49 @@ impl Tree {
                 }
             }
             Some(entry) => Ok(Some(entry.value)),
+            None => Ok(None),
+        }
+    }
+
+    /// Resolves merge operands for a point read via a bloom-filtered iterator pipeline.
+    ///
+    /// Builds a single-key range (`key..=key`) with bloom pre-filtering, wraps
+    /// all sources in `Merger → MvccStream`, and takes the first result. This
+    /// reuses the unified merge/RT/Indirection resolution logic from `MvccStream`
+    /// instead of duplicating it in a hand-rolled collection loop.
+    ///
+    /// Bloom pre-filtering can reject many disk tables at the filter level,
+    /// which typically improves point-read performance on deep LSM trees.
+    fn resolve_merge_via_pipeline(
+        version: SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+        merge_operator: Arc<dyn crate::merge_operator::MergeOperator>,
+    ) -> crate::Result<Option<UserValue>> {
+        use crate::range::{IterState, TreeIter};
+
+        let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
+        let key_slice = crate::Slice::from(key);
+        let range = key_slice.clone()..=key_slice;
+
+        let iter_state = IterState {
+            version,
+            ephemeral: None,
+            merge_operator: Some(merge_operator),
+            prefix_hash: None,
+            key_hash: Some(key_hash),
+            #[cfg(feature = "metrics")]
+            metrics: None,
+        };
+
+        // Intentionally reuses the full TreeIter pipeline (with bloom pre-filter)
+        // rather than a hand-rolled loop, to share merge/RT/Indirection logic
+        // with range scans. The bloom hash skips most tables at the filter level.
+        let mut iter = TreeIter::create_range(iter_state, range, seqno);
+
+        match iter.next() {
+            Some(Ok(entry)) => Ok(Some(entry.value)),
+            Some(Err(e)) => Err(e),
             None => Ok(None),
         }
     }
@@ -822,163 +871,12 @@ impl Tree {
             ephemeral,
             merge_operator,
             prefix_hash,
+            key_hash: None,
             #[cfg(feature = "metrics")]
             metrics: None,
         };
 
         TreeIter::create_range(iter_state, bounds, seqno)
-    }
-
-    /// Resolves merge operands for a point read.
-    ///
-    /// Collects ALL entries for the key across all storage layers (active memtable,
-    /// sealed memtables, disk tables), identifies the base value, and applies the
-    /// merge operator. Entries are processed from newest to oldest (descending seqno).
-    ///
-    /// This intentionally duplicates merge-collection logic from `MvccStream`
-    /// because point reads access storage layers directly (memtable, sealed,
-    /// disk) rather than through a merged iterator stream, and need per-entry
-    /// RT suppression via `is_suppressed_by_range_tombstones`.
-    fn resolve_merge_get(
-        super_version: &SuperVersion,
-        key: &[u8],
-        seqno: SeqNo,
-        merge_op: &dyn crate::merge_operator::MergeOperator,
-    ) -> crate::Result<Option<UserValue>> {
-        let mut operands: Vec<UserValue> = Vec::new();
-        let mut base_value: Option<UserValue> = None;
-        let mut found_base = false;
-
-        let mut has_indirection_base = false;
-
-        // Process a single entry. Returns true if search should stop.
-        let mut process_entry = |entry: &InternalValue| -> bool {
-            match entry.key.value_type {
-                ValueType::Value => {
-                    base_value = Some(entry.value.clone());
-                    true
-                }
-                ValueType::Indirection => {
-                    // Indirection entries point to blob-stored values and must
-                    // not be forwarded as raw bytes to the merge operator.
-                    has_indirection_base = true;
-                    true
-                }
-                ValueType::Tombstone | ValueType::WeakTombstone => true,
-                ValueType::MergeOperand => {
-                    operands.push(entry.value.clone());
-                    false
-                }
-            }
-        };
-
-        // Check if an entry is suppressed by a range tombstone. RT-suppressed
-        // entries are logically deleted and must not participate in merge
-        // resolution — treat them as a tombstone boundary.
-        let is_rt_suppressed = |entry: &InternalValue| -> bool {
-            Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno)
-        };
-
-        // 1. Scan active memtable — returns all entries for key in desc seqno order
-        for entry in &super_version.active_memtable.get_all_for_key(key, seqno) {
-            if is_rt_suppressed(entry) {
-                found_base = true;
-                break;
-            }
-            if process_entry(entry) {
-                found_base = true;
-                break;
-            }
-        }
-
-        // 2. Scan sealed memtables (newest first)
-        if !found_base {
-            'sealed: for mt in super_version.sealed_memtables.iter().rev() {
-                for entry in &mt.get_all_for_key(key, seqno) {
-                    if is_rt_suppressed(entry) {
-                        found_base = true;
-                        break 'sealed;
-                    }
-                    if process_entry(entry) {
-                        found_base = true;
-                        break 'sealed;
-                    }
-                }
-            }
-        }
-
-        // 3. Scan tables on disk
-        //
-        // L0 runs can overlap and iter_levels()/run ordering is not
-        // guaranteed newest-first. Collect all matching on-disk entries for
-        // this key and process them in descending seqno order so that newer
-        // MergeOperands are seen before older bases/tombstones.
-        if !found_base {
-            let key_slice = crate::Slice::from(key);
-
-            let mut disk_entries: Vec<InternalValue> = Vec::new();
-
-            for run in super_version
-                .version
-                .iter_levels()
-                .flat_map(|lvl| lvl.iter())
-            {
-                if let Some(table) = run.get_for_key(key) {
-                    let range = key_slice.clone()..=key_slice.clone();
-                    for item in table.range(range) {
-                        let item = item?;
-                        if item.key.seqno >= seqno {
-                            continue;
-                        }
-                        disk_entries.push(item);
-                    }
-                }
-            }
-
-            // Newest-first by seqno
-            disk_entries.sort_by(|a, b| b.key.seqno.cmp(&a.key.seqno));
-
-            for entry in &disk_entries {
-                if is_rt_suppressed(entry) {
-                    break;
-                }
-                if process_entry(entry) {
-                    break;
-                }
-            }
-        }
-
-        if has_indirection_base {
-            // We encountered an indirection as the would-be base value.
-            // Indirection payloads are internal blob pointers and must not be
-            // passed to the merge operator as user data.
-            //
-            // Fall back to the raw newest merge operand (if any), instead of
-            // reporting the key as missing. This preserves backward-compatible
-            // behavior for callers that expect at least the latest operand when
-            // merge resolution over an indirection base is not supported.
-            if let Some(latest_operand) = operands.first() {
-                return Ok(Some(latest_operand.clone()));
-            }
-
-            // No visible merge operands; nothing user-visible to return.
-            return Ok(None);
-        }
-
-        if operands.is_empty() {
-            return Ok(base_value);
-        }
-
-        // Build operand refs in chronological order (ascending seqno)
-        let mut operand_refs: Vec<&[u8]> = Vec::with_capacity(operands.len());
-        for op in operands.iter().rev() {
-            operand_refs.push(op.as_ref());
-        }
-        // MergeOperator::merge is user code — panics propagate to the caller.
-        // The RefUnwindSafe bound ensures safety if caught externally.
-        let merged = merge_op.merge(key, base_value.as_deref(), &operand_refs)?;
-
-        Ok(Some(merged))
     }
 
     pub(crate) fn get_internal_entry_from_version(
@@ -1329,6 +1227,7 @@ impl Tree {
             ephemeral,
             merge_operator: self.config.merge_operator.clone(),
             prefix_hash,
+            key_hash: None,
             #[cfg(feature = "metrics")]
             metrics: Some(self.0.metrics.clone()),
         };

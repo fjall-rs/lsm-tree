@@ -865,3 +865,42 @@ fn prefix_bloom_skip_metrics_zero_without_extractor() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// Prefix scan correctness when an L0 single-table run has a wide key range
+/// that overlaps the scanned prefix but does not contain any matching keys.
+/// Ensures the non-matching table does not affect scan results, independent of
+/// whether the prefix bloom happens to reject the scanned prefix.
+#[test]
+fn prefix_scan_l0_wide_non_matching_table_does_not_affect_results() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = tree_with_prefix_bloom(&folder)?;
+
+    // L0 table 1: keys with prefixes "aaa:" and "zzz:" — wide key range.
+    // Bloom contains "aaa:" and "zzz:" but NOT "mmm:".
+    for i in 0..5 {
+        tree.insert(format!("aaa:{i}"), "v", i);
+    }
+    for i in 5..10 {
+        tree.insert(format!("zzz:{i}"), "v", i);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // L0 table 2: keys with prefix "mmm:" — bloom contains "mmm:".
+    for i in 10..15 {
+        tree.insert(format!("mmm:{i}"), "v", i);
+    }
+    tree.flush_active_memtable(0)?;
+
+    let results: Vec<_> = tree
+        .create_prefix("mmm:", 15, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 5);
+
+    // Verify existing prefixes still work
+    let results: Vec<_> = tree
+        .create_prefix("aaa:", 15, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 5);
+
+    Ok(())
+}

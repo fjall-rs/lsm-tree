@@ -117,3 +117,9 @@ name = "prefix_bloom"
 harness = false
 path = "benches/prefix_bloom.rs"
 required-features = []
+
+[[bench]]
+name = "merge_point_read"
+harness = false
+path = "benches/merge_point_read.rs"
+required-features = []

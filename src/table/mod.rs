@@ -780,25 +780,24 @@ impl Table {
         self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
-    /// Checks the bloom filter for a prefix hash.
+    /// Checks the full-table bloom filter for a hash value.
     ///
-    /// Returns `Ok(true)` if the prefix may exist in this table (or if no
-    /// filter is available), `Ok(false)` if the prefix is definitely absent.
+    /// Returns `Ok(true)` if the hash may exist in the filter (or if no full
+    /// filter is available), `Ok(false)` if the hash is definitely absent.
     ///
-    /// This is used by prefix scans to skip segments that contain no keys
-    /// with a matching prefix. The prefix must have been indexed at write
-    /// time via a [`PrefixExtractor`](crate::PrefixExtractor).
-    pub(crate) fn maybe_contains_prefix(&self, prefix_hash: u64) -> crate::Result<bool> {
+    /// Handles full (non-partitioned) filters directly. Partitioned / TLI
+    /// filters are keyed by user key, not raw hash, so this method returns
+    /// `Ok(true)` conservatively for those types.
+    fn bloom_may_contain_hash(&self, hash: u64) -> crate::Result<bool> {
         // Full (non-partitioned) filter — single bloom covers the entire table
         if let Some(block) = &self.pinned_filter_block {
-            return block.maybe_contains_hash(prefix_hash);
+            return block.maybe_contains_hash(hash);
         }
 
         // Partitioned / TLI filters: partition index is keyed by user key, not
-        // prefix hash — we would need to scan ALL partitions to check the prefix,
+        // raw hash — we would need to scan ALL partitions to check,
         // which is O(partitions) I/O and defeats the purpose of bloom skip.
         // Returning Ok(true) is correct (conservative: segment is NOT skipped).
-        // Future: accept prefix bounds to seek overlapping partitions only.
         if self.pinned_filter_index.is_some() || self.regions.filter_tli.is_some() {
             return Ok(true);
         }
@@ -813,11 +812,36 @@ impl Table {
                 CompressionType::None, // NOTE: Filter blocks are never compressed (crate invariant)
             )?;
             let block = FilterBlock::new(block);
-            return block.maybe_contains_hash(prefix_hash);
+            return block.maybe_contains_hash(hash);
         }
 
-        // No filter available — cannot rule out the prefix
+        // No filter available — cannot rule out the hash
         Ok(true)
+    }
+
+    /// Checks the bloom filter for a prefix hash.
+    ///
+    /// Returns `Ok(true)` if the prefix may exist in this table (or if no
+    /// filter is available), `Ok(false)` if the prefix is definitely absent.
+    ///
+    /// This is used by prefix scans to skip segments that contain no keys
+    /// with a matching prefix. The prefix must have been indexed at write
+    /// time via a [`PrefixExtractor`](crate::PrefixExtractor).
+    pub(crate) fn maybe_contains_prefix(&self, prefix_hash: u64) -> crate::Result<bool> {
+        self.bloom_may_contain_hash(prefix_hash)
+    }
+
+    /// Checks the bloom filter for a precomputed key hash.
+    ///
+    /// Returns `Ok(true)` if the key may exist in this table (or if no
+    /// filter is available), `Ok(false)` if the key is definitely absent.
+    ///
+    /// Used by the point-read merge pipeline to pre-filter disk tables
+    /// before building range iterators. For partitioned or TLI filter
+    /// configurations, the underlying check returns `Ok(true)` conservatively,
+    /// so pre-filtering is best-effort and configuration-dependent.
+    pub(crate) fn bloom_may_contain_key_hash(&self, key_hash: u64) -> crate::Result<bool> {
+        self.bloom_may_contain_hash(key_hash)
     }
 
     /// Returns the highest effective sequence number in the table.
