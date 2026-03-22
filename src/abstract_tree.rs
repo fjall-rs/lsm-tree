@@ -219,10 +219,16 @@ pub trait AbstractTree: sealed::Sealed {
 
     /// Performs major compaction, blocking the caller until it's done.
     ///
+    /// Returns a [`crate::compaction::CompactionResult`] describing what action was taken.
+    ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
+    fn major_compact(
+        &self,
+        target_size: u64,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<crate::compaction::CompactionResult>;
 
     /// Returns the disk space used by stale blobs.
     fn stale_blob_bytes(&self) -> u64 {
@@ -302,6 +308,8 @@ pub trait AbstractTree: sealed::Sealed {
 
     /// Performs compaction on the tree's levels, blocking the caller until it's done.
     ///
+    /// Returns a [`crate::compaction::CompactionResult`] describing what action was taken.
+    ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
@@ -309,7 +317,7 @@ pub trait AbstractTree: sealed::Sealed {
         &self,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<()>;
+    ) -> crate::Result<crate::compaction::CompactionResult>;
 
     /// Returns the next table's ID.
     fn get_next_table_id(&self) -> TableId;

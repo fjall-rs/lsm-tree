@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{CompactionStrategy, Input as CompactionPayload};
+use super::{CompactionAction, CompactionResult, CompactionStrategy, Input as CompactionPayload};
 use crate::{
     blob_tree::FragmentationMap,
     compaction::{
@@ -90,7 +90,7 @@ impl Options {
 /// Runs compaction task.
 ///
 /// This will block until the compactor is fully finished.
-pub fn do_compaction(opts: &Options) -> crate::Result<()> {
+pub fn do_compaction(opts: &Options) -> crate::Result<CompactionResult> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
@@ -122,15 +122,12 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
         Choice::Drop(payload) => {
             drop(version_history_lock);
 
-            drop_tables(
-                compaction_state,
-                opts,
-                &payload.into_iter().collect::<Vec<_>>(),
-            )
+            let ids = payload.into_iter().collect::<Vec<_>>();
+            drop_tables(compaction_state, opts, &ids)
         }
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
-            Ok(())
+            Ok(CompactionResult::nothing())
         }
     }
 }
@@ -195,7 +192,7 @@ fn move_tables(
     compaction_state: &MutexGuard<'_, CompactionState>,
     opts: &Options,
     payload: &CompactionPayload,
-) -> crate::Result<()> {
+) -> crate::Result<CompactionResult> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
@@ -208,9 +205,10 @@ fn move_tables(
         "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
     );
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     }
 
+    let table_count = payload.table_ids.len();
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
     version_history_lock.upgrade_version(
@@ -233,7 +231,12 @@ fn move_tables(
         return Err(e);
     }
 
-    Ok(())
+    Ok(CompactionResult {
+        action: CompactionAction::Moved,
+        dest_level: Some(payload.dest_level),
+        tables_in: table_count,
+        tables_out: table_count,
+    })
 }
 
 /// Picks blob files to rewrite (defragment)
@@ -341,10 +344,10 @@ fn merge_tables(
     version_history_lock: RwLockReadGuard<'_, SuperVersions>,
     opts: &Options,
     payload: &CompactionPayload,
-) -> crate::Result<()> {
+) -> crate::Result<CompactionResult> {
     if opts.stop_signal.is_stopped() {
         log::debug!("Stopping before compaction because of stop signal");
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     }
 
     // Fail-safe for buggy compaction strategies
@@ -356,7 +359,7 @@ fn merge_tables(
             "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     }
 
     let current_super_version = version_history_lock.latest_version();
@@ -371,8 +374,10 @@ fn merge_tables(
             "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     };
+
+    let tables_in = payload.table_ids.len();
 
     // Collect range tombstones from input tables before they are moved.
     // Canonicalize to avoid duplicate RTs across input tables (MultiWriter
@@ -397,7 +402,7 @@ fn merge_tables(
         log::warn!(
             "Compaction task tried to compact tables that do not exist, declining to run it"
         );
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     };
 
     let dst_lvl = payload.canonical_level.into();
@@ -522,6 +527,11 @@ fn merge_tables(
 
             compactor.write(item)?;
 
+            // NOTE: When stop_signal fires mid-merge, the loop exits early but
+            // compaction proceeds to commit whatever was written so far. The
+            // resulting CompactionResult will report `Merged` even though not
+            // all input items were processed. This is pre-existing behavior:
+            // partial merge output is valid and committed to the version history.
             if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
                 log::debug!("Stopping amidst compaction because of stop signal");
                 return Ok(());
@@ -559,7 +569,7 @@ fn merge_tables(
         })?
         .unwrap_or_default();
 
-    compactor
+    let tables_out = compactor
         .finish(
             &mut version_history_lock,
             opts,
@@ -593,14 +603,19 @@ fn merge_tables(
 
     log::trace!("Compaction successful");
 
-    Ok(())
+    Ok(CompactionResult {
+        action: CompactionAction::Merged,
+        dest_level: Some(payload.dest_level),
+        tables_in,
+        tables_out,
+    })
 }
 
 fn drop_tables(
     compaction_state: MutexGuard<'_, CompactionState>,
     opts: &Options,
     ids_to_drop: &[TableId],
-) -> crate::Result<()> {
+) -> crate::Result<CompactionResult> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
@@ -613,7 +628,7 @@ fn drop_tables(
             "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     }
 
     let Some(tables) = ids_to_drop
@@ -631,7 +646,7 @@ fn drop_tables(
             "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(CompactionResult::nothing());
     };
 
     log::debug!("Dropping tables: {ids_to_drop:?}");
@@ -673,11 +688,18 @@ fn drop_tables(
         blob_file.mark_as_deleted();
     }
 
+    let tables_dropped = ids_to_drop.len();
+
     drop(compaction_state);
 
-    log::trace!("Dropped {} tables", ids_to_drop.len());
+    log::trace!("Dropped {tables_dropped} tables");
 
-    Ok(())
+    Ok(CompactionResult {
+        action: CompactionAction::Dropped,
+        dest_level: None,
+        tables_in: tables_dropped,
+        tables_out: 0,
+    })
 }
 
 #[cfg(test)]

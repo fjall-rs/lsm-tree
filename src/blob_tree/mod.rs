@@ -322,7 +322,11 @@ impl AbstractTree for BlobTree {
         self.index.clear()
     }
 
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
+    fn major_compact(
+        &self,
+        target_size: u64,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<crate::compaction::CompactionResult> {
         self.index.major_compact(target_size, seqno_threshold)
     }
 
@@ -568,7 +572,7 @@ impl AbstractTree for BlobTree {
         &self,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<crate::compaction::CompactionResult> {
         self.index.compact(strategy, seqno_threshold)
     }
 

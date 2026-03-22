@@ -41,6 +41,54 @@ use crate::{
     compaction::state::CompactionState, config::Config, version::Version, HashSet, KvPair, TableId,
 };
 
+/// The action taken during a compaction run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionAction {
+    /// Strategy chose to do nothing.
+    Nothing,
+
+    /// Tables were merged (rewritten) into a destination level.
+    Merged,
+
+    /// Tables were moved to a deeper level without rewriting.
+    Moved,
+
+    /// Tables were dropped without compaction.
+    Dropped,
+}
+
+/// Result of a compaction operation, describing what happened.
+///
+/// Returned by [`crate::AbstractTree::compact`] to give callers
+/// observability into which compaction path was taken.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionResult {
+    /// The action that was taken.
+    pub action: CompactionAction,
+
+    /// The destination level, if applicable.
+    pub dest_level: Option<u8>,
+
+    /// Number of input tables consumed.
+    pub tables_in: usize,
+
+    /// Number of output tables produced.
+    pub tables_out: usize,
+}
+
+impl CompactionResult {
+    /// Creates a result for the "do nothing" case.
+    #[must_use]
+    pub fn nothing() -> Self {
+        Self {
+            action: CompactionAction::Nothing,
+            dest_level: None,
+            tables_in: 0,
+            tables_out: 0,
+        }
+    }
+}
+
 /// Input for compactor
 ///
 /// The compaction strategy chooses which tables to compact and how.

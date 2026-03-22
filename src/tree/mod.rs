@@ -268,7 +268,8 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned");
 
         log::info!("Starting drop_range compaction");
-        self.inner_compact(strategy, 0)
+        self.inner_compact(strategy, 0)?;
+        Ok(())
     }
 
     fn clear(&self) -> crate::Result<()> {
@@ -292,7 +293,11 @@ impl AbstractTree for Tree {
     }
 
     #[doc(hidden)]
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
+    fn major_compact(
+        &self,
+        target_size: u64,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<crate::compaction::CompactionResult> {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
 
         // IMPORTANT: Write lock so we can be the only compaction going on
@@ -535,7 +540,7 @@ impl AbstractTree for Tree {
         &self,
         strategy: Arc<dyn CompactionStrategy>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<crate::compaction::CompactionResult> {
         // NOTE: Read lock major compaction lock
         // That way, if a major compaction is running, we cannot proceed
         // But in general, parallel (non-major) compactions can occur
@@ -1210,17 +1215,17 @@ impl Tree {
         &self,
         strategy: Arc<dyn CompactionStrategy>,
         mvcc_gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<crate::compaction::CompactionResult> {
         use crate::compaction::worker::{do_compaction, Options};
 
         let mut opts = Options::from_tree(self, strategy);
         opts.mvcc_gc_watermark = mvcc_gc_watermark;
 
-        do_compaction(&opts)?;
+        let result = do_compaction(&opts)?;
 
         log::debug!("Compaction run over");
 
-        Ok(())
+        Ok(result)
     }
 
     #[doc(hidden)]

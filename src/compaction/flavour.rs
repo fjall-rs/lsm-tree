@@ -132,6 +132,7 @@ pub(super) trait CompactionFlavour {
     /// Writes range tombstones to the current output table.
     fn write_range_tombstones(&mut self, tombstones: &[RangeTombstone]);
 
+    /// Finishes compaction and returns the number of output tables produced.
     fn finish(
         self: Box<Self>,
         super_version: &mut SuperVersions,
@@ -140,7 +141,7 @@ pub(super) trait CompactionFlavour {
         dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
-    ) -> crate::Result<()>;
+    ) -> crate::Result<usize>;
 }
 
 /// Compaction worker that will relocate blobs that sit in blob files that are being rewritten
@@ -278,7 +279,7 @@ impl CompactionFlavour for RelocatingCompaction {
         dst_lvl: usize,
         blob_frag_map_diff: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<usize> {
         log::debug!(
             "Relocating compaction done in {:?}",
             self.inner.start.elapsed(),
@@ -287,6 +288,7 @@ impl CompactionFlavour for RelocatingCompaction {
         let table_ids_to_delete = std::mem::take(&mut self.inner.tables_to_rewrite);
 
         let created_tables = self.inner.consume_writer(opts, dst_lvl)?;
+        let tables_out = created_tables.len();
         let mut created_blob_files = self.blob_writer.finish()?;
         created_blob_files.extend(extra_blob_files);
 
@@ -338,7 +340,7 @@ impl CompactionFlavour for RelocatingCompaction {
             blob_file.mark_as_deleted();
         }
 
-        Ok(())
+        Ok(tables_out)
     }
 }
 
@@ -419,12 +421,13 @@ impl CompactionFlavour for StandardCompaction {
         dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<usize> {
         log::debug!("Compaction done in {:?}", self.start.elapsed());
 
         let table_ids_to_delete = std::mem::take(&mut self.tables_to_rewrite);
 
         let created_tables = self.consume_writer(opts, dst_lvl)?;
+        let tables_out = created_tables.len();
 
         let mut blob_files_to_drop = Vec::default();
 
@@ -474,7 +477,7 @@ impl CompactionFlavour for StandardCompaction {
             blob_file.mark_as_deleted();
         }
 
-        Ok(())
+        Ok(tables_out)
     }
 }
 

@@ -640,12 +640,21 @@ fn multi_level_skip_fires_when_l1_oversized() -> crate::Result<()> {
 
     // Single compact should trigger multi-level: L0 wins scoring,
     // L1 is oversized (real table > 256 byte target) → L0+L1→L2 skip
-    tree.compact(multi.clone(), seqno)?;
+    let result = tree.compact(multi.clone(), seqno)?;
+
+    // compact() now returns CompactionResult so we can assert the merge path fired
+    assert_eq!(
+        result.action,
+        crate::compaction::CompactionAction::Merged,
+        "multi-level skip should produce a Merged action",
+    );
+    assert!(
+        result.dest_level.is_some_and(|lvl| lvl >= 2),
+        "multi-level skip should target L2+, got {:?}",
+        result.dest_level,
+    );
 
     // Data MUST have propagated beyond L1 into deeper levels.
-    // NOTE: We cannot assert the specific L0+L1→L2 skip path fired because
-    // compact() returns Result<()>, not the Choice made. See #73 for the
-    // planned CompactionResult API that would enable precise path assertions.
     let version = tree.current_version();
     let has_deep_data =
         (2..version.level_count()).any(|idx| version.level(idx).is_some_and(|l| !l.is_empty()));
@@ -688,9 +697,8 @@ fn dynamic_leveling_fallback_to_static() -> crate::Result<()> {
 
     // Flush a small amount of data — dynamic targets will be tiny
     // compared to level_base_size (64M * 4 = 256M), so the dynamic path
-    // falls back to static targets. compact() returns Result<()> so we
-    // cannot directly assert which path ran (see #73), but exercising this
-    // code path ensures compute_level_targets covers the fallback branch.
+    // falls back to static targets. Exercising this code path ensures
+    // compute_level_targets covers the fallback branch.
     for i in 0..4u8 {
         tree.insert("a", "v", u64::from(i));
         tree.insert([b'k', i].as_slice(), "v", u64::from(i));
@@ -698,7 +706,12 @@ fn dynamic_leveling_fallback_to_static() -> crate::Result<()> {
         tree.flush_active_memtable(u64::from(i))?;
     }
 
-    tree.compact(strategy, 4)?;
+    let result = tree.compact(strategy, 4)?;
+    assert_ne!(
+        result.action,
+        crate::compaction::CompactionAction::Nothing,
+        "compaction should have done work",
+    );
 
     // Data should be compacted and readable
     for i in 0..4u8 {
