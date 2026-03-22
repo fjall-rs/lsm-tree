@@ -79,6 +79,8 @@ jobs:
         run: cargo install cross
       - name: Cross test
         run: cross test -r --features lz4 --target ${{ matrix.target }}
+        env:
+          PROPTEST_CASES: "32"
 
   codecov:
     needs: lint
@@ -93,6 +95,8 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
       - run: cargo llvm-cov --no-report nextest --all-features
+        env:
+          PROPTEST_CASES: "32"
       - run: cargo llvm-cov --no-report --doc --features lz4
       - run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5

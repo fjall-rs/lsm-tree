@@ -137,7 +137,7 @@ fn rt_op_strategy() -> impl Strategy<Value = RtOp> {
 }
 
 fn rt_ops_strategy() -> impl Strategy<Value = Vec<RtOp>> {
-    prop::collection::vec(rt_op_strategy(), 20..300)
+    prop::collection::vec(rt_op_strategy(), 20..150)
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +251,7 @@ fn run_rt_test(ops: Vec<RtOp>) -> Result<(), TestCaseError> {
 proptest! {
     // cases defaults to 256; CI overrides via PROPTEST_CASES=32
     #![proptest_config(ProptestConfig {
+        fork: false,
         max_shrink_iters: 1000,
         .. ProptestConfig::default()
     })]

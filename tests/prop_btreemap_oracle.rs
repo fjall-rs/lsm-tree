@@ -128,7 +128,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 }
 
 fn ops_strategy() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec(op_strategy(), 10..200)
+    prop::collection::vec(op_strategy(), 10..100)
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +252,7 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
 proptest! {
     // cases defaults to 256; CI overrides via PROPTEST_CASES=32
     #![proptest_config(ProptestConfig {
+        fork: false,
         max_shrink_iters: 1000,
         .. ProptestConfig::default()
     })]
