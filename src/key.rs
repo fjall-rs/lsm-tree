@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{SeqNo, UserKey, ValueType};
+use crate::{comparator::UserComparator, SeqNo, UserKey, ValueType};
 use std::cmp::Reverse;
 
 #[derive(Clone, Eq)]
@@ -55,6 +55,20 @@ impl InternalKey {
 
     pub fn is_tombstone(&self) -> bool {
         self.value_type.is_tombstone()
+    }
+
+    /// Compares two internal keys using a custom user key comparator.
+    ///
+    /// User keys are compared via the given comparator; ties are broken
+    /// by sequence number in descending order (higher seqno = "smaller"
+    /// in sort order), matching the invariant of [`Ord for InternalKey`].
+    pub(crate) fn compare_with(
+        &self,
+        other: &Self,
+        cmp: &dyn UserComparator,
+    ) -> std::cmp::Ordering {
+        cmp.compare(&self.user_key, &other.user_key)
+            .then_with(|| Reverse(self.seqno).cmp(&Reverse(other.seqno)))
     }
 }
 

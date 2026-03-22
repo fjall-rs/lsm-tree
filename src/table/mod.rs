@@ -29,6 +29,7 @@ pub use writer::Writer;
 
 use crate::{
     cache::Cache,
+    comparator::SharedComparator,
     descriptor_table::DescriptorTable,
     file_accessor::FileAccessor,
     range_tombstone::RangeTombstone,
@@ -246,7 +247,7 @@ impl Table {
         let filter_block = if let Some(block) = &self.pinned_filter_block {
             Some(Cow::Borrowed(block))
         } else if let Some(filter_idx) = &self.pinned_filter_index {
-            let mut iter = filter_idx.iter();
+            let mut iter = filter_idx.iter(self.comparator.clone());
             iter.seek(key, seqno);
 
             if let Some(filter_block_handle) = iter.next() {
@@ -325,13 +326,13 @@ impl Table {
 
             let block = self.load_data_block(block_handle.as_ref())?;
 
-            if let Some(item) = block.point_read(key, seqno) {
+            if let Some(item) = block.point_read(key, seqno, &self.comparator) {
                 return Ok(Some(item));
             }
 
             // NOTE: If the last block key is higher than ours,
             // our key cannot be in the next block
-            if block_handle.end_key() > &key {
+            if self.comparator.compare(block_handle.end_key(), key) == std::cmp::Ordering::Greater {
                 return Ok(None);
             }
         }
@@ -367,6 +368,7 @@ impl Table {
             block_count,
             self.metadata.data_block_compression,
             self.global_seqno(),
+            self.comparator.clone(),
         )
     }
 
@@ -402,6 +404,7 @@ impl Table {
             self.file_accessor.clone(),
             self.cache.clone(),
             self.metadata.data_block_compression,
+            self.comparator.clone(),
             #[cfg(feature = "metrics")]
             self.metrics.clone(),
         );
@@ -455,6 +458,7 @@ impl Table {
         descriptor_table: Option<Arc<DescriptorTable>>,
         pin_filter: bool,
         pin_index: bool,
+        comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
         use meta::ParsedMeta;
@@ -499,6 +503,7 @@ impl Table {
                 path: Arc::clone(&file_path),
                 file_accessor: file_accessor.clone(),
                 table_id: (tree_id, metadata.id).into(),
+                comparator: comparator.clone(),
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),
@@ -510,7 +515,7 @@ impl Table {
             );
 
             let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
-            BlockIndexImpl::Full(FullBlockIndex::new(block))
+            BlockIndexImpl::Full(FullBlockIndex::new(block, comparator.clone()))
         } else {
             log::trace!("Creating volatile, full block index");
 
@@ -521,6 +526,7 @@ impl Table {
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
+                comparator: comparator.clone(),
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),
@@ -579,13 +585,16 @@ impl Table {
                 )));
             }
 
-            let mut rts = Self::decode_range_tombstones(&block)?;
-            // Sort range tombstones by (start asc, seqno desc) to enable
-            // binary search in point-read suppression paths. Uses explicit
-            // comparator so the partition_point invariant is independent of
-            // Ord changes. The seqno-desc tiebreaker ensures higher-seqno
-            // RTs are checked first when multiple share the same start key.
-            rts.sort_unstable_by(|a, b| a.start.cmp(&b.start).then_with(|| b.seqno.cmp(&a.seqno)));
+            let mut rts = Self::decode_range_tombstones(&block, comparator.as_ref())?;
+            // Sort range tombstones by (start asc, seqno desc) using the
+            // user comparator so the order matches the tree's key ordering.
+            // The seqno-desc tiebreaker ensures higher-seqno RTs are checked
+            // first when multiple share the same start key.
+            let cmp = &comparator;
+            rts.sort_unstable_by(|a, b| {
+                cmp.compare(&a.start, &b.start)
+                    .then_with(|| b.seqno.cmp(&a.seqno))
+            });
             rts
         } else {
             Vec::new()
@@ -618,6 +627,8 @@ impl Table {
 
             checksum,
             global_seqno,
+
+            comparator,
 
             #[cfg(feature = "metrics")]
             metrics,
@@ -668,7 +679,10 @@ impl Table {
         clippy::cast_possible_truncation,
         reason = "block sizes are bounded well within usize on all supported platforms"
     )]
-    fn decode_range_tombstones(block: &Block) -> crate::Result<Vec<RangeTombstone>> {
+    fn decode_range_tombstones(
+        block: &Block,
+        comparator: &dyn crate::comparator::UserComparator,
+    ) -> crate::Result<Vec<RangeTombstone>> {
         use byteorder::{ReadBytesExt, LE};
         use std::io::Cursor;
 
@@ -748,8 +762,9 @@ impl Table {
             let start = UserKey::from(start_buf);
             let end = UserKey::from(end_buf);
 
-            // Validate invariant: start < end (reject corrupted data)
-            if start >= end {
+            // Validate invariant: start < end using the tree's comparator
+            // (reject corrupted or misordered intervals)
+            if comparator.compare(&start, &end) != std::cmp::Ordering::Less {
                 log::error!("Range tombstone block: invalid interval (start >= end)");
                 return Err(crate::Error::RangeTombstoneDecode {
                     field: "interval",

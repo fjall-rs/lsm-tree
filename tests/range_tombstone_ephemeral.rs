@@ -32,7 +32,10 @@ const EPHEMERAL_MT_ID: lsm_tree::MemtableId = 999;
 
 /// Build an ephemeral memtable with the given KVs and range tombstones.
 fn build_ephemeral(kvs: &[(&[u8], &[u8], u64)], rts: &[(&[u8], &[u8], u64)]) -> Arc<Memtable> {
-    let mt = Arc::new(Memtable::new(EPHEMERAL_MT_ID));
+    let mt = Arc::new(Memtable::new(
+        EPHEMERAL_MT_ID,
+        std::sync::Arc::new(lsm_tree::DefaultUserComparator),
+    ));
     for &(key, val, seqno) in kvs {
         mt.insert(lsm_tree::InternalValue::from_components(
             key,

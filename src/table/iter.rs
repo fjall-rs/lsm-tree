@@ -4,6 +4,7 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
+    comparator::SharedComparator,
     file_accessor::FileAccessor,
     table::{
         block::ParsedItem,
@@ -87,8 +88,8 @@ impl DoubleEndedIterator for OwnedDataBlockIter {
     }
 }
 
-fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
-    OwnedDataBlockIter::new(block, super::data_block::DataBlock::iter)
+fn create_data_block_reader(block: DataBlock, comparator: SharedComparator) -> OwnedDataBlockIter {
+    OwnedDataBlockIter::new(block, |b| b.iter(comparator))
 }
 
 pub struct Iter {
@@ -103,6 +104,7 @@ pub struct Iter {
     file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
+    comparator: SharedComparator,
 
     index_initialized: bool,
 
@@ -119,13 +121,9 @@ pub struct Iter {
 }
 
 impl Iter {
-    // cfg_attr: expect only fires when metrics feature adds the extra parameter
-    #[cfg_attr(
-        feature = "metrics",
-        expect(
-            clippy::too_many_arguments,
-            reason = "metrics adds the extra parameter; without that feature this stays at the lint threshold"
-        )
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "comparator + metrics add extra parameters"
     )]
     pub fn new(
         table_id: GlobalTableId,
@@ -135,6 +133,7 @@ impl Iter {
         file_accessor: FileAccessor,
         cache: Arc<Cache>,
         compression: CompressionType,
+        comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> Self {
         Self {
@@ -147,6 +146,7 @@ impl Iter {
             file_accessor,
             cache,
             compression,
+            comparator,
 
             index_initialized: false,
 
@@ -272,7 +272,7 @@ impl Iterator for Iter {
             };
             let block = DataBlock::new(block);
 
-            let mut reader = create_data_block_reader(block);
+            let mut reader = create_data_block_reader(block, self.comparator.clone());
 
             // Forward path: seek the low side first to avoid returning entries below the lower
             // bound, then clamp the iterator on the high side. This guarantees iteration stays in
@@ -393,7 +393,7 @@ impl DoubleEndedIterator for Iter {
             };
             let block = DataBlock::new(block);
 
-            let mut reader = create_data_block_reader(block);
+            let mut reader = create_data_block_reader(block, self.comparator.clone());
 
             // Reverse path: clamp the high side first so `next_back` never yields an entry above
             // the upper bound, then apply the low-side seek to avoid stepping below the lower

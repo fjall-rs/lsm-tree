@@ -8,6 +8,7 @@ use crate::metrics::Metrics;
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
 use crate::{
     cache::Cache,
+    comparator::SharedComparator,
     file_accessor::FileAccessor,
     range_tombstone::RangeTombstone,
     table::{filter::block::FilterBlock, IndexBlock},
@@ -59,6 +60,8 @@ pub struct Inner {
     pub(super) checksum: Checksum,
 
     pub(super) global_seqno: SeqNo,
+
+    pub(crate) comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,

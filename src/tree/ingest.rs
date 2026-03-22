@@ -302,6 +302,7 @@ impl<'a> Ingestion<'a> {
                     self.tree.config.descriptor_table.clone(),
                     false,
                     false,
+                    self.tree.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.tree.metrics.clone(),
                 )

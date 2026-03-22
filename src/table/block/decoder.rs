@@ -14,10 +14,15 @@ use std::{io::Cursor, marker::PhantomData};
 ///
 /// Parsed items only hold references to their keys and values, use `materialize` to create an owned value.
 pub trait ParsedItem<M> {
-    /// Compares this item's key with a needle.
+    /// Compares this item's key with a needle using the given comparator.
     ///
     /// We can not access the key directly because it may be comprised of prefix + suffix.
-    fn compare_key(&self, needle: &[u8], bytes: &[u8]) -> std::cmp::Ordering;
+    fn compare_key(
+        &self,
+        needle: &[u8],
+        bytes: &[u8],
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> std::cmp::Ordering;
 
     /// Returns the byte offset of the key's start position.
     fn key_offset(&self) -> usize;

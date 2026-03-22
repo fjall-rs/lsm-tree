@@ -171,7 +171,12 @@ impl BlobTree {
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<UserValue>> {
-        let Some(item) = crate::Tree::get_internal_entry_from_version(super_version, key, seqno)?
+        let Some(item) = crate::Tree::get_internal_entry_from_version(
+            super_version,
+            key,
+            seqno,
+            self.index.config.comparator.as_ref(),
+        )?
         else {
             return Ok(None);
         };
@@ -256,6 +261,7 @@ impl AbstractTree for BlobTree {
                 seqno,
                 index,
                 None, // BlobTree does not use merge operators for prefix scans
+                self.index.config.comparator.clone(),
                 prefix_hash,
             )
             .map(move |kv| {
@@ -278,14 +284,21 @@ impl AbstractTree for BlobTree {
         let tree = self.clone();
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index, None)
-                .map(move |kv| {
-                    IterGuardImpl::Blob(Guard {
-                        tree: tree.clone(),
-                        version: super_version.version.clone(),
-                        kv,
-                    })
-                }),
+            crate::Tree::create_internal_range(
+                super_version.clone(),
+                &range,
+                seqno,
+                index,
+                None,
+                self.index.config.comparator.clone(),
+            )
+            .map(move |kv| {
+                IterGuardImpl::Blob(Guard {
+                    tree: tree.clone(),
+                    version: super_version.version.clone(),
+                    kv,
+                })
+            }),
         )
     }
 
@@ -519,6 +532,7 @@ impl AbstractTree for BlobTree {
                     self.index.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    self.index.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.index.metrics.clone(),
                 )

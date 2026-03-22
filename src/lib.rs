@@ -72,6 +72,8 @@ mod abstract_tree;
 #[doc(hidden)]
 pub mod blob_tree;
 
+mod comparator;
+
 #[doc(hidden)]
 mod cache;
 
@@ -185,6 +187,7 @@ pub use {
     any_tree::AnyTree,
     blob_tree::BlobTree,
     cache::Cache,
+    comparator::{DefaultUserComparator, SharedComparator, UserComparator},
     compression::CompressionType,
     config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,

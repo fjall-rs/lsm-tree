@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    comparator::SharedComparator,
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
@@ -29,10 +30,10 @@ pub struct SuperVersion {
 pub struct SuperVersions(VecDeque<SuperVersion>);
 
 impl SuperVersions {
-    pub fn new(version: Version) -> Self {
+    pub fn new(version: Version, comparator: SharedComparator) -> Self {
         Self(
             vec![SuperVersion {
-                active_memtable: Arc::new(Memtable::new(0)),
+                active_memtable: Arc::new(Memtable::new(0, comparator)),
                 sealed_memtables: Arc::default(),
                 version,
                 seqno: 0,
@@ -202,26 +203,31 @@ impl SuperVersions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparator::default_comparator;
     use test_log::test;
+
+    fn new_memtable(id: u64) -> Memtable {
+        Memtable::new(id, default_comparator())
+    }
 
     #[test]
     fn super_version_gc_above_watermark() -> crate::Result<()> {
         let mut history = SuperVersions(
             vec![
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 1,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
@@ -242,19 +248,19 @@ mod tests {
         let mut history = SuperVersions(
             vec![
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 1,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
@@ -275,25 +281,25 @@ mod tests {
         let mut history = SuperVersions(
             vec![
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 1,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 8,
@@ -314,13 +320,13 @@ mod tests {
         let mut history = SuperVersions(
             vec![
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 8,
@@ -341,13 +347,13 @@ mod tests {
         let mut history = SuperVersions(
             vec![
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
+                    active_memtable: Arc::new(new_memtable(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,

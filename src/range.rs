@@ -73,6 +73,9 @@ pub struct IterState {
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     pub(crate) merge_operator: Option<Arc<dyn MergeOperator>>,
 
+    /// User key comparator for merge ordering.
+    pub(crate) comparator: crate::comparator::SharedComparator,
+
     /// Optional prefix hash for prefix bloom filter skipping.
     ///
     /// When set, segments whose bloom filter reports no match for this
@@ -414,7 +417,7 @@ impl TreeIter {
                         .map(|rt| (rt, seqno)),
                 );
 
-                let iter = memtable.range(range.clone());
+                let iter = memtable.range_internal(range.clone());
 
                 iters.push(Box::new(
                     iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
@@ -433,7 +436,7 @@ impl TreeIter {
                         .map(|rt| (rt, seqno)),
                 );
 
-                let iter = lock.version.active_memtable.range(range.clone());
+                let iter = lock.version.active_memtable.range_internal(range.clone());
 
                 iters.push(Box::new(
                     iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
@@ -450,14 +453,14 @@ impl TreeIter {
                 );
 
                 let iter = Box::new(
-                    mt.range(range)
+                    mt.range_internal(range)
                         .filter(move |item| seqno_filter(item.key.seqno, *eph_seqno))
                         .map(Ok),
                 );
                 iters.push(iter);
             }
 
-            let merged = Merger::new(iters);
+            let merged = Merger::new(iters, lock.comparator.clone());
             // Clone needed: MvccStream uses the RT set for merge suppression,
             // while RangeTombstoneFilter below consumes it for post-merge
             // filtering. An Arc<[_]> could avoid the copy if RT sets grow large.

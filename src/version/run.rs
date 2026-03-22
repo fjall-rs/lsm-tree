@@ -103,6 +103,27 @@ impl<T: Ranged> Run<T> {
         self.0.get(idx).filter(|x| x.key_range().min() <= &key)
     }
 
+    /// Like [`get_for_key`], but uses a custom comparator for key ordering.
+    ///
+    /// # Precondition (guaranteed by construction)
+    ///
+    /// Tables within a run are sorted by `key_range` in comparator order.
+    /// This holds because tables are flushed from comparator-sorted memtables
+    /// and compaction preserves the ordering. The binary search here must
+    /// use the same comparator to maintain the invariant.
+    pub fn get_for_key_cmp(
+        &self,
+        key: &[u8],
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> Option<&T> {
+        let idx = self
+            .partition_point(|x| cmp.compare(x.key_range().max(), key) == std::cmp::Ordering::Less);
+
+        self.0
+            .get(idx)
+            .filter(|x| cmp.compare(x.key_range().min(), key) != std::cmp::Ordering::Greater)
+    }
+
     /// Returns the run's key range.
     pub fn aggregate_key_range(&self) -> KeyRange {
         #[expect(clippy::expect_used, reason = "by definition, runs are never empty")]

@@ -146,8 +146,61 @@ pub fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
         .count()
 }
 
+/// Compares the conceptual concatenation `prefix + suffix` against `needle`
+/// using the given comparator.
+///
+/// For the default lexicographic comparator this performs a zero-allocation
+/// bytewise comparison. Custom comparators fall back to concatenating prefix
+/// and suffix into a temporary `Vec` so that `UserComparator::compare` always
+/// receives a complete key.
 #[must_use]
-pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> std::cmp::Ordering {
+pub fn compare_prefixed_slice(
+    prefix: &[u8],
+    suffix: &[u8],
+    needle: &[u8],
+    cmp: &dyn crate::comparator::UserComparator,
+) -> std::cmp::Ordering {
+    // Fast path: zero-allocation bytewise comparison for the default
+    // (lexicographic) comparator. This is the hot path for block index
+    // and data block binary searches.
+    if cmp.is_lexicographic() {
+        return compare_prefixed_slice_lexicographic(prefix, suffix, needle);
+    }
+
+    // Slow path: materialize prefix+suffix into a contiguous buffer for
+    // custom comparators. Uses a stack buffer for typical key sizes to
+    // avoid heap allocation on the hot binary-search path.
+    let total_len = prefix.len() + suffix.len();
+
+    if total_len <= 256 {
+        let mut buf = [0_u8; 256];
+
+        // SAFETY (indexing): total_len <= 256 == buf.len(), and
+        // prefix.len() + suffix.len() == total_len, so all slices are in bounds.
+        #[expect(clippy::indexing_slicing, reason = "total_len <= 256 checked above")]
+        {
+            buf[..prefix.len()].copy_from_slice(prefix);
+            buf[prefix.len()..total_len].copy_from_slice(suffix);
+        }
+
+        #[expect(clippy::indexing_slicing, reason = "total_len <= 256 checked above")]
+        return cmp.compare(&buf[..total_len], needle);
+    }
+
+    // Fallback for unusually large keys: allocate a temporary Vec.
+    let mut full_key = Vec::with_capacity(total_len);
+    full_key.extend_from_slice(prefix);
+    full_key.extend_from_slice(suffix);
+    cmp.compare(&full_key, needle)
+}
+
+/// Zero-allocation lexicographic comparison of `prefix + suffix` against `needle`.
+#[must_use]
+fn compare_prefixed_slice_lexicographic(
+    prefix: &[u8],
+    suffix: &[u8],
+    needle: &[u8],
+) -> std::cmp::Ordering {
     use std::cmp::Ordering::{Equal, Greater};
 
     if needle.is_empty() {
@@ -158,13 +211,21 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
     let max_pfx_len = prefix.len().min(needle.len());
 
     {
-        #[expect(unsafe_code, reason = "We checked for max_pfx_len")]
-        let prefix = unsafe { prefix.get_unchecked(0..max_pfx_len) };
+        // SAFETY: max_pfx_len = min(prefix.len(), needle.len()), so both
+        // slices [0..max_pfx_len] are within bounds by construction.
+        #[expect(
+            unsafe_code,
+            reason = "max_pfx_len <= prefix.len() && max_pfx_len <= needle.len()"
+        )]
+        let pfx = unsafe { prefix.get_unchecked(0..max_pfx_len) };
 
-        #[expect(unsafe_code, reason = "We checked for max_pfx_len")]
-        let needle = unsafe { needle.get_unchecked(0..max_pfx_len) };
+        #[expect(
+            unsafe_code,
+            reason = "max_pfx_len <= prefix.len() && max_pfx_len <= needle.len()"
+        )]
+        let ndl = unsafe { needle.get_unchecked(0..max_pfx_len) };
 
-        match prefix.cmp(needle) {
+        match pfx.cmp(ndl) {
             Equal => {}
             ordering => return ordering,
         }
@@ -175,17 +236,20 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
         return Greater;
     }
 
+    // SAFETY: rest_len == 0 means prefix.len() <= needle.len(), so
+    // max_pfx_len == prefix.len() <= needle.len() and needle[max_pfx_len..] is in-bounds.
     #[expect(
         unsafe_code,
-        reason = "We know that the prefix is definitely not longer than the needle so we can safely truncate"
+        reason = "max_pfx_len <= needle.len() guaranteed by rest_len == 0 guard above"
     )]
-    let needle = unsafe { needle.get_unchecked(max_pfx_len..) };
-    suffix.cmp(needle)
+    let remaining_needle = unsafe { needle.get_unchecked(max_pfx_len..) };
+    suffix.cmp(remaining_needle)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparator::DefaultUserComparator;
     use test_log::test;
 
     #[test]
@@ -205,39 +269,147 @@ mod tests {
     fn test_compare_prefixed_slice() {
         use std::cmp::Ordering::{Equal, Greater, Less};
 
-        assert_eq!(Greater, compare_prefixed_slice(&[0, 161], &[], &[0]));
-
-        assert_eq!(Equal, compare_prefixed_slice(b"abc", b"xyz", b"abcxyz"));
-        assert_eq!(Equal, compare_prefixed_slice(b"abc", b"", b"abc"));
-        assert_eq!(Equal, compare_prefixed_slice(b"abc", b"abc", b"abcabc"));
-        assert_eq!(Equal, compare_prefixed_slice(b"", b"", b""));
-        assert_eq!(Less, compare_prefixed_slice(b"a", b"", b"y"));
-        assert_eq!(Less, compare_prefixed_slice(b"a", b"", b"yyy"));
-        assert_eq!(Less, compare_prefixed_slice(b"a", b"", b"yyy"));
-        assert_eq!(Less, compare_prefixed_slice(b"yyyy", b"a", b"yyyyb"));
-        assert_eq!(Less, compare_prefixed_slice(b"yyy", b"b", b"yyyyb"));
-        assert_eq!(Less, compare_prefixed_slice(b"abc", b"d", b"abce"));
-        assert_eq!(Less, compare_prefixed_slice(b"ab", b"", b"ac"));
-        assert_eq!(Greater, compare_prefixed_slice(b"a", b"", b""));
-        assert_eq!(Greater, compare_prefixed_slice(b"", b"a", b""));
-        assert_eq!(Greater, compare_prefixed_slice(b"a", b"a", b""));
-        assert_eq!(Greater, compare_prefixed_slice(b"b", b"a", b"a"));
-        assert_eq!(Greater, compare_prefixed_slice(b"a", b"b", b"a"));
-        assert_eq!(Greater, compare_prefixed_slice(b"abc", b"xy", b"abcw"));
-        assert_eq!(Greater, compare_prefixed_slice(b"ab", b"cde", b"a"));
-        assert_eq!(Greater, compare_prefixed_slice(b"abcd", b"zz", b"abc"));
-        assert_eq!(Greater, compare_prefixed_slice(b"abc", b"d", b"abc"));
         assert_eq!(
             Greater,
-            compare_prefixed_slice(b"aaaa", b"aaab", b"aaaaaaaa")
+            compare_prefixed_slice(&[0, 161], &[], &[0], &DefaultUserComparator)
+        );
+
+        assert_eq!(
+            Equal,
+            compare_prefixed_slice(b"abc", b"xyz", b"abcxyz", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Equal,
+            compare_prefixed_slice(b"abc", b"", b"abc", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Equal,
+            compare_prefixed_slice(b"abc", b"abc", b"abcabc", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Equal,
+            compare_prefixed_slice(b"", b"", b"", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"a", b"", b"y", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"a", b"", b"yyy", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"a", b"", b"yyy", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"yyyy", b"a", b"yyyyb", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"yyy", b"b", b"yyyyb", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"abc", b"d", b"abce", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"ab", b"", b"ac", &DefaultUserComparator)
         );
         assert_eq!(
             Greater,
-            compare_prefixed_slice(b"aaaa", b"aaba", b"aaaaaaaa")
+            compare_prefixed_slice(b"a", b"", b"", &DefaultUserComparator)
         );
-        assert_eq!(Greater, compare_prefixed_slice(b"abcd", b"x", b"abc"));
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"", b"a", b"", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"a", b"a", b"", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"b", b"a", b"a", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"a", b"b", b"a", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"abc", b"xy", b"abcw", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"ab", b"cde", b"a", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"abcd", b"zz", b"abc", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"abc", b"d", b"abc", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"aaaa", b"aaab", b"aaaaaaaa", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"aaaa", b"aaba", b"aaaaaaaa", &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"abcd", b"x", b"abc", &DefaultUserComparator)
+        );
 
-        assert_eq!(Less, compare_prefixed_slice(&[0x7F], &[], &[0x80]));
-        assert_eq!(Greater, compare_prefixed_slice(&[0xFF], &[], &[0x10]));
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(&[0x7F], &[], &[0x80], &DefaultUserComparator)
+        );
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(&[0xFF], &[], &[0x10], &DefaultUserComparator)
+        );
+    }
+
+    /// Reverse comparator to exercise the Vec-allocation slow path.
+    struct ReverseComparator;
+    impl crate::comparator::UserComparator for ReverseComparator {
+        fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+            b.cmp(a)
+        }
+    }
+
+    #[test]
+    fn test_compare_prefixed_slice_custom_comparator() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+
+        // With reverse comparator, "abc" > "xyz" (reversed)
+        assert_eq!(
+            Greater,
+            compare_prefixed_slice(b"ab", b"c", b"xyz", &ReverseComparator)
+        );
+        assert_eq!(
+            Less,
+            compare_prefixed_slice(b"xy", b"z", b"abc", &ReverseComparator)
+        );
+        assert_eq!(
+            Equal,
+            compare_prefixed_slice(b"ab", b"c", b"abc", &ReverseComparator)
+        );
+        // Empty cases
+        assert_eq!(
+            Equal,
+            compare_prefixed_slice(b"", b"", b"", &ReverseComparator)
+        );
+        assert_eq!(
+            Less, // reversed: non-empty > empty
+            compare_prefixed_slice(b"a", b"", b"", &ReverseComparator)
+        );
     }
 }

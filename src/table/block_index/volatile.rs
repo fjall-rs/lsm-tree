@@ -4,6 +4,7 @@
 
 use super::KeyedBlockHandle;
 use crate::{
+    comparator::SharedComparator,
     file_accessor::FileAccessor,
     table::{
         block::BlockType,
@@ -28,6 +29,7 @@ pub struct VolatileBlockIndex {
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
     pub(crate) compression: CompressionType,
+    pub(crate) comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,
@@ -53,6 +55,7 @@ pub struct Iter {
     cache: Arc<Cache>,
     handle: BlockHandle,
     compression: CompressionType,
+    comparator: SharedComparator,
 
     lo: Option<(UserKey, SeqNo)>,
     hi: Option<(UserKey, SeqNo)>,
@@ -71,6 +74,7 @@ impl Iter {
             cache: index.cache.clone(),
             handle: index.handle,
             compression: index.compression,
+            comparator: index.comparator.clone(),
 
             lo: None,
             hi: None,
@@ -113,7 +117,8 @@ impl Iterator for Iter {
             ));
             let index_block = IndexBlock::new(block);
 
-            let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+            let cmp = self.comparator.clone();
+            let mut iter = OwnedIndexBlockIter::new(index_block, |b| b.iter(cmp));
 
             if let Some((lo_key, lo_seqno)) = &self.lo {
                 if !iter.seek_lower(lo_key, *lo_seqno) {
@@ -153,7 +158,8 @@ impl DoubleEndedIterator for Iter {
             ));
             let index_block = IndexBlock::new(block);
 
-            let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+            let cmp = self.comparator.clone();
+            let mut iter = OwnedIndexBlockIter::new(index_block, |b| b.iter(cmp));
 
             if let Some((lo_key, lo_seqno)) = &self.lo {
                 if !iter.seek_lower(lo_key, *lo_seqno) {

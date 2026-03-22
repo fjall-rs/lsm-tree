@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::comparator::SharedComparator;
 use crate::file_accessor::FileAccessor;
 use crate::table::{IndexBlock, KeyedBlockHandle};
 use crate::SeqNo;
@@ -28,6 +29,7 @@ pub struct TwoLevelBlockIndex {
     pub(crate) file_accessor: FileAccessor,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
+    pub(crate) comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,
@@ -47,6 +49,7 @@ impl TwoLevelBlockIndex {
             file_accessor: self.file_accessor.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
+            comparator: self.comparator.clone(),
 
             #[cfg(feature = "metrics")]
             metrics: self.metrics.clone(),
@@ -69,6 +72,7 @@ pub struct Iter {
     file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
+    comparator: SharedComparator,
 
     #[cfg(feature = "metrics")]
     metrics: Arc<Metrics>,
@@ -76,7 +80,8 @@ pub struct Iter {
 
 impl Iter {
     fn init_tli(&mut self) -> bool {
-        let mut iter = OwnedIndexBlockIter::new(self.tli_block.clone(), IndexBlock::iter);
+        let cmp = self.comparator.clone();
+        let mut iter = OwnedIndexBlockIter::new(self.tli_block.clone(), |b| b.iter(cmp));
 
         if let Some((lo_key, lo_seqno)) = &self.lo {
             if !iter.seek_lower(lo_key, *lo_seqno) {
@@ -138,7 +143,8 @@ impl Iterator for Iter {
                 ));
                 let index_block = IndexBlock::new(block);
 
-                let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+                let cmp = self.comparator.clone();
+                let mut iter = OwnedIndexBlockIter::new(index_block, |b| b.iter(cmp));
 
                 if let Some((lo_key, lo_seqno)) = &self.lo {
                     if !iter.seek_lower(lo_key, *lo_seqno) {
@@ -201,7 +207,8 @@ impl DoubleEndedIterator for Iter {
                 ));
                 let index_block = IndexBlock::new(block);
 
-                let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+                let cmp = self.comparator.clone();
+                let mut iter = OwnedIndexBlockIter::new(index_block, |b| b.iter(cmp));
 
                 if let Some((lo_key, lo_seqno)) = &self.lo {
                     if !iter.seek_lower(lo_key, *lo_seqno) {

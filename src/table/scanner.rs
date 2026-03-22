@@ -4,6 +4,7 @@
 
 use super::{Block, DataBlock};
 use crate::{
+    comparator::SharedComparator,
     table::{block::BlockType, iter::OwnedDataBlockIter},
     CompressionType, InternalValue, SeqNo,
 };
@@ -19,6 +20,7 @@ pub struct Scanner {
     read_count: usize,
 
     global_seqno: SeqNo,
+    comparator: SharedComparator,
 }
 
 impl Scanner {
@@ -27,12 +29,14 @@ impl Scanner {
         block_count: usize,
         compression: CompressionType,
         global_seqno: SeqNo,
+        comparator: SharedComparator,
     ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
         let block = Self::fetch_next_block(&mut reader, compression)?;
-        let iter = OwnedDataBlockIter::new(block, DataBlock::iter);
+        let cmp = comparator.clone();
+        let iter = OwnedDataBlockIter::new(block, |b| b.iter(cmp));
 
         Ok(Self {
             reader,
@@ -43,6 +47,7 @@ impl Scanner {
             read_count: 1,
 
             global_seqno,
+            comparator,
         })
     }
 
@@ -84,7 +89,8 @@ impl Iterator for Scanner {
 
             // Init new block
             let block = fail_iter!(Self::fetch_next_block(&mut self.reader, self.compression));
-            self.iter = OwnedDataBlockIter::new(block, DataBlock::iter);
+            let cmp = self.comparator.clone();
+            self.iter = OwnedDataBlockIter::new(block, |b| b.iter(cmp));
 
             self.read_count += 1;
         }

@@ -5,6 +5,7 @@
 use crate::{
     checksum::ChecksumType,
     coding::{Decode, Encode},
+    comparator::default_comparator,
     table::{Block, DataBlock},
     vlog::BlobFileId,
     CompressionType, InternalValue, KeyRange, SeqNo, Slice,
@@ -13,9 +14,9 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Write};
 
 macro_rules! read_u64 {
-    ($block:expr, $name:expr) => {{
+    ($block:expr, $name:expr, $cmp:expr) => {{
         let bytes = $block
-            .point_read($name, SeqNo::MAX)
+            .point_read($name, SeqNo::MAX, $cmp)
             .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
 
         let mut bytes = &bytes.value[..];
@@ -24,9 +25,9 @@ macro_rules! read_u64 {
 }
 
 macro_rules! read_u128 {
-    ($block:expr, $name:expr) => {{
+    ($block:expr, $name:expr, $cmp:expr) => {{
         let bytes = $block
-            .point_read($name, SeqNo::MAX)
+            .point_read($name, SeqNo::MAX, $cmp)
             .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
 
         let mut bytes = &bytes.value[..];
@@ -122,9 +123,12 @@ impl Metadata {
         let block = Block::from_reader(reader, CompressionType::None)?;
         let block = DataBlock::new(block);
 
+        // Metadata keys are always lexicographic, so use the default comparator.
+        let cmp = default_comparator();
+
         let version = {
             let bytes = block
-                .point_read(b"blob_file_version", SeqNo::MAX)
+                .point_read(b"blob_file_version", SeqNo::MAX, &cmp)
                 .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
             *bytes
                 .value
@@ -140,15 +144,15 @@ impl Metadata {
             _ => return Err(crate::Error::InvalidHeader("BlobFileMeta")),
         }
 
-        let id = read_u64!(block, b"id");
-        let created_at = read_u128!(block, b"created_at");
-        let item_count = read_u64!(block, b"item_count");
-        let file_size = read_u64!(block, b"file_size");
-        let total_uncompressed_bytes = read_u64!(block, b"uncompressed_size");
+        let id = read_u64!(block, b"id", &cmp);
+        let created_at = read_u128!(block, b"created_at", &cmp);
+        let item_count = read_u64!(block, b"item_count", &cmp);
+        let file_size = read_u64!(block, b"file_size", &cmp);
+        let total_uncompressed_bytes = read_u64!(block, b"uncompressed_size", &cmp);
 
         let compression = {
             let bytes = block
-                .point_read(b"compression", SeqNo::MAX)
+                .point_read(b"compression", SeqNo::MAX, &cmp)
                 .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
 
             let mut bytes = &bytes.value[..];
@@ -157,11 +161,11 @@ impl Metadata {
 
         let key_range = KeyRange::new((
             block
-                .point_read(b"key#min", SeqNo::MAX)
+                .point_read(b"key#min", SeqNo::MAX, &cmp)
                 .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?
                 .value,
             block
-                .point_read(b"key#max", SeqNo::MAX)
+                .point_read(b"key#max", SeqNo::MAX, &cmp)
                 .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?
                 .value,
         ));

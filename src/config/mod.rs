@@ -20,9 +20,14 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    compaction::filter::Factory, merge_operator::MergeOperator, path::absolute_path,
-    prefix::PrefixExtractor, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache,
-    CompressionType, DescriptorTable, SequenceNumberCounter, SharedSequenceNumberGenerator, Tree,
+    compaction::filter::Factory,
+    comparator::{self, SharedComparator},
+    merge_operator::MergeOperator,
+    path::absolute_path,
+    prefix::PrefixExtractor,
+    version::DEFAULT_LEVEL_COUNT,
+    AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter,
+    SharedSequenceNumberGenerator, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -246,6 +251,15 @@ pub struct Config {
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
+    /// Custom user key comparator.
+    ///
+    /// When set, all key comparisons use this comparator instead of the
+    /// default lexicographic byte ordering. Once a tree is opened with a
+    /// comparator, it must always be re-opened with the same comparator.
+    // Not `pub` — use `Config::comparator()` builder method as the public API.
+    #[doc(hidden)]
+    pub(crate) comparator: SharedComparator,
+
     /// The global sequence number generator
     ///
     /// Should be shared between multiple trees of a database
@@ -311,6 +325,8 @@ impl Default for Config {
             expect_point_read_hits: false,
 
             kv_separation_opts: None,
+
+            comparator: comparator::default_comparator(),
         }
     }
 }
@@ -519,6 +535,27 @@ impl Config {
     #[must_use]
     pub fn with_merge_operator(mut self, op: Option<Arc<dyn MergeOperator>>) -> Self {
         self.merge_operator = op;
+        self
+    }
+
+    /// Sets a custom user key comparator.
+    ///
+    /// When configured, all key ordering (memtable, block index, merge,
+    /// range scans) uses this comparator instead of the default lexicographic
+    /// byte ordering.
+    ///
+    /// # Important
+    ///
+    /// Once a tree is created with a custom comparator, it **must** be
+    /// re-opened with the same comparator. Using a different comparator
+    /// on an existing tree produces incorrect results.
+    ///
+    /// The comparator identity is **not** persisted to disk — the caller
+    /// is responsible for ensuring the same comparator is used across
+    /// open/close cycles (same approach as `RocksDB`).
+    #[must_use]
+    pub fn comparator(mut self, comparator: SharedComparator) -> Self {
+        self.comparator = comparator;
         self
     }
 

@@ -1,5 +1,6 @@
 #[expect(clippy::expect_used)]
 mod tests {
+    use crate::comparator::default_comparator;
     use crate::{
         table::{
             block::{BlockType, Header, ParsedItem},
@@ -70,7 +71,7 @@ mod tests {
             });
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
                 iter.seek_upper(&110u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
@@ -82,7 +83,8 @@ mod tests {
             }
 
             {
-                let mut iter: crate::table::data_block::Iter<'_> = data_block.iter();
+                let mut iter: crate::table::data_block::Iter<'_> =
+                    data_block.iter(default_comparator());
                 iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
                 iter.seek_upper(&110u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
@@ -94,7 +96,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
                 iter.seek_upper(&110u64.to_be_bytes(), SeqNo::MAX);
 
@@ -144,7 +146,7 @@ mod tests {
             });
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
                 iter.seek_upper(&109u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
@@ -156,7 +158,8 @@ mod tests {
             }
 
             {
-                let mut iter: crate::table::data_block::Iter<'_> = data_block.iter();
+                let mut iter: crate::table::data_block::Iter<'_> =
+                    data_block.iter(default_comparator());
                 iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
                 iter.seek_upper(&109u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
@@ -168,7 +171,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
                 iter.seek_upper(&109u64.to_be_bytes(), SeqNo::MAX);
 
@@ -217,7 +220,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
             iter.seek(&5u64.to_be_bytes(), SeqNo::MAX);
             iter.seek_upper(&9u64.to_be_bytes(), SeqNo::MAX);
 
@@ -270,7 +273,7 @@ mod tests {
             });
 
             let iter = data_block
-                .iter()
+                .iter(default_comparator())
                 .map(|item| item.materialize(&data_block.inner.data));
 
             let real_items: Vec<_> = iter.collect();
@@ -305,7 +308,7 @@ mod tests {
             });
 
             let iter = data_block
-                .iter()
+                .iter(default_comparator())
                 .rev()
                 .map(|item| item.materialize(&data_block.inner.data));
 
@@ -343,7 +346,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
 
@@ -384,7 +387,7 @@ mod tests {
             });
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(!iter.seek(b"a", SeqNo::MAX), "should not seek");
 
@@ -396,7 +399,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(!iter.seek_upper(b"g", SeqNo::MAX), "should not seek");
 
@@ -408,7 +411,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek_upper(b"b", SeqNo::MAX), "should seek");
 
@@ -423,7 +426,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek(b"f", SeqNo::MAX), "should seek");
 
@@ -464,7 +467,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(iter.seek(b"c", SeqNo::MAX), "should seek");
             assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
@@ -505,7 +508,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(iter.seek_upper(b"b", SeqNo::MAX), "should seek");
 
@@ -546,7 +549,7 @@ mod tests {
             });
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
                 assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
@@ -562,7 +565,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
                 assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
@@ -578,7 +581,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
                 assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
@@ -600,7 +603,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
                 assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
@@ -649,7 +652,7 @@ mod tests {
             });
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek(b"f", SeqNo::MAX), "should seek");
                 iter.seek_upper(b"e", SeqNo::MAX);
@@ -660,7 +663,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek(b"f", SeqNo::MAX), "should seek");
                 iter.seek_upper(b"e", SeqNo::MAX);
@@ -671,7 +674,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek_upper(b"e", SeqNo::MAX), "should seek");
                 iter.seek(b"f", SeqNo::MAX);
@@ -682,7 +685,7 @@ mod tests {
             }
 
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
 
                 assert!(iter.seek_upper(b"e", SeqNo::MAX), "should seek");
                 iter.seek(b"f", SeqNo::MAX);
@@ -719,7 +722,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(iter.seek(b"b", SeqNo::MAX), "should seek correctly");
 
@@ -756,7 +759,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(iter.seek(b"d", SeqNo::MAX), "should seek correctly");
 
@@ -796,7 +799,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(iter.seek(b"f", SeqNo::MAX), "should seek correctly");
 
@@ -836,7 +839,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(!iter.seek(b"a", SeqNo::MAX), "should not find exact match");
 
@@ -873,7 +876,7 @@ mod tests {
                 },
             });
 
-            let mut iter = data_block.iter();
+            let mut iter = data_block.iter(default_comparator());
 
             assert!(!iter.seek(b"g", SeqNo::MAX), "should not find exact match");
 
@@ -911,7 +914,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .map(|item| item.materialize(&data_block.inner.data));
 
                 assert_eq!(
@@ -940,7 +943,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .map(|item| item.materialize(&data_block.inner.data));
 
                 assert_eq!(
@@ -999,7 +1002,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .rev()
                     .map(|item| item.materialize(&data_block.inner.data));
 
@@ -1029,7 +1032,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .rev()
                     .map(|item| item.materialize(&data_block.inner.data));
 
@@ -1089,7 +1092,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .map(|item| item.materialize(&data_block.inner.data));
 
                 assert_eq!(b"a", &*iter.next().expect("should exist").key.user_key);
@@ -1103,7 +1106,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .map(|item| item.materialize(&data_block.inner.data));
 
                 assert_eq!(b"e", &*iter.next_back().expect("should exist").key.user_key);
@@ -1117,7 +1120,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .map(|item| item.materialize(&data_block.inner.data));
 
                 assert_eq!(b"a", &*iter.next().expect("should exist").key.user_key);
@@ -1133,7 +1136,7 @@ mod tests {
 
             {
                 let mut iter = data_block
-                    .iter()
+                    .iter(default_comparator())
                     .map(|item| item.materialize(&data_block.inner.data));
 
                 assert_eq!(b"e", &*iter.next_back().expect("should exist").key.user_key);
@@ -1191,7 +1194,7 @@ mod tests {
                 > 0,
         );
 
-        assert_eq!(data_block.iter().count(), items.len());
+        assert_eq!(data_block.iter(default_comparator()).count(), items.len());
 
         Ok(())
     }
@@ -1241,7 +1244,7 @@ mod tests {
                 > 0,
         );
 
-        assert_eq!(data_block.iter().count(), items.len());
+        assert_eq!(data_block.iter(default_comparator()).count(), items.len());
 
         Ok(())
     }
@@ -1267,9 +1270,9 @@ mod tests {
         });
 
         assert_eq!(data_block.len(), items.len());
-        assert_eq!(data_block.iter().count(), items.len());
+        assert_eq!(data_block.iter(default_comparator()).count(), items.len());
 
-        let mut iter = data_block.iter();
+        let mut iter = data_block.iter(default_comparator());
         iter.seek(&[0], SeqNo::MAX);
         iter.seek_upper(&[0], SeqNo::MAX);
 
@@ -1304,7 +1307,7 @@ mod tests {
 
             // With SeqNo::MAX, seek behaves like key-only (no seqno filtering).
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 assert!(
                     iter.seek(b"b", SeqNo::MAX),
                     "should find key with MAX seqno"
@@ -1320,7 +1323,7 @@ mod tests {
             // restart interval containing (or nearest to) the target seqno.
             // The first entry returned is the head of that interval.
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 assert!(iter.seek(b"b", 5), "should find key with snapshot seqno 5");
                 let entry = iter.next().expect("should have entry");
                 let materialized = entry.materialize(&data_block.inner.data);
@@ -1374,7 +1377,7 @@ mod tests {
 
             // Forward seek with seqno narrows restart interval selection.
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 assert!(iter.seek(b"b", 5), "should find b at snapshot 5");
                 let entry = iter.next().expect("should have entry");
                 let mat = entry.materialize(&data_block.inner.data);
@@ -1395,7 +1398,7 @@ mod tests {
 
             // Exclusive forward seek with seqno.
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 assert!(
                     iter.seek_exclusive(b"b", 5),
                     "should find entry > b at snapshot 5"
@@ -1407,7 +1410,7 @@ mod tests {
 
             // Upper seek still works with seqno (predicate unchanged for backward).
             {
-                let mut iter = data_block.iter();
+                let mut iter = data_block.iter(default_comparator());
                 assert!(iter.seek_upper(b"b", 5), "should find upper bound b");
                 let entry = iter.next_back().expect("should have entry");
                 let mat = entry.materialize(&data_block.inner.data);

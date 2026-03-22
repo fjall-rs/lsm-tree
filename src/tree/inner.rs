@@ -82,13 +82,15 @@ impl TreeInner {
         );
         persist_version(&config.path, &version)?;
 
+        let comparator = config.comparator.clone();
+
         Ok(Self {
             id: get_next_tree_id(),
             memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_counter: SequenceNumberCounter::default(),
             config: Arc::new(config),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version, comparator))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),

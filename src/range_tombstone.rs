@@ -26,9 +26,12 @@ impl RangeTombstone {
     ///
     /// Debug-asserts that `start < end`. Callers must validate untrusted input
     /// before constructing a `RangeTombstone`.
+    // No debug_assert on start < end here: with custom comparators,
+    // lexicographic order may differ from comparator order. Callers
+    // (decode_range_tombstones, insert_range_tombstone) validate using
+    // the appropriate comparator or lexicographic order at their level.
     #[must_use]
     pub fn new(start: UserKey, end: UserKey, seqno: SeqNo) -> Self {
-        debug_assert!(start < end, "range tombstone start must be < end");
         Self { start, end, seqno }
     }
 

@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, DataBlock};
 use crate::{
-    checksum::ChecksumType, coding::Decode, table::block::BlockType, CompressionType, KeyRange,
-    SeqNo, TableId,
+    checksum::ChecksumType, coding::Decode, comparator::default_comparator,
+    table::block::BlockType, CompressionType, KeyRange, SeqNo, TableId,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
@@ -59,9 +59,9 @@ pub struct ParsedMeta {
 }
 
 macro_rules! read_u8 {
-    ($block:expr, $name:expr) => {{
+    ($block:expr, $name:expr, $cmp:expr) => {{
         let bytes = $block
-            .point_read($name, SeqNo::MAX)
+            .point_read($name, SeqNo::MAX, $cmp)
             .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
 
         let mut bytes = &bytes.value[..];
@@ -70,9 +70,9 @@ macro_rules! read_u8 {
 }
 
 macro_rules! read_u64 {
-    ($block:expr, $name:expr) => {{
+    ($block:expr, $name:expr, $cmp:expr) => {{
         let bytes = $block
-            .point_read($name, SeqNo::MAX)
+            .point_read($name, SeqNo::MAX, $cmp)
             .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
 
         let mut bytes = &bytes.value[..];
@@ -109,10 +109,13 @@ impl ParsedMeta {
 
         let block = DataBlock::new(block);
 
+        // Metadata keys are always lexicographic, so use the default comparator.
+        let cmp = default_comparator();
+
         #[expect(clippy::indexing_slicing)]
         {
             let table_version = block
-                .point_read(b"table_version", SeqNo::MAX)
+                .point_read(b"table_version", SeqNo::MAX, &cmp)
                 .expect("Table version should exist")
                 .value;
 
@@ -126,7 +129,7 @@ impl ParsedMeta {
 
         {
             let hash_type = block
-                .point_read(b"filter_hash_type", SeqNo::MAX)
+                .point_read(b"filter_hash_type", SeqNo::MAX, &cmp)
                 .expect("Filter hash type should exist")
                 .value;
 
@@ -140,7 +143,7 @@ impl ParsedMeta {
 
         {
             let hash_type = block
-                .point_read(b"checksum_type", SeqNo::MAX)
+                .point_read(b"checksum_type", SeqNo::MAX, &cmp)
                 .expect("Checksum type should exist")
                 .value;
 
@@ -153,24 +156,24 @@ impl ParsedMeta {
         }
 
         assert_eq!(
-            read_u8!(block, b"restart_interval#index"),
+            read_u8!(block, b"restart_interval#index", &cmp),
             1,
             "index block restart intervals >1 are not supported for this version",
         );
 
-        let id = read_u64!(block, b"table_id");
-        let item_count = read_u64!(block, b"item_count");
-        let tombstone_count = read_u64!(block, b"tombstone_count");
-        let data_block_count = read_u64!(block, b"block_count#data");
-        let index_block_count = read_u64!(block, b"block_count#index");
-        let _filter_block_count = read_u64!(block, b"block_count#filter");
-        let file_size = read_u64!(block, b"file_size");
-        let weak_tombstone_count = read_u64!(block, b"weak_tombstone_count");
-        let weak_tombstone_reclaimable = read_u64!(block, b"weak_tombstone_reclaimable");
+        let id = read_u64!(block, b"table_id", &cmp);
+        let item_count = read_u64!(block, b"item_count", &cmp);
+        let tombstone_count = read_u64!(block, b"tombstone_count", &cmp);
+        let data_block_count = read_u64!(block, b"block_count#data", &cmp);
+        let index_block_count = read_u64!(block, b"block_count#index", &cmp);
+        let _filter_block_count = read_u64!(block, b"block_count#filter", &cmp);
+        let file_size = read_u64!(block, b"file_size", &cmp);
+        let weak_tombstone_count = read_u64!(block, b"weak_tombstone_count", &cmp);
+        let weak_tombstone_reclaimable = read_u64!(block, b"weak_tombstone_reclaimable", &cmp);
 
         let created_at = {
             let bytes = block
-                .point_read(b"created_at", SeqNo::MAX)
+                .point_read(b"created_at", SeqNo::MAX, &cmp)
                 .expect("created_at timestamp should exist");
 
             let mut bytes = &bytes.value[..];
@@ -179,11 +182,11 @@ impl ParsedMeta {
 
         let key_range = KeyRange::new((
             block
-                .point_read(b"key#min", SeqNo::MAX)
+                .point_read(b"key#min", SeqNo::MAX, &cmp)
                 .expect("key min should exist")
                 .value,
             block
-                .point_read(b"key#max", SeqNo::MAX)
+                .point_read(b"key#max", SeqNo::MAX, &cmp)
                 .expect("key max should exist")
                 .value,
         ));
@@ -191,7 +194,7 @@ impl ParsedMeta {
         let seqnos = {
             let min = {
                 let bytes = block
-                    .point_read(b"seqno#min", SeqNo::MAX)
+                    .point_read(b"seqno#min", SeqNo::MAX, &cmp)
                     .expect("seqno min should exist")
                     .value;
                 let mut bytes = &bytes[..];
@@ -200,7 +203,7 @@ impl ParsedMeta {
 
             let max = {
                 let bytes = block
-                    .point_read(b"seqno#max", SeqNo::MAX)
+                    .point_read(b"seqno#max", SeqNo::MAX, &cmp)
                     .expect("seqno max should exist")
                     .value;
                 let mut bytes = &bytes[..];
@@ -217,16 +220,17 @@ impl ParsedMeta {
         // optimization for legacy tables — correct but not optimal).
         // If the key exists but is truncated, propagate the I/O error to
         // surface metadata corruption rather than silently falling back.
-        let highest_kv_seqno = if let Some(item) = block.point_read(b"seqno#kv_max", SeqNo::MAX) {
-            let mut bytes = &item.value[..];
-            validated_kv_seqno(bytes.read_u64::<LittleEndian>()?, seqnos.1)?
-        } else {
-            seqnos.1
-        };
+        let highest_kv_seqno =
+            if let Some(item) = block.point_read(b"seqno#kv_max", SeqNo::MAX, &cmp) {
+                let mut bytes = &item.value[..];
+                validated_kv_seqno(bytes.read_u64::<LittleEndian>()?, seqnos.1)?
+            } else {
+                seqnos.1
+            };
 
         let data_block_compression = {
             let bytes = block
-                .point_read(b"compression#data", SeqNo::MAX)
+                .point_read(b"compression#data", SeqNo::MAX, &cmp)
                 .expect("size should exist");
 
             let mut bytes = &bytes.value[..];
@@ -235,7 +239,7 @@ impl ParsedMeta {
 
         let index_block_compression = {
             let bytes = block
-                .point_read(b"compression#index", SeqNo::MAX)
+                .point_read(b"compression#index", SeqNo::MAX, &cmp)
                 .expect("size should exist");
 
             let mut bytes = &bytes.value[..];

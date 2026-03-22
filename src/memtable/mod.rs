@@ -4,6 +4,7 @@
 
 pub mod interval_tree;
 
+use crate::comparator::SharedComparator;
 use crate::key::InternalKey;
 use crate::range_tombstone::RangeTombstone;
 use crate::{
@@ -11,11 +12,55 @@ use crate::{
     UserKey, ValueType,
 };
 use crossbeam_skiplist::SkipMap;
-use std::ops::RangeBounds;
+use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::RwLock;
 
 pub use crate::tree::inner::MemtableId;
+
+/// Wrapper around [`InternalKey`] that uses a custom [`UserComparator`] for ordering.
+///
+/// This wrapper is used as the key type in the memtable's `SkipMap` to support
+/// pluggable key comparison. The `SharedComparator` is cloned (Arc bump) per entry.
+#[derive(Clone)]
+pub struct MemtableKey {
+    pub(crate) inner: InternalKey,
+    pub(crate) comparator: SharedComparator,
+}
+
+impl MemtableKey {
+    pub(crate) fn new(inner: InternalKey, comparator: SharedComparator) -> Self {
+        Self { inner, comparator }
+    }
+}
+
+impl PartialEq for MemtableKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for MemtableKey {}
+
+impl PartialOrd for MemtableKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MemtableKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.inner
+            .compare_with(&other.inner, self.comparator.as_ref())
+    }
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+impl std::fmt::Debug for MemtableKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
 
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
@@ -24,9 +69,12 @@ pub struct Memtable {
     #[doc(hidden)]
     pub id: MemtableId,
 
+    /// The user key comparator used for ordering entries.
+    pub(crate) comparator: SharedComparator,
+
     /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
-    pub items: SkipMap<InternalKey, UserValue>,
+    pub(crate) items: SkipMap<MemtableKey, UserValue>,
 
     /// Range tombstones stored in an interval tree.
     ///
@@ -41,6 +89,11 @@ pub struct Memtable {
     /// starvation is not a concern here: range deletes are rare, the write-side
     /// critical section is O(log n) with n typically small, and the memtable
     /// rotates (becoming read-only) well before contention could accumulate.
+    // NOTE: The interval tree uses lexicographic `Ord` on `UserKey` for
+    // containment queries. With a custom comparator, RT suppression in
+    // the memtable may produce incorrect results for non-lexicographic
+    // orderings. Threading the comparator into the AVL tree is tracked
+    // as a follow-up issue.
     pub(crate) range_tombstones: RwLock<interval_tree::IntervalTree>,
 
     /// Approximate active memtable size.
@@ -74,11 +127,16 @@ impl Memtable {
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
+    // `pub` + `#[doc(hidden)]`: used by the host crate (fjall) to construct
+    // ephemeral memtables. Not part of the semver-stable API.
+    // The comparator parameter is mandatory because memtable ordering must
+    // match the tree's comparator; a default would silently produce wrong order.
     #[doc(hidden)]
     #[must_use]
-    pub fn new(id: MemtableId) -> Self {
+    pub fn new(id: MemtableId, comparator: SharedComparator) -> Self {
         Self {
             id,
+            comparator,
             items: SkipMap::default(),
             range_tombstones: RwLock::new(interval_tree::IntervalTree::new()),
             approximate_size: AtomicU64::default(),
@@ -90,20 +148,31 @@ impl Memtable {
     /// Creates an iterator over all items.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items.iter().map(|entry| InternalValue {
-            key: entry.key().clone(),
+            key: entry.key().inner.clone(),
             value: entry.value().clone(),
         })
     }
 
     /// Creates an iterator over a range of items.
-    pub(crate) fn range<'a, R: RangeBounds<InternalKey> + 'a>(
-        &'a self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = InternalValue> + 'a {
-        self.items.range(range).map(|entry| InternalValue {
-            key: entry.key().clone(),
+    ///
+    /// Accepts `InternalKey`-based bounds and wraps them with the memtable's comparator.
+    pub(crate) fn range_internal(
+        &self,
+        range: (Bound<InternalKey>, Bound<InternalKey>),
+    ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+        let wrapped = (
+            range.0.map(|k| self.wrap_key(k)),
+            range.1.map(|k| self.wrap_key(k)),
+        );
+        self.items.range(wrapped).map(|entry| InternalValue {
+            key: entry.key().inner.clone(),
             value: entry.value().clone(),
         })
+    }
+
+    /// Wraps an `InternalKey` with this memtable's comparator for `SkipMap` lookups.
+    pub(crate) fn wrap_key(&self, key: InternalKey) -> MemtableKey {
+        MemtableKey::new(key, self.comparator.clone())
     }
 
     /// Returns the item by key if it exists.
@@ -131,15 +200,16 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(key, seqno - 1, ValueType::Value);
+        let lower_bound = self.wrap_key(InternalKey::new(key, seqno - 1, ValueType::Value));
 
-        let mut iter = self
-            .items
-            .range(lower_bound..)
-            .take_while(|entry| &*entry.key().user_key == key);
+        let cmp = self.comparator.as_ref();
+
+        let mut iter = self.items.range(lower_bound..).take_while(|entry| {
+            cmp.compare(&entry.key().inner.user_key, key) == std::cmp::Ordering::Equal
+        });
 
         iter.next().map(|entry| InternalValue {
-            key: entry.key().clone(),
+            key: entry.key().inner.clone(),
             value: entry.value().clone(),
         })
     }
@@ -168,17 +238,21 @@ impl Memtable {
             clippy::expect_used,
             reason = "keys are limited to 16-bit length + values are limited to 32-bit length"
         )]
-        let item_size =
-            (item.key.user_key.len() + item.value.len() + std::mem::size_of::<InternalValue>())
-                .try_into()
-                .expect("should fit into u64");
+        // Account for MemtableKey overhead (InternalKey + Arc<dyn UserComparator>)
+        let item_size = (item.key.user_key.len()
+            + item.value.len()
+            + std::mem::size_of::<InternalValue>()
+            + std::mem::size_of::<SharedComparator>())
+        .try_into()
+        .expect("should fit into u64");
 
         let size_before = self
             .approximate_size
             .fetch_add(item_size, std::sync::atomic::Ordering::AcqRel);
 
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
-        self.items.insert(key, item.value);
+        let memtable_key = MemtableKey::new(key, self.comparator.clone());
+        self.items.insert(memtable_key, item.value);
 
         self.highest_seqno
             .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
@@ -310,9 +384,14 @@ impl Memtable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparator::default_comparator;
     use crate::ValueType;
     use std::sync::{Arc, Barrier};
     use test_log::test;
+
+    fn new_memtable(id: MemtableId) -> Memtable {
+        Memtable::new(id, default_comparator())
+    }
 
     #[test]
     #[expect(
@@ -320,7 +399,7 @@ mod tests {
         reason = "tests use expect for lock and thread join"
     )]
     fn rwlock_read_while_read_held_succeeds() {
-        let mt = Memtable::new(0);
+        let mt = new_memtable(0);
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
 
         // Two one-way channels avoid Barrier entirely — if either side
@@ -352,7 +431,7 @@ mod tests {
     #[test]
     #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn suppression_queries_concurrent_readers_no_panic() {
-        let mt = Arc::new(Memtable::new(0));
+        let mt = Arc::new(new_memtable(0));
 
         let _ = mt.insert_range_tombstone(b"a".to_vec().into(), b"z".to_vec().into(), 10);
         for i in 0u8..100 {
@@ -386,7 +465,7 @@ mod tests {
     #[test]
     #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn range_tombstones_concurrent_read_write_writers_observable() {
-        let mt = Arc::new(Memtable::new(0));
+        let mt = Arc::new(new_memtable(0));
         // Barrier ensures all 6 threads start simultaneously.
         let start = Arc::new(Barrier::new(6));
 
@@ -447,7 +526,7 @@ mod tests {
     #[test]
     #[expect(clippy::expect_used, reason = "tests use expect for thread join")]
     fn range_tombstones_populated_tree_concurrent_reads_succeed() {
-        let mt = Arc::new(Memtable::new(0));
+        let mt = Arc::new(new_memtable(0));
 
         for i in 0u8..50 {
             let start = vec![b'a' + (i % 25)];
@@ -478,7 +557,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used)]
     fn memtable_mvcc_point_read() {
-        let memtable = Memtable::new(0);
+        let memtable = new_memtable(0);
 
         memtable.insert(InternalValue::from_components(
             *b"hello-key-999991",
@@ -521,7 +600,7 @@ mod tests {
 
     #[test]
     fn memtable_get() {
-        let memtable = Memtable::new(0);
+        let memtable = new_memtable(0);
 
         let value =
             InternalValue::from_components(b"abc".to_vec(), b"abc".to_vec(), 0, ValueType::Value);
@@ -533,7 +612,7 @@ mod tests {
 
     #[test]
     fn memtable_get_highest_seqno() {
-        let memtable = Memtable::new(0);
+        let memtable = new_memtable(0);
 
         memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
@@ -579,7 +658,7 @@ mod tests {
 
     #[test]
     fn memtable_get_prefix() {
-        let memtable = Memtable::new(0);
+        let memtable = new_memtable(0);
 
         memtable.insert(InternalValue::from_components(
             b"abc0".to_vec(),
@@ -617,7 +696,7 @@ mod tests {
 
     #[test]
     fn memtable_get_old_version() {
-        let memtable = Memtable::new(0);
+        let memtable = new_memtable(0);
 
         memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),

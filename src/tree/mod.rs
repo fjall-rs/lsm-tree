@@ -123,15 +123,18 @@ impl AbstractTree for Tree {
 
         let key = Slice::from(key);
 
-        for kv in super_version
-            .active_memtable
-            .range(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)..)
-        {
+        for kv in super_version.active_memtable.range_internal((
+            Bound::Included(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)),
+            Bound::Unbounded,
+        )) {
             log::info!("[Active] {kv:?}");
         }
 
         for mt in super_version.sealed_memtables.iter().rev() {
-            for kv in mt.range(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)..) {
+            for kv in mt.range_internal((
+                Bound::Included(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)),
+                Bound::Unbounded,
+            )) {
                 log::info!("[Sealed #{}] {kv:?}", mt.id());
             }
         }
@@ -140,7 +143,7 @@ impl AbstractTree for Tree {
             .version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
-            .filter_map(|run| run.get_for_key(&key))
+            .filter_map(|run| run.get_for_key_cmp(&key, self.config.comparator.as_ref()))
         {
             for kv in table.range(..) {
                 let kv = kv?;
@@ -164,7 +167,12 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        Self::get_internal_entry_from_version(&super_version, key, seqno)
+        Self::get_internal_entry_from_version(
+            &super_version,
+            key,
+            seqno,
+            self.config.comparator.as_ref(),
+        )
     }
 
     fn current_version(&self) -> Version {
@@ -270,7 +278,10 @@ impl AbstractTree for Tree {
             &self.config.path,
             |v| {
                 let mut copy = v.clone();
-                copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+                copy.active_memtable = Arc::new(Memtable::new(
+                    self.memtable_id_counter.next(),
+                    self.config.comparator.clone(),
+                ));
                 copy.sealed_memtables = Arc::default();
                 copy.version = Version::new(v.version.id() + 1, self.tree_type());
                 Ok(copy)
@@ -430,6 +441,7 @@ impl AbstractTree for Tree {
                     self.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    self.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.metrics.clone(),
                 )
@@ -503,7 +515,10 @@ impl AbstractTree for Tree {
         }
 
         let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.active_memtable = Arc::new(Memtable::new(
+            self.memtable_id_counter.next(),
+            self.config.comparator.clone(),
+        ));
         copy.sealed_memtables = Arc::new(SealedMemtables::default());
 
         // Rotate does not modify the memtable, so it cannot break snapshots
@@ -566,7 +581,10 @@ impl AbstractTree for Tree {
         let yanked_memtable = super_version.active_memtable;
 
         let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.active_memtable = Arc::new(Memtable::new(
+            self.memtable_id_counter.next(),
+            self.config.comparator.clone(),
+        ));
         copy.sealed_memtables =
             Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
 
@@ -667,6 +685,7 @@ impl AbstractTree for Tree {
             key,
             seqno,
             self.config.merge_operator.as_ref(),
+            self.config.comparator.as_ref(),
         )
     }
 
@@ -684,6 +703,7 @@ impl AbstractTree for Tree {
                     key.as_ref(),
                     seqno,
                     self.config.merge_operator.as_ref(),
+                    self.config.comparator.as_ref(),
                 )
             })
             .collect()
@@ -742,8 +762,9 @@ impl Tree {
         key: &[u8],
         seqno: SeqNo,
         merge_operator: Option<&Arc<dyn crate::merge_operator::MergeOperator>>,
+        comparator: &dyn crate::comparator::UserComparator,
     ) -> crate::Result<Option<UserValue>> {
-        let entry = Self::get_internal_entry_from_version(super_version, key, seqno)?;
+        let entry = Self::get_internal_entry_from_version(super_version, key, seqno, comparator)?;
 
         match entry {
             Some(entry) if entry.key.value_type == ValueType::MergeOperand => {
@@ -762,6 +783,7 @@ impl Tree {
                     key,
                     entry.key.seqno,
                     seqno,
+                    comparator,
                 ) {
                     Ok(None)
                 } else {
@@ -793,11 +815,13 @@ impl Tree {
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
         let key_slice = crate::Slice::from(key);
         let range = key_slice.clone()..=key_slice;
+        let comparator = version.active_memtable.comparator.clone();
 
         let iter_state = IterState {
             version,
             ephemeral: None,
             merge_operator: Some(merge_operator),
+            comparator,
             prefix_hash: None,
             key_hash: Some(key_hash),
             #[cfg(feature = "metrics")]
@@ -823,6 +847,7 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
         merge_operator: Option<Arc<dyn crate::merge_operator::MergeOperator>>,
+        comparator: crate::comparator::SharedComparator,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         Self::create_internal_range_with_prefix_hash(
             version,
@@ -830,6 +855,7 @@ impl Tree {
             seqno,
             ephemeral,
             merge_operator,
+            comparator,
             None,
         )
     }
@@ -847,6 +873,7 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
         merge_operator: Option<Arc<dyn crate::merge_operator::MergeOperator>>,
+        comparator: crate::comparator::SharedComparator,
         prefix_hash: Option<u64>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
@@ -870,6 +897,7 @@ impl Tree {
             version,
             ephemeral,
             merge_operator,
+            comparator,
             prefix_hash,
             key_hash: None,
             #[cfg(feature = "metrics")]
@@ -883,6 +911,7 @@ impl Tree {
         super_version: &SuperVersion,
         key: &[u8],
         seqno: SeqNo,
+        comparator: &dyn crate::comparator::UserComparator,
     ) -> crate::Result<Option<InternalValue>> {
         // Search order: active → sealed → SST (newest first). A point
         // tombstone in a newer source is authoritative — no older source
@@ -893,7 +922,13 @@ impl Tree {
             };
 
             // Check if any range tombstone suppresses this entry
-            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+            if Self::is_suppressed_by_range_tombstones(
+                super_version,
+                key,
+                entry.key.seqno,
+                seqno,
+                comparator,
+            ) {
                 return Ok(None);
             }
             return Ok(Some(entry));
@@ -907,17 +942,30 @@ impl Tree {
                 return Ok(None);
             };
 
-            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+            if Self::is_suppressed_by_range_tombstones(
+                super_version,
+                key,
+                entry.key.seqno,
+                seqno,
+                comparator,
+            ) {
                 return Ok(None);
             }
             return Ok(Some(entry));
         }
 
         // Now look in tables... this may involve disk I/O
-        let entry = Self::get_internal_entry_from_tables(&super_version.version, key, seqno)?;
+        let entry =
+            Self::get_internal_entry_from_tables(&super_version.version, key, seqno, comparator)?;
 
         if let Some(entry) = entry {
-            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+            if Self::is_suppressed_by_range_tombstones(
+                super_version,
+                key,
+                entry.key.seqno,
+                seqno,
+                comparator,
+            ) {
                 return Ok(None);
             }
             return Ok(Some(entry));
@@ -933,6 +981,7 @@ impl Tree {
         key: &[u8],
         key_seqno: SeqNo,
         read_seqno: SeqNo,
+        comparator: &dyn crate::comparator::UserComparator,
     ) -> bool {
         // Check active memtable range tombstones.
         // Future optimization: skip lock when memtable has no RTs (atomic count).
@@ -952,29 +1001,38 @@ impl Tree {
 
         // Check SST table range tombstones.
         //
-        // Flush/RT-only writes widen persisted table key ranges to include RT
-        // coverage, and compaction either clips RTs to the output table range
-        // or widens metadata in the inclusive-upper-bound fallback. That makes
-        // `metadata.key_range.contains_key(key)` a sound early reject here and
-        // avoids scanning RT blocks for unrelated SSTs on point reads.
-        //
-        // Per-table RT lists are sorted by start key on load,
+        // Per-table RT lists are sorted by start key (using comparator) on load,
         // so binary search narrows candidates to RTs with start <= key.
+        // The key_range early reject uses the comparator so it works with
+        // non-lexicographic orderings.
         for table in super_version
             .version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| run.iter())
             .filter(|t| !t.range_tombstones().is_empty())
-            .filter(|t| t.metadata.key_range.contains_key(key))
+            .filter(|t| {
+                // Early reject: skip tables whose key range doesn't contain the key.
+                let kr = &t.metadata.key_range;
+                comparator.compare(kr.min(), key) != std::cmp::Ordering::Greater
+                    && comparator.compare(key, kr.max()) != std::cmp::Ordering::Greater
+            })
         {
             let rts = table.range_tombstones();
-            let candidate_end = rts.partition_point(|rt| rt.start.as_ref() <= key);
+
+            // Binary search: find the first RT whose start is > key (in comparator order).
+            // All RTs before that index have start <= key and are candidates.
+            let candidate_end = rts.partition_point(|rt| {
+                comparator.compare(&rt.start, key) != std::cmp::Ordering::Greater
+            });
 
             for rt in rts.iter().take(candidate_end) {
-                // Binary search already narrowed to start <= key; should_suppress
-                // re-checks contains_key (harmless) and avoids semantic drift.
-                if rt.should_suppress(key, key_seqno, read_seqno) {
+                // Check: start <= key < end (in comparator order) AND seqno visibility.
+                if rt.visible_at(read_seqno)
+                    && comparator.compare(&rt.start, key) != std::cmp::Ordering::Greater
+                    && comparator.compare(key, &rt.end) == std::cmp::Ordering::Less
+                    && key_seqno < rt.seqno
+                {
                     return true;
                 }
             }
@@ -987,6 +1045,7 @@ impl Tree {
         version: &Version,
         key: &[u8],
         seqno: SeqNo,
+        comparator: &dyn crate::comparator::UserComparator,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
@@ -1006,7 +1065,7 @@ impl Tree {
                 let mut best: Option<InternalValue> = None;
 
                 for run in level.iter() {
-                    if let Some(table) = run.get_for_key(key) {
+                    if let Some(table) = run.get_for_key_cmp(key, comparator) {
                         if let Some(item) = table.get(key, seqno, key_hash)? {
                             match &best {
                                 // >= keeps first-seen on tie. Seqno is monotonically
@@ -1031,7 +1090,7 @@ impl Tree {
                 }
             } else {
                 for run in level.iter() {
-                    if let Some(table) = run.get_for_key(key) {
+                    if let Some(table) = run.get_for_key_cmp(key, comparator) {
                         if let Some(item) = table.get(key, seqno, key_hash)? {
                             return Ok(ignore_tombstone_value(item));
                         }
@@ -1192,6 +1251,7 @@ impl Tree {
             seqno,
             ephemeral,
             self.config.merge_operator.clone(),
+            self.config.comparator.clone(),
         )
         .map(|item| match item {
             Ok(kv) => Ok((kv.key.user_key, kv.value)),
@@ -1226,6 +1286,7 @@ impl Tree {
             version: super_version,
             ephemeral,
             merge_operator: self.config.merge_operator.clone(),
+            comparator: self.config.comparator.clone(),
             prefix_hash,
             key_hash: None,
             #[cfg(feature = "metrics")]
@@ -1309,12 +1370,14 @@ impl Tree {
             .max()
             .unwrap_or_default();
 
+        let comparator = config.comparator.clone();
+
         let inner = TreeInner {
             id: tree_id,
             memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
             blob_file_id_counter: SequenceNumberCounter::default(),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version, comparator))),
             stop_signal: StopSignal::default(),
             config: Arc::new(config),
             major_compaction_lock: RwLock::default(),
@@ -1455,6 +1518,7 @@ impl Tree {
                     config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;

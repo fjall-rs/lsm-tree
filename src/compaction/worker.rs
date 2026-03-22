@@ -152,6 +152,7 @@ fn create_compaction_stream<'a>(
     to_compact: &[TableId],
     eviction_seqno: SeqNo,
     merge_operator: Option<Arc<dyn crate::merge_operator::MergeOperator>>,
+    comparator: crate::comparator::SharedComparator,
 ) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
@@ -178,7 +179,7 @@ fn create_compaction_stream<'a>(
 
     Ok(if found == to_compact.len() {
         Some(
-            CompactionStream::new(Merger::new(readers), eviction_seqno)
+            CompactionStream::new(Merger::new(readers, comparator), eviction_seqno)
                 .with_merge_operator(merge_operator),
         )
     } else {
@@ -390,6 +391,7 @@ fn merge_tables(
         &payload.table_ids.iter().copied().collect::<Vec<_>>(),
         opts.mvcc_gc_watermark,
         opts.config.merge_operator.clone(),
+        opts.config.comparator.clone(),
     )?
     else {
         log::warn!(
@@ -704,7 +706,14 @@ mod tests {
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
 
-        assert!(create_compaction_stream(&tree.current_version(), &[666], 0, None)?.is_none());
+        assert!(create_compaction_stream(
+            &tree.current_version(),
+            &[666],
+            0,
+            None,
+            crate::comparator::default_comparator()
+        )?
+        .is_none());
 
         Ok(())
     }

@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::comparator::SharedComparator;
 use crate::table::block_index::{iter::OwnedIndexBlockIter, BlockIndexIter};
 use crate::table::{IndexBlock, KeyedBlockHandle};
 use crate::SeqNo;
@@ -9,15 +10,18 @@ use crate::SeqNo;
 /// Index that translates item keys to data block handles
 ///
 /// The index is fully loaded into memory.
-pub struct FullBlockIndex(IndexBlock);
+pub struct FullBlockIndex {
+    block: IndexBlock,
+    comparator: SharedComparator,
+}
 
 impl FullBlockIndex {
-    pub fn new(block: IndexBlock) -> Self {
-        Self(block)
+    pub fn new(block: IndexBlock, comparator: SharedComparator) -> Self {
+        Self { block, comparator }
     }
 
     pub fn inner(&self) -> &IndexBlock {
-        &self.0
+        &self.block
     }
 
     pub fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<Iter> {
@@ -30,7 +34,10 @@ impl FullBlockIndex {
     }
 
     pub fn iter(&self) -> Iter {
-        Iter(OwnedIndexBlockIter::new(self.0.clone(), IndexBlock::iter))
+        let cmp = self.comparator.clone();
+        Iter(OwnedIndexBlockIter::new(self.block.clone(), |b| {
+            b.iter(cmp)
+        }))
     }
 }
 

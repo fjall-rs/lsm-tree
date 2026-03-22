@@ -278,14 +278,21 @@ pub struct DataBlockParsedItem {
 }
 
 impl ParsedItem<InternalValue> for DataBlockParsedItem {
-    fn compare_key(&self, needle: &[u8], bytes: &[u8]) -> std::cmp::Ordering {
+    fn compare_key(
+        &self,
+        needle: &[u8],
+        bytes: &[u8],
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> std::cmp::Ordering {
+        // SAFETY: slice indexes come from the block parser which validates them
+        // during decoding. The block format guarantees they are within bounds.
         if let Some(prefix) = &self.prefix {
             let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
             let rest_key = unsafe { bytes.get_unchecked(self.key.0..self.key.1) };
-            compare_prefixed_slice(prefix, rest_key, needle)
+            compare_prefixed_slice(prefix, rest_key, needle, cmp)
         } else {
             let key = unsafe { bytes.get_unchecked(self.key.0..self.key.1) };
-            key.cmp(needle)
+            cmp.compare(key, needle)
         }
     }
 
@@ -408,7 +415,12 @@ impl DataBlock {
     }
 
     #[must_use]
-    pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
+    pub fn point_read(
+        &self,
+        needle: &[u8],
+        seqno: SeqNo,
+        comparator: &crate::comparator::SharedComparator,
+    ) -> Option<InternalValue> {
         let iter = if let Some(hash_index_reader) = self.get_hash_index_reader() {
             match hash_index_reader.get(needle) {
                 MARKER_FREE => {
@@ -416,7 +428,7 @@ impl DataBlock {
                 }
                 MARKER_CONFLICT => {
                     // NOTE: Fallback to seqno-aware binary search
-                    let mut iter = self.iter();
+                    let mut iter = self.iter(comparator.clone());
 
                     if !iter.seek_to_key_seqno(needle, seqno) {
                         return None;
@@ -427,14 +439,14 @@ impl DataBlock {
                 idx => {
                     let offset: usize = self.get_binary_index_reader().get(usize::from(idx));
 
-                    let mut iter = self.iter();
+                    let mut iter = self.iter(comparator.clone());
                     iter.seek_to_offset(offset);
 
                     iter
                 }
             }
         } else {
-            let mut iter = self.iter();
+            let mut iter = self.iter(comparator.clone());
 
             // NOTE: Seqno-aware binary search reduces linear scanning by skipping most
             // restart intervals that contain only versions newer than the target seqno
@@ -447,7 +459,7 @@ impl DataBlock {
 
         // Linear scan
         for item in iter {
-            match item.compare_key(needle, &self.inner.data) {
+            match item.compare_key(needle, &self.inner.data, comparator.as_ref()) {
                 std::cmp::Ordering::Greater => {
                     // We are past our searched key
                     return None;
@@ -472,11 +484,11 @@ impl DataBlock {
     }
 
     #[must_use]
-    #[expect(clippy::iter_without_into_iter)]
-    pub fn iter(&self) -> Iter<'_> {
+    pub fn iter(&self, comparator: crate::comparator::SharedComparator) -> Iter<'_> {
         Iter::new(
             &self.inner.data,
             Decoder::<InternalValue, DataBlockParsedItem>::new(&self.inner),
+            comparator,
         )
     }
 
@@ -552,6 +564,7 @@ impl DataBlock {
 #[cfg(test)]
 #[expect(clippy::expect_used)]
 mod tests {
+    use crate::comparator::default_comparator;
     use crate::{
         table::{
             block::{BlockType, Header, ParsedItem},
@@ -610,7 +623,7 @@ mod tests {
 
         let real_ping_ponged_items = {
             let mut iter = data_block
-                .iter()
+                .iter(default_comparator())
                 .map(|x| x.materialize(data_block.as_slice()));
 
             let mut v = vec![];
@@ -655,17 +668,23 @@ mod tests {
             });
 
             assert!(
-                data_block.point_read(b"a", SeqNo::MAX).is_none(),
+                data_block
+                    .point_read(b"a", SeqNo::MAX, &default_comparator())
+                    .is_none(),
                 "should return None because a does not exist",
             );
 
             assert!(
-                data_block.point_read(b"b", SeqNo::MAX).is_some(),
+                data_block
+                    .point_read(b"b", SeqNo::MAX, &default_comparator())
+                    .is_some(),
                 "should return Some because b exists",
             );
 
             assert!(
-                data_block.point_read(b"z", SeqNo::MAX).is_none(),
+                data_block
+                    .point_read(b"z", SeqNo::MAX, &default_comparator())
+                    .is_none(),
                 "should return Some because z does not exist",
             );
         }
@@ -702,11 +721,14 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, SeqNo::MAX),
+                data_block.point_read(&needle.key.user_key, SeqNo::MAX, &default_comparator()),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -737,8 +759,13 @@ mod tests {
             assert_eq!(data_block.len(), items.len());
             assert_eq!(data_block.inner.size(), serialized_len);
 
-            assert_eq!(Some(items[0].clone()), data_block.point_read(b"abc", 777));
-            assert!(data_block.point_read(b"abc", 1).is_none());
+            assert_eq!(
+                Some(items[0].clone()),
+                data_block.point_read(b"abc", 777, &default_comparator())
+            );
+            assert!(data_block
+                .point_read(b"abc", 1, &default_comparator())
+                .is_none());
         }
 
         Ok(())
@@ -770,7 +797,10 @@ mod tests {
             assert_eq!(data_block.len(), items.len());
             assert_eq!(data_block.inner.size(), serialized_len);
 
-            assert_eq!(Some(items[0].clone()), data_block.point_read(b"hello", 777));
+            assert_eq!(
+                Some(items[0].clone()),
+                data_block.point_read(b"hello", 777, &default_comparator())
+            );
         }
 
         Ok(())
@@ -806,11 +836,18 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
+                data_block.point_read(
+                    &needle.key.user_key,
+                    needle.key.seqno + 1,
+                    &default_comparator()
+                ),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -842,11 +879,18 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
+                data_block.point_read(
+                    &needle.key.user_key,
+                    needle.key.seqno + 1,
+                    &default_comparator()
+                ),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -878,11 +922,14 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, SeqNo::MAX),
+                data_block.point_read(&needle.key.user_key, SeqNo::MAX, &default_comparator()),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -919,11 +966,18 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
+                data_block.point_read(
+                    &needle.key.user_key,
+                    needle.key.seqno + 1,
+                    &default_comparator()
+                ),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -959,9 +1013,12 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], SeqNo::MAX)
+            data_block.point_read(&[233, 233], SeqNo::MAX, &default_comparator())
         );
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -1004,13 +1061,16 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], SeqNo::MAX)
+            data_block.point_read(&[233, 233], SeqNo::MAX, &default_comparator())
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX, &default_comparator())
         );
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -1053,13 +1113,16 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], SeqNo::MAX)
+            data_block.point_read(&[233, 233], SeqNo::MAX, &default_comparator())
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX, &default_comparator())
         );
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -1102,13 +1165,16 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], SeqNo::MAX)
+            data_block.point_read(&[233, 233], SeqNo::MAX, &default_comparator())
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX, &default_comparator())
         );
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -1140,11 +1206,18 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
+                data_block.point_read(
+                    &needle.key.user_key,
+                    needle.key.seqno + 1,
+                    &default_comparator()
+                ),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -1180,7 +1253,7 @@ mod tests {
         );
 
         assert!(data_block
-            .point_read(b"pla:venus:fact", SeqNo::MAX)
+            .point_read(b"pla:venus:fact", SeqNo::MAX, &default_comparator())
             .expect("should exist")
             .is_tombstone());
 
@@ -1225,11 +1298,18 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
+                data_block.point_read(
+                    &needle.key.user_key,
+                    needle.key.seqno + 1,
+                    &default_comparator()
+                ),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+        assert_eq!(
+            None,
+            data_block.point_read(b"yyy", SeqNo::MAX, &default_comparator())
+        );
 
         Ok(())
     }
@@ -1265,33 +1345,37 @@ mod tests {
             // seqno=4 → should see version with seqno=3 (first with seqno < 4)
             assert_eq!(
                 Some(items[2].clone()),
-                data_block.point_read(b"a", 4),
+                data_block.point_read(b"a", 4, &default_comparator()),
                 "restart_interval={restart_interval}: seqno=4 should return v3",
             );
 
             // seqno=3 → should see version with seqno=2
             assert_eq!(
                 Some(items[3].clone()),
-                data_block.point_read(b"a", 3),
+                data_block.point_read(b"a", 3, &default_comparator()),
                 "restart_interval={restart_interval}: seqno=3 should return v2",
             );
 
             // seqno=6 → should see latest version (seqno=5)
             assert_eq!(
                 Some(items[0].clone()),
-                data_block.point_read(b"a", 6),
+                data_block.point_read(b"a", 6, &default_comparator()),
                 "restart_interval={restart_interval}: seqno=6 should return v5",
             );
 
             // seqno=1 → no visible version (all seqno >= 1)
             assert!(
-                data_block.point_read(b"a", 1).is_none(),
+                data_block
+                    .point_read(b"a", 1, &default_comparator())
+                    .is_none(),
                 "restart_interval={restart_interval}: seqno=1 should return None",
             );
 
             // Non-existent key
             assert!(
-                data_block.point_read(b"b", SeqNo::MAX).is_none(),
+                data_block
+                    .point_read(b"b", SeqNo::MAX, &default_comparator())
+                    .is_none(),
                 "restart_interval={restart_interval}: key 'b' should not exist",
             );
         }
@@ -1330,21 +1414,21 @@ mod tests {
             // Read "b" at seqno=4 → should return version with seqno=3
             assert_eq!(
                 Some(items[5].clone()),
-                data_block.point_read(b"b", 4),
+                data_block.point_read(b"b", 4, &default_comparator()),
                 "restart_interval={restart_interval}: b@4 should return b3",
             );
 
             // Read "a" at seqno=2 → should return version with seqno=1
             assert_eq!(
                 Some(items[2].clone()),
-                data_block.point_read(b"a", 2),
+                data_block.point_read(b"a", 2, &default_comparator()),
                 "restart_interval={restart_interval}: a@2 should return a1",
             );
 
             // Read "c" at seqno=2 → should return version with seqno=1
             assert_eq!(
                 Some(items[8].clone()),
-                data_block.point_read(b"c", 2),
+                data_block.point_read(b"c", 2, &default_comparator()),
                 "restart_interval={restart_interval}: c@2 should return c1",
             );
         }

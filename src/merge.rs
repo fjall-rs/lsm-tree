@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::comparator::SharedComparator;
 use crate::InternalValue;
 use interval_heap::IntervalHeap as Heap;
 
@@ -9,19 +10,21 @@ type IterItem = crate::Result<InternalValue>;
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + Send + 'a>;
 
-struct HeapItem(usize, InternalValue);
+// Arc clone per heap entry is an atomic ref-count bump. The heap holds at most
+// one entry per source iterator (typically <10), so the overhead is negligible.
+struct HeapItem(usize, InternalValue, SharedComparator);
 
 impl Eq for HeapItem {}
 
 impl PartialEq for HeapItem {
     fn eq(&self, other: &Self) -> bool {
-        self.1.key == other.1.key
+        self.1.key.compare_with(&other.1.key, self.2.as_ref()) == std::cmp::Ordering::Equal
     }
 }
 
 impl Ord for HeapItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.1.key.cmp(&other.1.key)
+        self.1.key.compare_with(&other.1.key, self.2.as_ref())
     }
 }
 
@@ -37,11 +40,12 @@ pub struct Merger<I> {
     heap: Heap<HeapItem>,
     initialized_lo: bool,
     initialized_hi: bool,
+    comparator: SharedComparator,
 }
 
 impl<I: Iterator<Item = IterItem>> Merger<I> {
     #[must_use]
-    pub fn new(iterators: Vec<I>) -> Self {
+    pub fn new(iterators: Vec<I>, comparator: SharedComparator) -> Self {
         let heap = Heap::with_capacity(iterators.len());
 
         let iterators = iterators.into_iter().collect::<Vec<_>>();
@@ -51,6 +55,7 @@ impl<I: Iterator<Item = IterItem>> Merger<I> {
             heap,
             initialized_lo: false,
             initialized_hi: false,
+            comparator,
         }
     }
 
@@ -58,7 +63,7 @@ impl<I: Iterator<Item = IterItem>> Merger<I> {
         for (idx, it) in self.iterators.iter_mut().enumerate() {
             if let Some(item) = it.next() {
                 let item = item?;
-                self.heap.push(HeapItem(idx, item));
+                self.heap.push(HeapItem(idx, item, self.comparator.clone()));
             }
         }
         self.initialized_lo = true;
@@ -71,7 +76,7 @@ impl<I: DoubleEndedIterator<Item = IterItem>> Merger<I> {
         for (idx, it) in self.iterators.iter_mut().enumerate() {
             if let Some(item) = it.next_back() {
                 let item = item?;
-                self.heap.push(HeapItem(idx, item));
+                self.heap.push(HeapItem(idx, item, self.comparator.clone()));
             }
         }
         self.initialized_hi = true;
@@ -92,7 +97,8 @@ impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
         #[expect(clippy::indexing_slicing, reason = "we trust the HeapItem index")]
         if let Some(next_item) = self.iterators[min_item.0].next() {
             let next_item = fail_iter!(next_item);
-            self.heap.push(HeapItem(min_item.0, next_item));
+            self.heap
+                .push(HeapItem(min_item.0, next_item, self.comparator.clone()));
         }
 
         Some(Ok(min_item.1))
@@ -110,7 +116,8 @@ impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> 
         #[expect(clippy::indexing_slicing, reason = "we trust the HeapItem index")]
         if let Some(next_item) = self.iterators[max_item.0].next_back() {
             let next_item = fail_iter!(next_item);
-            self.heap.push(HeapItem(max_item.0, next_item));
+            self.heap
+                .push(HeapItem(max_item.0, next_item, self.comparator.clone()));
         }
 
         Some(Ok(max_item.1))
@@ -120,6 +127,7 @@ impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparator;
     use crate::ValueType::Value;
     use test_log::test;
 
@@ -135,7 +143,10 @@ mod tests {
             Ok(InternalValue::from_components("b", b"", 0, Value)),
         ];
 
-        let mut iter = Merger::new(vec![a.into_iter(), b.into_iter()]);
+        let mut iter = Merger::new(
+            vec![a.into_iter(), b.into_iter()],
+            comparator::default_comparator(),
+        );
 
         assert_eq!(
             iter.next().unwrap()?,
@@ -163,7 +174,10 @@ mod tests {
             Ok(InternalValue::from_components("a", b"", 0, Value)),
         ];
 
-        let mut iter = Merger::new(vec![a.into_iter(), b.into_iter()]);
+        let mut iter = Merger::new(
+            vec![a.into_iter(), b.into_iter()],
+            comparator::default_comparator(),
+        );
 
         assert_eq!(
             iter.next().unwrap()?,

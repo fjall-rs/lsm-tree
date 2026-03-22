@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    comparator::SharedComparator,
     double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt},
     table::{
         block::{Decoder, ParsedItem},
@@ -16,14 +17,23 @@ pub struct Iter<'a> {
     bytes: &'a [u8],
     decoder:
         DoubleEndedPeekable<DataBlockParsedItem, Decoder<'a, InternalValue, DataBlockParsedItem>>,
+    comparator: SharedComparator,
 }
 
 impl<'a> Iter<'a> {
     /// Creates a new iterator over a data block.
     #[must_use]
-    pub fn new(bytes: &'a [u8], decoder: Decoder<'a, InternalValue, DataBlockParsedItem>) -> Self {
+    pub fn new(
+        bytes: &'a [u8],
+        decoder: Decoder<'a, InternalValue, DataBlockParsedItem>,
+        comparator: SharedComparator,
+    ) -> Self {
         let decoder = decoder.double_ended_peekable();
-        Self { bytes, decoder }
+        Self {
+            bytes,
+            decoder,
+            comparator,
+        }
     }
 
     /// Seek the iterator to an byte offset.
@@ -45,8 +55,9 @@ impl<'a> Iter<'a> {
     /// `needle` will be found within roughly one restart interval of the
     /// resulting position.
     pub fn seek_to_key_seqno(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        let cmp = &self.comparator;
         self.decoder.inner_mut().seek(
-            |head_key, head_seqno| match head_key.cmp(needle) {
+            |head_key, head_seqno| match cmp.compare(head_key, needle) {
                 std::cmp::Ordering::Less => true,
                 std::cmp::Ordering::Equal => head_seqno >= seqno,
                 std::cmp::Ordering::Greater => false,
@@ -71,7 +82,7 @@ impl<'a> Iter<'a> {
                 return false;
             };
 
-            match item.compare_key(needle, self.bytes) {
+            match item.compare_key(needle, self.bytes, self.comparator.as_ref()) {
                 std::cmp::Ordering::Equal => {
                     return true;
                 }
@@ -99,11 +110,11 @@ impl<'a> Iter<'a> {
     /// visited from the selected one toward index 0 — a tighter predicate
     /// would skip intervals that may contain the visible version.
     pub fn seek_upper(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        if !self
-            .decoder
-            .inner_mut()
-            .seek_upper(|head_key, _| head_key <= needle, false)
-        {
+        let cmp = &self.comparator;
+        if !self.decoder.inner_mut().seek_upper(
+            |head_key, _| cmp.compare(head_key, needle) != std::cmp::Ordering::Greater,
+            false,
+        ) {
             return false;
         }
 
@@ -113,7 +124,7 @@ impl<'a> Iter<'a> {
                 return false;
             };
 
-            match item.compare_key(needle, self.bytes) {
+            match item.compare_key(needle, self.bytes, self.comparator.as_ref()) {
                 std::cmp::Ordering::Equal => {
                     return true;
                 }
@@ -145,7 +156,7 @@ impl<'a> Iter<'a> {
                 return false;
             };
 
-            match item.compare_key(needle, self.bytes) {
+            match item.compare_key(needle, self.bytes, self.comparator.as_ref()) {
                 std::cmp::Ordering::Greater => {
                     return true;
                 }
@@ -165,11 +176,11 @@ impl<'a> Iter<'a> {
     /// See [`seek_upper`] for why `seqno` is accepted but unused in reverse
     /// seeks.
     pub fn seek_upper_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        if !self
-            .decoder
-            .inner_mut()
-            .seek_upper(|head_key, _| head_key <= needle, false)
-        {
+        let cmp = &self.comparator;
+        if !self.decoder.inner_mut().seek_upper(
+            |head_key, _| cmp.compare(head_key, needle) != std::cmp::Ordering::Greater,
+            false,
+        ) {
             return false;
         }
 
@@ -178,7 +189,7 @@ impl<'a> Iter<'a> {
                 return false;
             };
 
-            match item.compare_key(needle, self.bytes) {
+            match item.compare_key(needle, self.bytes, self.comparator.as_ref()) {
                 std::cmp::Ordering::Less => {
                     return true;
                 }

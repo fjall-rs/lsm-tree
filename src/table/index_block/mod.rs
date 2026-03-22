@@ -31,14 +31,21 @@ pub struct IndexBlockParsedItem {
 }
 
 impl ParsedItem<KeyedBlockHandle> for IndexBlockParsedItem {
-    fn compare_key(&self, needle: &[u8], bytes: &[u8]) -> std::cmp::Ordering {
+    fn compare_key(
+        &self,
+        needle: &[u8],
+        bytes: &[u8],
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> std::cmp::Ordering {
+        // SAFETY: slice indexes come from the block parser which validates them
+        // during decoding. The block format guarantees they are within bounds.
         if let Some(prefix) = &self.prefix {
             let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
             let rest_key = unsafe { bytes.get_unchecked(self.end_key.0..self.end_key.1) };
-            compare_prefixed_slice(prefix, rest_key, needle)
+            compare_prefixed_slice(prefix, rest_key, needle, cmp)
         } else {
             let key = unsafe { bytes.get_unchecked(self.end_key.0..self.end_key.1) };
-            key.cmp(needle)
+            cmp.compare(key, needle)
         }
     }
 
@@ -87,11 +94,11 @@ impl IndexBlock {
     }
 
     #[must_use]
-    #[expect(clippy::iter_without_into_iter)]
-    pub fn iter(&self) -> Iter<'_> {
-        Iter::new(Decoder::<KeyedBlockHandle, IndexBlockParsedItem>::new(
-            &self.inner,
-        ))
+    pub fn iter(&self, comparator: crate::comparator::SharedComparator) -> Iter<'_> {
+        Iter::new(
+            Decoder::<KeyedBlockHandle, IndexBlockParsedItem>::new(&self.inner),
+            comparator,
+        )
     }
 
     pub fn encode_into_vec(items: &[KeyedBlockHandle]) -> crate::Result<Vec<u8>> {
