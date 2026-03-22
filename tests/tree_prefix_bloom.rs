@@ -747,3 +747,121 @@ fn prefix_bloom_overlapping_l0_tables() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// Verifies the `prefix_bloom_skips` metric is incremented when bloom filters
+/// reject prefixes that fall inside a table's key_range.
+///
+/// Creates a single L0 table (= single-table run, where bloom check applies)
+/// with a wide key range, then performs many prefix scans for non-existent
+/// prefixes. With 1000 keys and 10 bits-per-key the FP rate per query is ~1%,
+/// so out of 24 distinct non-existent prefixes at least some must be rejected
+/// by the bloom filter, producing a non-zero skip count.
+#[cfg(feature = "metrics")]
+#[test]
+fn prefix_bloom_skip_metrics() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = tree_with_prefix_bloom(&folder)?;
+
+    // Insert 500 keys under "aaa:" and 500 under "zzz:" to create a single
+    // table with key_range [aaa:0000, zzz:0499] and a large bloom filter.
+    let mut seqno = 0u64;
+    for i in 0..500 {
+        tree.insert(format!("aaa:{i:04}"), "v", seqno);
+        seqno += 1;
+    }
+    for i in 0..500 {
+        tree.insert(format!("zzz:{i:04}"), "v", seqno);
+        seqno += 1;
+    }
+    tree.flush_active_memtable(0)?;
+
+    // The test relies on the single-table prefix-bloom fast path
+    // (run.len() == 1) in TreeIter::create_range. Fail early if flush
+    // produces multiple tables so metric failures reflect a real bloom
+    // regression rather than layout differences.
+    assert_eq!(
+        tree.table_count(),
+        1,
+        "expected single-table run; flush produced {} tables",
+        tree.table_count()
+    );
+
+    assert_eq!(tree.metrics().prefix_bloom_skips(), 0);
+
+    // Scan for 24 non-existent prefixes that fall inside the key_range.
+    // Each prefix is a valid extractor boundary (ends with ':').
+    let scan_nonexistent_prefixes = || -> lsm_tree::Result<()> {
+        for c in b'b'..=b'y' {
+            let prefix = format!("{}:", c as char);
+            let results: Vec<_> = tree
+                .create_prefix(&prefix, seqno, None)
+                .collect::<Result<Vec<_>, _>>()?;
+            assert_eq!(results.len(), 0, "prefix '{prefix}' should match no keys");
+        }
+        Ok(())
+    };
+
+    // This is a probabilistic smoke test: we issue many lookups for prefixes
+    // that do not exist but fall within the table's key range. For any
+    // reasonable prefix-bloom configuration with a non-zero false-positive
+    // rate, we expect at least one of these lookups to be fully filtered by
+    // the bloom (counted as a skip). To make the test robust against rare
+    // all-false-positive runs or configuration changes, we retry the scan a
+    // generous number of times before failing.
+    const MAX_SCAN_ATTEMPTS: u32 = 20;
+
+    for _attempt in 0..MAX_SCAN_ATTEMPTS {
+        scan_nonexistent_prefixes()?;
+        if tree.metrics().prefix_bloom_skips() > 0 {
+            return Ok(());
+        }
+    }
+
+    let skips = tree.metrics().prefix_bloom_skips();
+    assert!(
+        skips > 0,
+        "expected at least one prefix bloom skip out of 24 non-existent prefix scans \
+         after {MAX_SCAN_ATTEMPTS} attempts, got {skips}"
+    );
+
+    Ok(())
+}
+
+/// Verifies `prefix_bloom_skips` stays at zero when no bloom filtering occurs.
+///
+/// Without a prefix extractor, no prefix hash is computed — the bloom check is
+/// never reached, and the counter must remain zero.
+#[cfg(feature = "metrics")]
+#[test]
+fn prefix_bloom_skip_metrics_zero_without_extractor() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    let tree = match tree {
+        lsm_tree::AnyTree::Standard(t) => t,
+        _ => panic!("expected standard tree"),
+    };
+
+    tree.insert("user:1", "v", 0);
+    tree.insert("user:2", "v", 1);
+    tree.flush_active_memtable(0)?;
+
+    let results: Vec<_> = tree
+        .create_prefix("user:", 2, None)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(results.len(), 2);
+
+    assert_eq!(
+        tree.metrics().prefix_bloom_skips(),
+        0,
+        "no bloom skips should occur without a prefix extractor"
+    );
+
+    Ok(())
+}

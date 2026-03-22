@@ -78,6 +78,13 @@ pub struct IterState {
     /// When set, segments whose bloom filter reports no match for this
     /// hash will be skipped entirely during the scan.
     pub(crate) prefix_hash: Option<u64>,
+
+    /// Optional metrics handle for recording prefix-related statistics (e.g. bloom skips).
+    ///
+    /// `None` when the caller does not wish to record metrics; this is
+    /// independent of whether the iterator uses a prefix.
+    #[cfg(feature = "metrics")]
+    pub(crate) metrics: Option<Arc<crate::Metrics>>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -233,6 +240,11 @@ impl TreeIter {
                                     Ok(false) => {
                                         // Prefix bloom says this segment has no matching keys
                                         // — skip it entirely.
+                                        #[cfg(feature = "metrics")]
+                                        if let Some(m) = &lock.metrics {
+                                            m.prefix_bloom_skips
+                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
                                     }
                                     Ok(true) => {
                                         single_tables.push(table.clone());
@@ -287,7 +299,7 @@ impl TreeIter {
 
                                     // On I/O error reading the filter, include the
                                     // table conservatively to avoid missing data.
-                                    table
+                                    let contains = table
                                         .maybe_contains_prefix(prefix_hash)
                                         .inspect_err(|e| {
                                             log::debug!(
@@ -295,7 +307,17 @@ impl TreeIter {
                                                 table.id(),
                                             );
                                         })
-                                        .unwrap_or(true)
+                                        .unwrap_or(true);
+
+                                    #[cfg(feature = "metrics")]
+                                    if !contains {
+                                        if let Some(m) = &lock.metrics {
+                                            m.prefix_bloom_skips
+                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                    }
+
+                                    contains
                                 })
                                 .cloned()
                                 .collect();
