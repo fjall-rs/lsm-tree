@@ -5,10 +5,7 @@
 // Format constants live in writer (the format definition site).
 // Extracting to a shared module is an upstream structural decision.
 use super::writer::{validate_header_crc, BLOB_HEADER_MAGIC_V3, BLOB_HEADER_MAGIC_V4};
-use crate::{
-    vlog::{blob_file::meta::METADATA_HEADER_MAGIC, BlobFileId},
-    Checksum, SeqNo, UserKey, UserValue,
-};
+use crate::{vlog::BlobFileId, Checksum, SeqNo, UserKey, UserValue};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
@@ -16,33 +13,64 @@ use std::{
     path::Path,
 };
 
-/// Reads through a blob file in order
+/// Reads through a blob file in order.
+///
+/// Termination is determined by the SFA table-of-contents: the scanner
+/// stops when the read position reaches the end of the "data" section,
+/// not when it encounters specific magic bytes. This avoids silent data
+/// loss if corrupted frame bytes happen to match the metadata header
+/// magic (`META`).
 pub struct Scanner {
     pub(crate) blob_file_id: BlobFileId, // TODO: remove unused?
     inner: BufReader<File>,
     is_terminated: bool,
+
+    /// Byte offset where the "data" section ends (from the SFA TOC).
+    data_end: u64,
 }
 
 impl Scanner {
     /// Initializes a new blob file reader.
     ///
+    /// Reads the SFA table-of-contents to determine the "data" section
+    /// boundary, then positions the reader at the start of the data
+    /// section.
+    ///
     /// # Errors
     ///
-    /// Will return `Err` if an IO error occurs.
+    /// Will return `Err` if an IO error occurs or the blob file lacks
+    /// a "data" section.
     pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
-        let file_reader = BufReader::with_capacity(32_000, File::open(path)?);
-        Ok(Self::with_reader(blob_file_id, file_reader))
-    }
+        let path = path.as_ref();
 
-    /// Initializes a new blob file reader.
-    #[must_use]
-    pub fn with_reader(blob_file_id: BlobFileId, file_reader: BufReader<File>) -> Self {
-        Self {
+        let mut file = File::open(path)?;
+        let sfa_reader = sfa::Reader::from_reader(&mut file)?;
+        let data_section = sfa_reader.toc().section(b"data").ok_or_else(|| {
+            log::error!("BlobFile: SFA TOC has no \"data\" section");
+            crate::Error::InvalidHeader("BlobFile")
+        })?;
+        let data_start = data_section.pos();
+        let data_end = data_start.checked_add(data_section.len()).ok_or_else(|| {
+            log::error!(
+                "BlobFile: data section offset overflow (pos={data_start}, len={})",
+                data_section.len()
+            );
+            crate::Error::InvalidHeader("BlobFile")
+        })?;
+
+        file.seek(std::io::SeekFrom::Start(data_start))?;
+        let file_reader = BufReader::with_capacity(32_000, file);
+
+        Ok(Self {
             blob_file_id,
             inner: file_reader,
             is_terminated: false,
-        }
+            data_end,
+        })
     }
+    // No `with_reader` constructor: Scanner is crate-private (parent
+    // `vlog` module is not re-exported from lib.rs), so there are no
+    // external callers. All internal usage goes through `new()`.
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,19 +92,22 @@ impl Iterator for Scanner {
 
         let offset = fail_iter!(self.inner.stream_position());
 
+        // Terminate when the read position reaches the end of the "data"
+        // section (from the SFA TOC), not when magic bytes match META.
+        if offset >= self.data_end {
+            self.is_terminated = true;
+            return None;
+        }
+
         let frame_is_v4;
 
         {
             let mut buf = [0; BLOB_HEADER_MAGIC_V4.len()];
             fail_iter!(self.inner.read_exact(&mut buf));
 
-            if buf == METADATA_HEADER_MAGIC {
-                self.is_terminated = true;
-                return None;
-            }
-
             frame_is_v4 = buf == BLOB_HEADER_MAGIC_V4;
             if !frame_is_v4 && buf != BLOB_HEADER_MAGIC_V3 {
+                self.is_terminated = true;
                 return Some(Err(crate::Error::InvalidHeader("Blob")));
             }
         }
@@ -104,6 +135,26 @@ impl Iterator for Scanner {
         } else {
             None
         };
+
+        // Verify the declared frame payload fits within the data section
+        // before allocating buffers. Without this, a corrupted key_len or
+        // on_disk_val_len could cause a huge allocation or read past
+        // data_end into the TOC/trailer region.
+        {
+            let header_len = if frame_is_v4 {
+                super::writer::BLOB_HEADER_LEN_V4 as u64
+            } else {
+                super::writer::BLOB_HEADER_LEN_V3 as u64
+            };
+            let frame_end = offset
+                .saturating_add(header_len)
+                .saturating_add(u64::from(key_len))
+                .saturating_add(u64::from(on_disk_val_len));
+            if frame_end > self.data_end {
+                self.is_terminated = true;
+                return Some(Err(crate::Error::InvalidHeader("Blob")));
+            }
+        }
 
         let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
 
@@ -363,6 +414,169 @@ mod tests {
         assert!(
             matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
             "expected InvalidHeader for bad magic, got: {result:?}",
+        );
+
+        // Scanner must be terminated — subsequent next() returns None,
+        // not garbage parsed from an invalid stream position.
+        assert!(scanner.next().is_none());
+
+        Ok(())
+    }
+
+    /// Corruption that produces META bytes at a frame boundary must
+    /// surface as an error, not silently terminate iteration.
+    ///
+    /// Regression test for #50: the old scanner checked for `b"META"`
+    /// magic to detect the metadata section boundary, which meant
+    /// corruption matching those bytes caused silent data loss.
+    #[test]
+    fn blob_scanner_meta_corruption_is_not_silent_eof() -> crate::Result<()> {
+        use crate::vlog::blob_file::writer::BLOB_HEADER_LEN_V4;
+
+        let dir = tempdir()?;
+        let blob_file_path = dir.path().join("0");
+
+        {
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            writer.write(b"a", 0, &b"v".repeat(50))?;
+            writer.write(b"b", 1, &b"w".repeat(50))?;
+            writer.finish()?;
+        }
+
+        // Get data section start from SFA TOC so the offset calculation
+        // stays correct even if SFA ever places data at non-zero offset.
+        let data_start = {
+            let sfa_reader = sfa::Reader::new(&blob_file_path)?;
+            let section = sfa_reader.toc().section(b"data").unwrap();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test blob file is tiny, pos fits in usize"
+            )]
+            {
+                section.pos() as usize
+            }
+        };
+
+        let mut raw = std::fs::read(&blob_file_path)?;
+        // Second frame offset: data_start + first frame (header + key + value).
+        let second_frame_offset = data_start + BLOB_HEADER_LEN_V4 + 1 + 50;
+
+        // Corrupt the second frame's magic to b"META".
+        raw.get_mut(second_frame_offset..second_frame_offset + 4)
+            .unwrap()
+            .copy_from_slice(b"META");
+        std::fs::write(&blob_file_path, &raw)?;
+
+        let mut scanner = Scanner::new(&blob_file_path, 0)?;
+
+        // First frame should still be readable (it's intact).
+        let first = scanner.next().unwrap();
+        assert!(first.is_ok(), "first frame should be OK: {first:?}");
+
+        // Second frame has corrupted magic — scanner must return an
+        // error, NOT silently terminate.
+        let second = scanner.next().unwrap();
+        assert!(
+            matches!(second, Err(crate::Error::InvalidHeader("Blob"))),
+            "expected InvalidHeader for META-corrupted magic, got: {second:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Scanner rejects blob files that have no SFA "data" section.
+    #[test]
+    fn blob_scanner_rejects_missing_data_section() -> crate::Result<()> {
+        use std::io::Write;
+
+        let dir = tempdir()?;
+        let blob_file_path = dir.path().join("0");
+
+        // Write an SFA file with only a "meta" section (no "data").
+        {
+            let file = std::fs::File::create(&blob_file_path)?;
+            let mut sfa_writer = sfa::Writer::from_writer(file);
+            sfa_writer.start("meta")?;
+            sfa_writer.write_all(b"dummy")?;
+            sfa_writer.finish()?;
+        }
+
+        let result = Scanner::new(&blob_file_path, 0);
+        assert!(result.is_err(), "expected error for missing data section");
+        let err = result.err().unwrap();
+        assert!(
+            matches!(err, crate::Error::InvalidHeader("BlobFile")),
+            "expected InvalidHeader for missing data section, got: {err:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Scanner rejects blob files where the SFA TOC reports a data
+    /// section whose pos + len overflows u64.
+    #[test]
+    fn blob_scanner_rejects_data_section_offset_overflow() -> crate::Result<()> {
+        use byteorder::{LittleEndian, WriteBytesExt};
+        use std::io::Write;
+
+        let dir = tempdir()?;
+        let blob_file_path = dir.path().join("0");
+
+        // Craft a valid SFA file with a "data" TOC entry where
+        // pos=1 and len=u64::MAX, causing pos+len to overflow.
+        //
+        // Hand-encoding is intentional: the sfa crate derives TOC
+        // values from real stream positions, so it cannot produce
+        // overflowing entries through its public API. The binary
+        // format below matches sfa 1.x's stable on-disk layout.
+        //
+        // SFA layout: [section data...] [TOC] [Trailer]
+        // TOC entry:  [pos: u64 LE] [len: u64 LE] [name_len: u16 LE] [name]
+        // TOC header: [magic: "TOC!"] [entry_count: u32 LE] [entries...]
+        // Trailer:    [magic: "SFA!"] [version: u8] [checksum_type: u8]
+        //             [toc_checksum: u128 LE] [toc_pos: u64 LE] [toc_len: u64 LE]
+        {
+            let mut file = std::fs::File::create(&blob_file_path)?;
+
+            // Write 1 byte of dummy data so toc_pos > 0.
+            file.write_all(b"\x00")?;
+            let toc_pos: u64 = 1;
+
+            // Build TOC bytes: one entry named "data" with pos=1, len=u64::MAX.
+            let mut toc_buf = Vec::new();
+            toc_buf.write_all(b"TOC!")?;
+            toc_buf.write_u32::<LittleEndian>(1)?; // 1 entry
+            toc_buf.write_u64::<LittleEndian>(1)?; // pos = 1
+            toc_buf.write_u64::<LittleEndian>(u64::MAX)?; // len = u64::MAX → overflow
+            toc_buf.write_u16::<LittleEndian>(4)?; // name len
+            toc_buf.write_all(b"data")?; // name
+
+            // Compute TOC checksum (xxh3-128 over the raw TOC bytes).
+            let toc_checksum = xxhash_rust::xxh3::xxh3_128(&toc_buf);
+
+            let toc_len = toc_buf.len() as u64;
+            file.write_all(&toc_buf)?;
+
+            // Write trailer.
+            file.write_all(b"SFA!")?;
+            file.write_u8(0x1)?; // version
+            file.write_u8(0x0)?; // checksum type (xxh3)
+            file.write_u128::<LittleEndian>(toc_checksum)?;
+            file.write_u64::<LittleEndian>(toc_pos)?;
+            file.write_u64::<LittleEndian>(toc_len)?;
+
+            file.sync_all()?;
+        }
+
+        let result = Scanner::new(&blob_file_path, 0);
+        assert!(
+            result.is_err(),
+            "expected error for overflowing data section"
+        );
+        let err = result.err().unwrap();
+        assert!(
+            matches!(err, crate::Error::InvalidHeader("BlobFile")),
+            "expected InvalidHeader(\"BlobFile\") for overflow, got: {err:?}",
         );
 
         Ok(())
