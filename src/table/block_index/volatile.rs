@@ -121,20 +121,15 @@ impl Iterator for Iter {
                 &self.metrics,
             ));
             let index_block = IndexBlock::new(block);
+            let lo = self.lo.as_ref().map(|(k, s)| (k.as_ref(), *s));
+            let hi = self.hi.as_ref().map(|(k, s)| (k.as_ref(), *s));
 
-            let cmp = self.comparator.clone();
-            let mut iter = OwnedIndexBlockIter::new(index_block, |b| b.iter(cmp));
-
-            if let Some((lo_key, lo_seqno)) = &self.lo {
-                if !iter.seek_lower(lo_key, *lo_seqno) {
-                    return None;
-                }
-            }
-            if let Some((hi_key, hi_seqno)) = &self.hi {
-                if !iter.seek_upper(hi_key, *hi_seqno) {
-                    return None;
-                }
-            }
+            let mut iter = OwnedIndexBlockIter::from_block_with_bounds(
+                index_block,
+                self.comparator.clone(),
+                lo,
+                hi,
+            )?;
 
             let next_item = iter.next().map(Ok);
 
@@ -163,20 +158,15 @@ impl DoubleEndedIterator for Iter {
                 &self.metrics,
             ));
             let index_block = IndexBlock::new(block);
+            let lo = self.lo.as_ref().map(|(k, s)| (k.as_ref(), *s));
+            let hi = self.hi.as_ref().map(|(k, s)| (k.as_ref(), *s));
 
-            let cmp = self.comparator.clone();
-            let mut iter = OwnedIndexBlockIter::new(index_block, |b| b.iter(cmp));
-
-            if let Some((lo_key, lo_seqno)) = &self.lo {
-                if !iter.seek_lower(lo_key, *lo_seqno) {
-                    return None;
-                }
-            }
-            if let Some((hi_key, hi_seqno)) = &self.hi {
-                if !iter.seek_upper(hi_key, *hi_seqno) {
-                    return None;
-                }
-            }
+            let mut iter = OwnedIndexBlockIter::from_block_with_bounds(
+                index_block,
+                self.comparator.clone(),
+                lo,
+                hi,
+            )?;
 
             let next_item = iter.next_back().map(Ok);
 

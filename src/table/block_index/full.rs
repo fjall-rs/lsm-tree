@@ -34,10 +34,10 @@ impl FullBlockIndex {
     }
 
     pub fn iter(&self) -> Iter {
-        let cmp = self.comparator.clone();
-        Iter(OwnedIndexBlockIter::new(self.block.clone(), |b| {
-            b.iter(cmp)
-        }))
+        Iter(OwnedIndexBlockIter::from_block(
+            self.block.clone(),
+            self.comparator.clone(),
+        ))
     }
 }
 
