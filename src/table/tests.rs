@@ -1698,3 +1698,119 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
 
     Ok(())
 }
+
+/// End-to-end corruption test: tamper on-disk `seqno#kv_max` so it exceeds
+/// `seqno#max`, then verify that `ParsedMeta::load_with_handle` rejects the
+/// file with an `InvalidData` error.
+///
+/// Covers the validation path in `validated_kv_seqno` via the real on-disk
+/// deserialization pipeline (not just the unit-level helper).
+#[test]
+#[expect(
+    clippy::expect_used,
+    reason = "test invariants: key and value patterns must exist in the meta block"
+)]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "test fixture: deliberate slice operations on controlled meta block bytes"
+)]
+fn meta_seqno_kv_max_corruption_returns_invalid_data() -> crate::Result<()> {
+    use super::block::Header;
+    use super::meta::ParsedMeta;
+    use super::regions::ParsedRegions;
+    use crate::coding::{Decode, Encode};
+    use std::io::{Seek, Write};
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table");
+
+    // Write a valid table with KV entries at seqnos 1..=5.
+    // Both seqno#max and seqno#kv_max will be 5.
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    for (i, key) in (b'a'..=b'e').enumerate() {
+        writer.write(InternalValue::from_components(
+            &[key],
+            b"val",
+            (i as u64) + 1,
+            crate::ValueType::Value,
+        ))?;
+    }
+    #[expect(
+        clippy::unwrap_used,
+        reason = "finish() returns Some after writing data items"
+    )]
+    let _ = writer.finish()?.unwrap();
+
+    // Find the meta block region, tamper the seqno#kv_max value in the
+    // payload, recompute the block checksum so the corruption reaches
+    // the metadata validation layer (not caught by block checksum).
+    {
+        let mut f = std::fs::File::open(&file)?;
+        let trailer = sfa::Reader::from_reader(&mut f)?;
+        let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
+        let meta_handle = regions.metadata;
+
+        let raw_block =
+            crate::file::read_exact(&f, *meta_handle.offset(), meta_handle.size() as usize)?;
+
+        let header_len = Header::serialized_len();
+        let payload = &raw_block[header_len..];
+
+        // Find the seqno#kv_max value bytes in the payload and replace
+        // with u64::MAX (exceeds seqno#max = 5).
+        let needle = b"seqno#kv_max";
+        let key_pos = payload
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .expect("seqno#kv_max key must be present in the meta block payload");
+
+        // Meta entries are stored in a DataBlock with restart_interval = 1, so
+        // keys are written as full keys followed by an InternalValue payload
+        // (value_type, seqno, value length, etc.) encoded using varints.  We do
+        // not rely on the exact field layout here; instead, we scan forward from
+        // the end of the key string to find the first occurrence of the LE-encoded
+        // u64 value in the payload.
+        let search_start = key_pos + needle.len();
+        let original_le = 5u64.to_le_bytes();
+        let val_rel = payload[search_start..]
+            .windows(original_le.len())
+            .position(|w| w == original_le)
+            .expect("original LE value must appear after the key");
+        let val_offset_in_payload = search_start + val_rel;
+
+        let mut tampered_payload = payload.to_vec();
+        tampered_payload[val_offset_in_payload..val_offset_in_payload + 8]
+            .copy_from_slice(&u64::MAX.to_le_bytes());
+
+        // Rebuild the header with the correct checksum over the
+        // tampered payload so Block::from_file accepts the block.
+        let mut orig_header = Header::decode_from(&mut &raw_block[..header_len])?;
+        orig_header.checksum = crate::Checksum::from_raw(crate::hash::hash128(&tampered_payload));
+        let new_header = orig_header.encode_into_vec();
+
+        // Write the tampered block back into the file at the meta
+        // block's original offset.
+        let mut wf = std::fs::OpenOptions::new().write(true).open(&file)?;
+        wf.seek(std::io::SeekFrom::Start(*meta_handle.offset()))?;
+        wf.write_all(&new_header)?;
+        wf.write_all(&tampered_payload)?;
+        wf.sync_all()?;
+    }
+
+    // Re-open the (now corrupted) file and attempt to load metadata.
+    {
+        let mut f = std::fs::File::open(&file)?;
+        let trailer = sfa::Reader::from_reader(&mut f)?;
+        let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
+
+        let result = ParsedMeta::load_with_handle(&f, &regions.metadata, None);
+
+        let err = result.expect_err("corrupted seqno#kv_max should cause an error");
+        assert!(
+            matches!(&err, crate::Error::Io(e) if e.kind() == std::io::ErrorKind::InvalidData),
+            "expected InvalidData, got: {err:?}",
+        );
+    }
+
+    Ok(())
+}
