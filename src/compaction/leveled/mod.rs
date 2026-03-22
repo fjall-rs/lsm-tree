@@ -130,6 +130,21 @@ pub struct Strategy {
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     level_ratio_policy: Vec<f32>,
+
+    /// When true, dynamically sizes levels based on the actual data in
+    /// the last non-empty level, reducing space amplification to ~1.1x.
+    ///
+    /// Same as `level_compaction_dynamic_level_bytes` in `RocksDB`.
+    ///
+    /// Default = false (static leveling).
+    dynamic: bool,
+
+    /// When true, enables multi-level compaction: if L0→L1 is chosen but
+    /// L1 is already oversized, compacts L0+L1→L2 directly in one pass
+    /// to avoid a write-then-rewrite cycle.
+    ///
+    /// Default = false.
+    multi_level: bool,
 }
 
 impl Default for Strategy {
@@ -138,6 +153,8 @@ impl Default for Strategy {
             l0_threshold: 4,
             target_size:/* 64 MiB */ 64 * 1_024 * 1_024,
             level_ratio_policy: vec![10.0],
+            dynamic: false,
+            multi_level: false,
         }
     }
 }
@@ -176,6 +193,36 @@ impl Strategy {
     #[must_use]
     pub fn with_table_target_size(mut self, bytes: u64) -> Self {
         self.target_size = bytes;
+        self
+    }
+
+    /// Enables dynamic level sizing based on actual data in the last level.
+    ///
+    /// When enabled, level target sizes are computed top-down from the actual
+    /// size of the last non-empty level, divided by the ratio at each step.
+    /// This reduces space amplification to ~1.1x while keeping write
+    /// amplification comparable to static leveling.
+    ///
+    /// Same as `level_compaction_dynamic_level_bytes` in `RocksDB`.
+    ///
+    /// Default = false
+    #[must_use]
+    pub fn with_dynamic_level_bytes(mut self, enabled: bool) -> Self {
+        self.dynamic = enabled;
+        self
+    }
+
+    /// Enables multi-level compaction optimization.
+    ///
+    /// When L0→L1 compaction is selected but L1 already exceeds its target
+    /// size, this option allows compacting L0+L1 directly into L2 in one
+    /// pass, avoiding the write-then-rewrite cycle that would otherwise
+    /// occur.
+    ///
+    /// Default = false
+    #[must_use]
+    pub fn with_multi_level(mut self, enabled: bool) -> Self {
+        self.multi_level = enabled;
         self
     }
 
@@ -230,6 +277,133 @@ impl Strategy {
             }
         }
     }
+
+    /// Computes level target sizes for all 7 levels.
+    ///
+    /// In static mode, uses the standard exponential formula.
+    /// In dynamic mode, derives targets from the actual size of the last
+    /// non-empty level, dividing backwards by the ratio at each step.
+    /// Falls back to static mode when the tree is small (dynamic L1 target
+    /// would be less than `level_base_size`).
+    fn compute_level_targets(
+        &self,
+        version: &Version,
+        level_shift: usize,
+        state: &CompactionState,
+    ) -> [u64; 7] {
+        let mut targets = [u64::MAX; 7];
+
+        // L0 target is not size-based (it's count-based), so leave at MAX
+        targets[0] = u64::MAX;
+
+        if self.dynamic {
+            // Find the last non-empty level (Lmax) and its actual size.
+            // Iterate forward and keep track of the last non-empty level
+            // since iter_levels() does not support DoubleEndedIterator.
+            let mut lmax_idx = None;
+
+            for (idx, lvl) in version.iter_levels().enumerate().skip(1) {
+                if !lvl.is_empty() {
+                    lmax_idx = Some(idx);
+                }
+            }
+
+            if let Some(lmax_idx) = lmax_idx {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "lmax_idx was found by iterating levels, so it must exist"
+                )]
+                let lmax_level = version.level(lmax_idx).expect("level should exist");
+
+                let lmax_size: u64 = lmax_level
+                    .iter()
+                    .flat_map(|run| run.iter())
+                    .filter(|table| !state.hidden_set().is_hidden(table.id()))
+                    .map(Table::file_size)
+                    .sum();
+
+                // Work backwards from Lmax
+                if let Some(slot) = targets.get_mut(lmax_idx) {
+                    *slot = lmax_size;
+                }
+
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "precision loss is acceptable for level size calculations"
+                )]
+                let mut current_target = lmax_size as f64;
+
+                // Only backfill down to the effective L1 (accounting for
+                // level_shift), not to physical level 1, so we don't
+                // overwrite slots below the shifted canonical L1.
+                let dynamic_l1_idx = level_shift + 1;
+
+                for idx in (dynamic_l1_idx..lmax_idx).rev() {
+                    let canonical = idx - level_shift;
+                    // In the forward formula, target(k+1)/target(k) = ratio[k-1],
+                    // so backwards: target(k) = target(k+1) / ratio[k-1]
+                    let ratio_idx = canonical.saturating_sub(1);
+                    let ratio = f64::from(
+                        self.level_ratio_policy
+                            .get(ratio_idx)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                self.level_ratio_policy.last().copied().unwrap_or(10.0)
+                            }),
+                    );
+
+                    // Guard against invalid ratios (zero, negative, NaN, infinite).
+                    // Fall back to static targets instead of leaving partial
+                    // dynamic targets with u64::MAX in lower-level slots.
+                    if !ratio.is_finite() || ratio <= 0.0 {
+                        return self.compute_static_targets(level_shift);
+                    }
+
+                    current_target /= ratio;
+
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "target is always positive"
+                    )]
+                    if let Some(slot) = targets.get_mut(idx) {
+                        *slot = current_target as u64;
+                    }
+                }
+
+                // Fallback: if dynamic L1 target is too small, use static.
+                // Compare the shifted L1 slot, not physical slot 1.
+                let static_l1 = self.level_base_size();
+                if targets.get(dynamic_l1_idx).copied().unwrap_or(0) < static_l1 {
+                    return self.compute_static_targets(level_shift);
+                }
+
+                return targets;
+            }
+        }
+
+        self.compute_static_targets(level_shift)
+    }
+
+    /// Computes static (exponential) level targets.
+    fn compute_static_targets(&self, level_shift: usize) -> [u64; 7] {
+        let mut targets = [u64::MAX; 7];
+
+        for (idx, slot) in targets.iter_mut().enumerate().skip(1) {
+            if idx <= level_shift {
+                continue; // stays at u64::MAX
+            }
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "level index is bounded by level count (7)"
+            )]
+            {
+                *slot = self.level_target_size((idx - level_shift) as u8);
+            }
+        }
+
+        targets
+    }
 }
 
 impl CompactionStrategy for Strategy {
@@ -269,6 +443,14 @@ impl CompactionStrategy for Strategy {
 
                     v
                 }),
+            ),
+            (
+                crate::UserKey::from("leveled_dynamic"),
+                crate::UserValue::from([u8::from(self.dynamic)]),
+            ),
+            (
+                crate::UserKey::from("leveled_multi_level"),
+                crate::UserValue::from([u8::from(self.multi_level)]),
             ),
         ]
     }
@@ -433,6 +615,9 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // Compute level targets (supports both static and dynamic modes)
+        let level_targets = self.compute_level_targets(version, level_shift, state);
+
         // Scoring
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
@@ -468,14 +653,14 @@ impl CompactionStrategy for Strategy {
                     .map(Table::file_size)
                     .sum::<u64>();
 
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "level index is bounded by level count (7, technically 255)"
-                )]
-                let target_size = self.level_target_size((idx - level_shift) as u8);
-
                 // NOTE: We check for level length above
                 #[expect(clippy::indexing_slicing)]
+                let target_size = level_targets[idx];
+
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "idx is from iter_levels().enumerate() so always < 7 = scores.len()"
+                )]
                 if level_size > target_size {
                     #[expect(
                         clippy::cast_precision_loss,
@@ -544,6 +729,52 @@ impl CompactionStrategy for Strategy {
                 .collect();
 
             table_ids.extend(&target_level_overlapping_table_ids);
+
+            // Multi-level compaction: if L1 is already oversized, skip it
+            // and compact L0+L1 directly into L2 in one pass.
+            // NOTE: Currently triggers on pre-compaction L1 score. A future
+            // improvement could use projected post-compaction bytes to also
+            // catch cases where L1 is close to its target and this batch
+            // would push it over.
+            if self.multi_level {
+                let l1_score = scores.get(canonical_l1_idx).map_or(0.0, |(s, _)| *s);
+                let l2_idx = canonical_l1_idx + 1;
+
+                if l1_score > 1.0
+                    && l2_idx < version.level_count()
+                    && !version.level_is_busy(l2_idx, state.hidden_set())
+                {
+                    if let Some(l2) = version.level(l2_idx) {
+                        // Include ALL L1 tables (we're emptying L1 into L2)
+                        table_ids.extend(target_level.list_ids());
+
+                        // Include overlapping L2 tables
+                        let combined_key_range = first_level.aggregate_key_range();
+                        let l1_key_range = target_level.aggregate_key_range();
+                        let merged_range =
+                            crate::KeyRange::aggregate([combined_key_range, l1_key_range].iter());
+
+                        let l2_overlapping: Vec<_> = l2
+                            .iter()
+                            .flat_map(|run| run.get_overlapping(&merged_range))
+                            .map(Table::id)
+                            .collect();
+
+                        table_ids.extend(&l2_overlapping);
+
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "level index is bounded by level count (7)"
+                        )]
+                        return Choice::Merge(CompactionInput {
+                            table_ids,
+                            dest_level: l2_idx as u8,
+                            canonical_level: 2,
+                            target_size: self.target_size,
+                        });
+                    }
+                }
+            }
 
             #[expect(
                 clippy::cast_possible_truncation,

@@ -15,15 +15,18 @@ pub(crate) mod movedown;
 pub(crate) mod pulldown;
 pub(crate) mod state;
 pub(crate) mod stream;
-// pub(crate) mod tiered;
+pub(crate) mod tiered;
 pub(crate) mod worker;
 
 pub use fifo::Strategy as Fifo;
 pub use filter::{CompactionFilter, Factory, ItemAccessor, Verdict};
 pub use leveled::Strategy as Leveled;
-// pub use tiered::Strategy as SizeTiered;
+pub use tiered::Strategy as SizeTiered;
 
-pub use {fifo::NAME as FIFO_COMPACTION_NAME, leveled::NAME as LEVELED_COMPACTION_NAME};
+pub use {
+    fifo::NAME as FIFO_COMPACTION_NAME, leveled::NAME as LEVELED_COMPACTION_NAME,
+    tiered::NAME as TIERED_COMPACTION_NAME,
+};
 
 /// Alias for `Leveled`
 pub type Levelled = Leveled;
