@@ -1,2 +1,8 @@
 [profile.default]
 slow-timeout = { period = "10s", terminate-after = 6 }
+
+# Property tests may take longer than unit tests (proptest runs N cases).
+# CI uses PROPTEST_CASES=32; local runs default to 256.
+[[profile.default.overrides]]
+filter = "test(prop_)"
+slow-timeout = { period = "30s", terminate-after = 4 }

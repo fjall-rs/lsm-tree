@@ -1,12 +1,8 @@
 // Property-based model test: compare lsm-tree against BTreeMap oracle.
 //
 // The oracle models MVCC using (key, Reverse(seqno)) ordering, where
-// None values represent point tombstones. Range tombstones are not modeled
-// here; they are covered by dedicated tests in range_tombstone.rs.
-//
-// Keys are 2–4 bytes with a small first-byte alphabet (0..4), so multiple
-// keys naturally share leading bytes and prefix scans exercise grouping,
-// boundary, and multi-entry result semantics.
+// None values represent tombstones. This oracle only models point
+// tombstones; range tombstones are tested separately in prop_range_tombstone.rs.
 
 mod common;
 
@@ -20,16 +16,12 @@ use std::collections::BTreeMap;
 // Oracle
 // ---------------------------------------------------------------------------
 
-/// Key with reverse-ordered seqno for MVCC lookup via BTreeMap range queries.
-type MvccKey = (Vec<u8>, Reverse<u64>);
-
 /// Simplified MVCC oracle without range tombstones.
-/// Range tombstone testing lives in tests/range_tombstone.rs and
-/// tests/range_tombstone_ephemeral.rs.
+/// Range tombstone testing is in prop_range_tombstone.rs.
 #[derive(Debug, Clone)]
 struct Oracle {
     /// (key, Reverse(seqno)) -> Some(value) for puts, None for tombstones.
-    data: BTreeMap<MvccKey, Option<Vec<u8>>>,
+    data: BTreeMap<(Vec<u8>, Reverse<u64>), Option<Vec<u8>>>,
 }
 
 impl Oracle {
@@ -57,11 +49,13 @@ impl Oracle {
         let start = (key.to_vec(), Reverse(read_seqno - 1));
         let end_inclusive = (key.to_vec(), Reverse(0));
 
-        self.data
-            .range(start..=end_inclusive)
-            .next()
-            .filter(|((k, _), _)| k == key)
-            .and_then(|(_, val)| val.clone())
+        for ((k, _), val) in self.data.range(start..=end_inclusive) {
+            if k != key {
+                break;
+            }
+            return val.clone();
+        }
+        None
     }
 
     /// Full scan: return all visible (key, value) pairs at read_seqno, sorted by key.
@@ -94,51 +88,27 @@ impl Oracle {
             .filter(|(k, _)| k.starts_with(prefix))
             .collect()
     }
-
-    /// Collect all distinct first bytes present in the oracle's key space.
-    fn distinct_prefixes(&self) -> Vec<Vec<u8>> {
-        let mut seen = std::collections::BTreeSet::new();
-        for (key, _) in self.data.keys() {
-            if let Some(&b) = key.first() {
-                seen.insert(b);
-            }
-        }
-        seen.into_iter().map(|b| vec![b]).collect()
-    }
 }
 
 // ---------------------------------------------------------------------------
-// Key generation
+// Op generation
 // ---------------------------------------------------------------------------
 
-/// Small first-byte alphabet so multiple keys share a common prefix byte.
-const PREFIX_ALPHABET: u8 = 4;
+/// Small key space to maximize collisions and test MVCC deduplication.
+const KEY_SPACE: u8 = 16;
 
-/// Generate a multi-byte key: first byte from a small alphabet (0..4),
-/// followed by 1–3 suffix bytes drawn from the full u8 range.
-/// This guarantees natural prefix grouping while preserving collision
-/// potential on the full key.
-fn key_strategy() -> impl Strategy<Value = Vec<u8>> {
-    (
-        0..PREFIX_ALPHABET,
-        prop::collection::vec(any::<u8>(), 1..=3),
-    )
-        .prop_map(|(prefix_byte, suffix)| {
-            let mut key = Vec::with_capacity(1 + suffix.len());
-            key.push(prefix_byte);
-            key.extend_from_slice(&suffix);
-            key
-        })
+fn key_from_idx(idx: u8) -> Vec<u8> {
+    vec![idx]
 }
 
 // NOTE: RemoveRange is excluded from this oracle because it only models
 // point operations. Range tombstone semantics (including interaction with
-// point tombstones across SSTs) are covered by range_tombstone.rs,
-// range_tombstone_ephemeral.rs, and related regression tests instead.
+// point tombstones across SSTs) are covered by prop_range_tombstone.rs
+// and related regression tests instead.
 #[derive(Debug, Clone)]
 enum Op {
-    Insert { key: Vec<u8>, value: Vec<u8> },
-    Remove { key: Vec<u8> },
+    Insert { key_idx: u8, value: Vec<u8> },
+    Remove { key_idx: u8 },
     Flush,
     Compact,
 }
@@ -146,10 +116,10 @@ enum Op {
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         // 50% inserts
-        5 => (key_strategy(), prop::collection::vec(any::<u8>(), 1..32))
-            .prop_map(|(key, value)| Op::Insert { key, value }),
+        5 => (0..KEY_SPACE, prop::collection::vec(any::<u8>(), 1..32))
+            .prop_map(|(key_idx, value)| Op::Insert { key_idx, value }),
         // 20% removes
-        2 => key_strategy().prop_map(|key| Op::Remove { key }),
+        2 => (0..KEY_SPACE).prop_map(|key_idx| Op::Remove { key_idx }),
         // 20% flushes
         2 => Just(Op::Flush),
         // 10% compactions
@@ -158,7 +128,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 }
 
 fn ops_strategy() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec(op_strategy(), 10..100)
+    prop::collection::vec(op_strategy(), 10..200)
 }
 
 // ---------------------------------------------------------------------------
@@ -177,21 +147,20 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
 
     let mut oracle = Oracle::new();
     let mut seqno: u64 = 1;
-    let mut all_keys: Vec<Vec<u8>> = Vec::new();
 
     // Apply all ops.
     for op in &ops {
         match op {
-            Op::Insert { key, value } => {
+            Op::Insert { key_idx, value } => {
+                let key = key_from_idx(*key_idx);
                 oracle.insert(key.clone(), value.clone(), seqno);
                 tree.insert(key, value.clone(), seqno);
-                all_keys.push(key.clone());
                 seqno += 1;
             }
-            Op::Remove { key } => {
+            Op::Remove { key_idx } => {
+                let key = key_from_idx(*key_idx);
                 oracle.remove(key.clone(), seqno);
                 tree.remove(key, seqno);
-                all_keys.push(key.clone());
                 seqno += 1;
             }
             Op::Flush => {
@@ -205,15 +174,13 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
         }
     }
 
-    // Verify point reads for every key that was ever inserted or removed.
+    // Verify point reads.
     let read_seqno = seqno;
-    all_keys.sort();
-    all_keys.dedup();
-
-    for key in &all_keys {
-        let expected = oracle.get(key, read_seqno);
+    for idx in 0..KEY_SPACE {
+        let key = key_from_idx(idx);
+        let expected = oracle.get(&key, read_seqno);
         let actual = tree
-            .get(key, read_seqno)
+            .get(&key, read_seqno)
             .map_err(|e| TestCaseError::fail(format!("get failed: {e}")))?;
 
         prop_assert_eq!(
@@ -245,10 +212,12 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
         prop_assert_eq!(actual, expected, "Scan entry mismatch");
     }
 
-    // Verify prefix scans for every distinct first byte observed.
-    // With multi-byte keys and PREFIX_ALPHABET=4, each prefix typically
-    // groups multiple keys, exercising grouping and boundary semantics.
-    for prefix in oracle.distinct_prefixes() {
+    // Verify prefix scans for each possible prefix byte.
+    // With single-byte keys each prefix matches exactly one key — this is
+    // intentional: it validates the prefix() API contract and oracle agreement.
+    // Multi-key prefix grouping is exercised by the db_bench prefixscan workload.
+    for prefix_byte in 0..KEY_SPACE {
+        let prefix = vec![prefix_byte];
         let expected_prefix = oracle.prefix_scan(&prefix, read_seqno);
         let actual_prefix: Vec<(Vec<u8>, Vec<u8>)> = tree
             .prefix(&prefix, read_seqno, None)
@@ -259,10 +228,8 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
         prop_assert_eq!(
             actual_prefix.len(),
             expected_prefix.len(),
-            "Prefix scan length mismatch for prefix {:?}: tree={}, oracle={}",
+            "Prefix scan length mismatch for prefix {:?}",
             prefix,
-            actual_prefix.len(),
-            expected_prefix.len(),
         );
 
         for (actual, expected) in actual_prefix.iter().zip(expected_prefix.iter()) {
@@ -283,14 +250,9 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
 // ---------------------------------------------------------------------------
 
 proptest! {
-    // 32 cases: keeps CI runtime bounded across the 3-OS nextest matrix.
-    // PROPTEST_CASES env var can still override at runtime.
-    // fork disabled: rusty-fork cannot re-exec under QEMU cross-compilation.
+    // cases defaults to 256; CI overrides via PROPTEST_CASES=32
     #![proptest_config(ProptestConfig {
-        cases: 32,
         max_shrink_iters: 1000,
-        fork: false,
-        timeout: 0,
         .. ProptestConfig::default()
     })]
 

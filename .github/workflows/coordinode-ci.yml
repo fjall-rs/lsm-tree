@@ -49,9 +49,15 @@ jobs:
           prefix-key: ${{ runner.os }}-cargo
       - uses: taiki-e/install-action@nextest
       - name: Run tests
+        # tools/db_bench is a standalone crate, not in workspace — built separately
         run: cargo nextest run --all-features
+        env:
+          PROPTEST_CASES: "32"
       - name: Run doc tests
         run: cargo test --doc --features lz4
+      - name: Check db_bench crate
+        working-directory: tools/db_bench
+        run: cargo check --all-features
 
   cross:
     needs: lint
