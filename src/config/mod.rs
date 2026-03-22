@@ -23,6 +23,7 @@ use crate::{
     compaction::filter::Factory,
     comparator::{self, SharedComparator},
     encryption::EncryptionProvider,
+    fs::{Fs, StdFs},
     merge_operator::MergeOperator,
     path::absolute_path,
     prefix::PrefixExtractor,
@@ -166,10 +167,22 @@ impl KvSeparationOptions {
 }
 
 /// Tree configuration builder
-pub struct Config {
+///
+/// The generic parameter `F` selects the filesystem backend.
+/// It defaults to [`StdFs`], so existing code that writes `Config`
+/// without a type parameter continues to work unchanged.
+pub struct Config<F: Fs = StdFs> {
     /// Folder path
     #[doc(hidden)]
     pub path: PathBuf,
+
+    /// Filesystem backend
+    ///
+    // All Config fields are `#[doc(hidden)] pub` by convention — callers use
+    // builder methods or `..Default::default()`, not struct literals directly.
+    // A `with_fs()` builder will be added when call-site refactoring lands.
+    #[doc(hidden)]
+    pub fs: Arc<F>,
 
     /// Block cache to use
     #[doc(hidden)]
@@ -284,6 +297,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
+            fs: Arc::new(StdFs),
             descriptor_table: Some(Arc::new(DescriptorTable::new(256))),
             seqno: SharedSequenceNumberGenerator::from(SequenceNumberCounter::default()),
             visible_seqno: SharedSequenceNumberGenerator::from(SequenceNumberCounter::default()),
@@ -358,6 +372,39 @@ impl Config {
         }
     }
 
+    /// Opens a tree using the config.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn open(self) -> crate::Result<AnyTree> {
+        Ok(if self.kv_separation_opts.is_some() {
+            AnyTree::Blob(BlobTree::open(self)?)
+        } else {
+            AnyTree::Standard(Tree::open(self)?)
+        })
+    }
+
+    /// Like [`Config::new`], but accepts pre-built shared generators.
+    ///
+    /// This is useful when the caller already has
+    /// [`SharedSequenceNumberGenerator`] instances (e.g., from a higher-level
+    /// database that shares generators across multiple trees).
+    pub fn new_with_generators<P: AsRef<Path>>(
+        path: P,
+        seqno: SharedSequenceNumberGenerator,
+        visible_seqno: SharedSequenceNumberGenerator,
+    ) -> Self {
+        Self {
+            path: absolute_path(path.as_ref()),
+            seqno,
+            visible_seqno,
+            ..Default::default()
+        }
+    }
+}
+
+impl<F: Fs> Config<F> {
     /// Overrides the sequence number generator.
     ///
     /// By default, [`SequenceNumberCounter`] is used. This allows plugging in
@@ -592,36 +639,5 @@ impl Config {
     pub fn with_encryption(mut self, encryption: Option<Arc<dyn EncryptionProvider>>) -> Self {
         self.encryption = encryption;
         self
-    }
-
-    /// Opens a tree using the config.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn open(self) -> crate::Result<AnyTree> {
-        Ok(if self.kv_separation_opts.is_some() {
-            AnyTree::Blob(BlobTree::open(self)?)
-        } else {
-            AnyTree::Standard(Tree::open(self)?)
-        })
-    }
-
-    /// Like [`Config::new`], but accepts pre-built shared generators.
-    ///
-    /// This is useful when the caller already has
-    /// [`SharedSequenceNumberGenerator`] instances (e.g., from a higher-level
-    /// database that shares generators across multiple trees).
-    pub fn new_with_generators<P: AsRef<Path>>(
-        path: P,
-        seqno: SharedSequenceNumberGenerator,
-        visible_seqno: SharedSequenceNumberGenerator,
-    ) -> Self {
-        Self {
-            path: absolute_path(path.as_ref()),
-            seqno,
-            visible_seqno,
-            ..Default::default()
-        }
     }
 }

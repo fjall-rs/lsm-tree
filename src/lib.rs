@@ -104,6 +104,9 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
+/// Pluggable filesystem abstraction for I/O backends.
+pub mod fs;
+
 mod hash;
 mod ingestion;
 mod iter_guard;
