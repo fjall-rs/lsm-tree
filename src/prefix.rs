@@ -65,16 +65,34 @@ pub trait PrefixExtractor:
     /// surface; consider adding it if profiling shows measurable overhead.
     fn prefixes<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a>;
 
+    // NOTE: Renamed from `is_valid_prefix_boundary` (added in PR #43, never
+    // released). No deprecated shim needed — no downstream consumers exist.
+
     /// Returns `true` if `prefix` is a valid scan boundary for this extractor.
     ///
-    /// Bloom-based table skipping is only safe when the scan prefix was
-    /// actually indexed at write time. This default implementation checks
-    /// whether `prefixes(prefix)` emits `prefix` itself — i.e., whether
-    /// the extractor considers this byte sequence a boundary.
+    /// A scan boundary is valid when **every key** that the tree would consider
+    /// a match for this prefix in a prefix scan had `prefix` indexed via
+    /// [`prefixes`](Self::prefixes) at write time. This is the contract that
+    /// makes bloom-based table skipping safe: if the bloom filter says "no
+    /// match", we can skip the table because every matching key would have
+    /// produced the prefix hash during flush/compaction.
     ///
-    /// Override this method only if you need a more efficient check
-    /// (e.g., checking a sentinel byte instead of iterating).
-    fn is_valid_prefix_boundary(&self, prefix: &[u8]) -> bool {
+    /// # Default implementation
+    ///
+    /// Checks whether `prefixes(prefix)` emits `prefix` itself — i.e.,
+    /// whether the extractor considers this byte sequence a boundary.
+    /// This is correct for well-behaved extractors whose `prefixes()` returns
+    /// sub-slices of the input key.
+    ///
+    /// # When to override
+    ///
+    /// Override this method when the default self-referential check is either:
+    /// - **Too expensive** — e.g., the extractor can check a sentinel byte in
+    ///   O(1) instead of iterating all prefixes.
+    /// - **Incorrect** — e.g., the extractor produces prefixes that are *not*
+    ///   sub-slices of the input, so the default `any(|p| p == prefix)` check
+    ///   would never match even for valid boundaries.
+    fn is_valid_scan_boundary(&self, prefix: &[u8]) -> bool {
         !prefix.is_empty() && self.prefixes(prefix).any(|p| p == prefix)
     }
 }
@@ -98,7 +116,7 @@ pub fn compute_prefix_hash(
     }
 
     extractor
-        .filter(|e| e.is_valid_prefix_boundary(prefix_bytes))
+        .filter(|e| e.is_valid_scan_boundary(prefix_bytes))
         .map(|_| Builder::get_hash(prefix_bytes))
 }
 
@@ -161,26 +179,75 @@ mod tests {
     }
 
     #[test]
-    fn is_valid_prefix_boundary_colon_terminated() {
+    fn is_valid_scan_boundary_colon_terminated() {
         let extractor = ColonSeparatedPrefix;
         // "adj:" is a valid boundary — extractor emits it for "adj:" input
-        assert!(extractor.is_valid_prefix_boundary(b"adj:"));
-        assert!(extractor.is_valid_prefix_boundary(b"adj:out:"));
-        assert!(extractor.is_valid_prefix_boundary(b"adj:out:42:"));
+        assert!(extractor.is_valid_scan_boundary(b"adj:"));
+        assert!(extractor.is_valid_scan_boundary(b"adj:out:"));
+        assert!(extractor.is_valid_scan_boundary(b"adj:out:42:"));
     }
 
     #[test]
-    fn is_valid_prefix_boundary_non_boundary() {
+    fn is_valid_scan_boundary_non_boundary() {
         let extractor = ColonSeparatedPrefix;
         // "adj" (no trailing colon) is NOT a valid boundary
-        assert!(!extractor.is_valid_prefix_boundary(b"adj"));
-        assert!(!extractor.is_valid_prefix_boundary(b"adj:out"));
-        assert!(!extractor.is_valid_prefix_boundary(b"noseparator"));
+        assert!(!extractor.is_valid_scan_boundary(b"adj"));
+        assert!(!extractor.is_valid_scan_boundary(b"adj:out"));
+        assert!(!extractor.is_valid_scan_boundary(b"noseparator"));
     }
 
     #[test]
-    fn is_valid_prefix_boundary_empty() {
+    fn is_valid_scan_boundary_empty() {
         let extractor = ColonSeparatedPrefix;
-        assert!(!extractor.is_valid_prefix_boundary(b""));
+        assert!(!extractor.is_valid_scan_boundary(b""));
+    }
+
+    /// Extractor that overrides `is_valid_scan_boundary` with an O(1) length
+    /// check instead of iterating all prefixes via the default implementation.
+    struct FixedLengthPrefix;
+
+    impl PrefixExtractor for FixedLengthPrefix {
+        fn prefixes<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+            if let Some(prefix) = key.get(..4) {
+                Box::new(std::iter::once(prefix))
+            } else {
+                Box::new(std::iter::empty())
+            }
+        }
+
+        fn is_valid_scan_boundary(&self, prefix: &[u8]) -> bool {
+            prefix.len() == 4
+        }
+    }
+
+    #[test]
+    fn fixed_length_prefixes() {
+        let extractor = FixedLengthPrefix;
+        // Key longer than 4 bytes yields a single 4-byte prefix
+        let prefixes: Vec<&[u8]> = extractor.prefixes(b"usr:data").collect();
+        assert_eq!(prefixes, vec![b"usr:" as &[u8]]);
+
+        // Key shorter than 4 bytes yields nothing
+        let prefixes: Vec<&[u8]> = extractor.prefixes(b"ab").collect();
+        assert!(prefixes.is_empty());
+
+        // Key exactly 4 bytes yields itself
+        let prefixes: Vec<&[u8]> = extractor.prefixes(b"abcd").collect();
+        assert_eq!(prefixes, vec![b"abcd" as &[u8]]);
+    }
+
+    #[test]
+    fn custom_scan_boundary_valid() {
+        let extractor = FixedLengthPrefix;
+        assert!(extractor.is_valid_scan_boundary(b"usr:"));
+        assert!(extractor.is_valid_scan_boundary(b"abcd"));
+    }
+
+    #[test]
+    fn custom_scan_boundary_invalid() {
+        let extractor = FixedLengthPrefix;
+        assert!(!extractor.is_valid_scan_boundary(b"ab"));
+        assert!(!extractor.is_valid_scan_boundary(b"toolong"));
+        assert!(!extractor.is_valid_scan_boundary(b""));
     }
 }
