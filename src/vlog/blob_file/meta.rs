@@ -16,7 +16,7 @@ macro_rules! read_u64 {
     ($block:expr, $name:expr) => {{
         let bytes = $block
             .point_read($name, SeqNo::MAX)
-            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+            .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
 
         let mut bytes = &bytes.value[..];
         bytes.read_u64::<LittleEndian>()?
@@ -27,7 +27,7 @@ macro_rules! read_u128 {
     ($block:expr, $name:expr) => {{
         let bytes = $block
             .point_read($name, SeqNo::MAX)
-            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+            .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
 
         let mut bytes = &bytes.value[..];
         bytes.read_u128::<LittleEndian>()?
@@ -147,25 +147,22 @@ impl Metadata {
         let total_uncompressed_bytes = read_u64!(block, b"uncompressed_size");
 
         let compression = {
-            #[expect(clippy::expect_used, reason = "compression is expected to exist")]
             let bytes = block
                 .point_read(b"compression", SeqNo::MAX)
-                .expect("compression should exist");
+                .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
 
             let mut bytes = &bytes.value[..];
             CompressionType::decode_from(&mut bytes)?
         };
 
         let key_range = KeyRange::new((
-            #[expect(clippy::expect_used, reason = "key min is expected to exist")]
             block
                 .point_read(b"key#min", SeqNo::MAX)
-                .expect("key min should exist")
+                .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?
                 .value,
-            #[expect(clippy::expect_used, reason = "key max is expected to exist")]
             block
                 .point_read(b"key#max", SeqNo::MAX)
-                .expect("key max should exist")
+                .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?
                 .value,
         ));
 
@@ -186,6 +183,55 @@ impl Metadata {
 mod tests {
     use super::*;
     use test_log::test;
+
+    #[test]
+    fn test_blob_file_meta_truncated_returns_err() {
+        // Truncated metadata (just the magic header) must return Err, not panic
+        let buf = Slice::from(METADATA_HEADER_MAGIC.to_vec());
+        assert!(Metadata::from_slice(&buf).is_err());
+    }
+
+    /// Build a metadata block that is structurally valid but omits a required
+    /// property (`compression`).  `from_slice` must return `Err`, not panic.
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn test_blob_file_meta_missing_field_returns_err() {
+        use crate::table::block::BlockType;
+        use std::io::Write;
+
+        fn meta(key: &str, value: &[u8]) -> InternalValue {
+            InternalValue::from_components(key, value, 0, crate::ValueType::Value)
+        }
+
+        // Include all required fields EXCEPT `compression`
+        #[rustfmt::skip]
+        let meta_items = [
+            meta("blob_file_version", &[4u8]),
+            meta("checksum_type", &[u8::from(ChecksumType::Xxh3)]),
+            // "compression" intentionally omitted
+            meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
+            meta("created_at", &1_234_567_890u128.to_le_bytes()),
+            meta("file_size", &1024u64.to_le_bytes()),
+            meta("id", &0u64.to_le_bytes()),
+            meta("item_count", &100u64.to_le_bytes()),
+            meta("key#max", b"z"),
+            meta("key#min", b"a"),
+            meta("uncompressed_size", &2048u64.to_le_bytes()),
+        ];
+
+        let encoded = DataBlock::encode_into_vec(&meta_items, 1, 0.0).unwrap();
+
+        let mut buf = Vec::new();
+        buf.write_all(METADATA_HEADER_MAGIC).unwrap();
+        Block::write_into(&mut buf, &encoded, BlockType::Meta, CompressionType::None).unwrap();
+
+        let buf = Slice::from(buf);
+        let result = Metadata::from_slice(&buf);
+        assert!(
+            matches!(result, Err(crate::Error::InvalidHeader("BlobFileMeta"))),
+            "expected Err(InvalidHeader(\"BlobFileMeta\")), got {result:?}",
+        );
+    }
 
     #[test]
     #[expect(clippy::unwrap_used)]
