@@ -151,6 +151,7 @@ impl MultiWriter {
                 file_accessor,
                 meta: Metadata {
                     id: blob_file_id,
+                    version: metadata.version,
                     created_at: crate::time::unix_timestamp().as_nanos(),
                     item_count: metadata.item_count,
                     total_compressed_bytes: metadata.total_compressed_bytes,

@@ -36,9 +36,14 @@ macro_rules! read_u128 {
 
 pub const METADATA_HEADER_MAGIC: &[u8] = b"META";
 
+// Note: `pub` for crate-internal use; parent `vlog` module is NOT
+// exported from `lib.rs`, so this struct is not public API.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Metadata {
     pub id: BlobFileId,
+
+    /// Blob file format version (3 = V3, 4 = V4 with header CRC).
+    pub version: u8,
 
     pub created_at: u128,
 
@@ -69,7 +74,7 @@ impl Metadata {
 
         #[rustfmt::skip]
         let meta_items = [
-            meta("blob_file_version", &[0x3]),
+            meta("blob_file_version", &[self.version]),
             meta("checksum_type", &[u8::from(ChecksumType::Xxh3)]),
             meta("compression", &self.compression.encode_into_vec()),
             meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
@@ -117,6 +122,24 @@ impl Metadata {
         let block = Block::from_reader(reader, CompressionType::None)?;
         let block = DataBlock::new(block);
 
+        let version = {
+            let bytes = block
+                .point_read(b"blob_file_version", SeqNo::MAX)
+                .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?;
+            *bytes
+                .value
+                .first()
+                .ok_or(crate::Error::InvalidHeader("BlobFileMeta"))?
+        };
+
+        // Reject unknown versions early to catch corrupted or
+        // future-incompatible metadata before downstream code
+        // misinterprets header fields.
+        match version {
+            3 | 4 => {}
+            _ => return Err(crate::Error::InvalidHeader("BlobFileMeta")),
+        }
+
         let id = read_u64!(block, b"id");
         let created_at = read_u128!(block, b"created_at");
         let item_count = read_u64!(block, b"item_count");
@@ -148,6 +171,7 @@ impl Metadata {
 
         Ok(Self {
             id,
+            version,
             created_at,
             compression,
             item_count,
@@ -168,6 +192,7 @@ mod tests {
     fn test_blob_file_meta_roundtrip() {
         let meta = Metadata {
             id: 0,
+            version: 4,
             created_at: 1_234_567_890,
             compression: CompressionType::None,
             item_count: 100,

@@ -4,7 +4,9 @@
 
 use crate::{
     vlog::{
-        blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
+        blob_file::writer::{
+            validate_header_crc, BLOB_HEADER_LEN_V4, BLOB_HEADER_MAGIC_V3, BLOB_HEADER_MAGIC_V4,
+        },
         ValueHandle,
     },
     BlobFile, Checksum, CompressionType, UserValue,
@@ -38,6 +40,10 @@ impl<'a> Reader<'a> {
         Self { blob_file, file }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "blob read/validation path is kept in one function so error handling and size checks stay co-located"
+    )]
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
@@ -47,7 +53,13 @@ impl<'a> Reader<'a> {
             return Err(crate::Error::InvalidHeader("Blob"));
         }
 
-        let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        // Always read with V4 (max) header size so that version detection
+        // is self-describing from the frame magic — no dependency on
+        // metadata version which could be corrupted independently.
+        // For V3 frames, the extra 4 bytes read are harmless: they come
+        // from the next frame or metadata section (which always follows),
+        // and raw_data is sliced to exact on_disk_val_len before use.
+        let add_size = (BLOB_HEADER_LEN_V4 as u64) + (key.len() as u64);
 
         // Validate the full on-disk read size (header + key + value) against the limit.
         // Allow header+key overhead on top of the data cap.
@@ -80,18 +92,38 @@ impl<'a> Reader<'a> {
         let mut magic = [0u8; 4];
         reader.read_exact(&mut magic)?;
 
-        if magic != BLOB_HEADER_MAGIC {
+        // Determine format from frame magic — self-describing, no metadata dependency.
+        let frame_is_v4 = magic == BLOB_HEADER_MAGIC_V4;
+        if !frame_is_v4 && magic != BLOB_HEADER_MAGIC_V3 {
             return Err(crate::Error::InvalidHeader("Blob"));
         }
 
         let expected_checksum = reader.read_u128::<LittleEndian>()?;
 
-        let _seqno = reader.read_u64::<LittleEndian>()?;
+        let seqno = reader.read_u64::<LittleEndian>()?;
         let key_len = reader.read_u16::<LittleEndian>()?;
 
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
         let on_disk_val_len = reader.read_u32::<LittleEndian>()?;
+
+        // V4: read and validate header CRC before cross-checks.
+        // Uses the on-disk CRC value (not recomputed) in data checksum
+        // verification so that recomputing header_crc after tampering
+        // header fields is still caught by the data checksum.
+        let stored_header_crc = if frame_is_v4 {
+            let crc = reader.read_u32::<LittleEndian>()?;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "real_val_len originates as u32, round-tripped through usize; lossless on supported targets"
+            )]
+            validate_header_crc(seqno, key_len, real_val_len as u32, on_disk_val_len, crc)?;
+            Some(crc)
+        } else {
+            // V3: seqno is unused (not covered by any checksum).
+            let _ = seqno;
+            None
+        };
 
         // Cross-check header fields against caller-provided inputs to catch
         // corruption or mismatched handles early, before checksum/decompression.
@@ -108,10 +140,17 @@ impl<'a> Reader<'a> {
             });
         }
 
+        // Actual header length determined from frame magic, not metadata.
+        let header_len = if frame_is_v4 {
+            BLOB_HEADER_LEN_V4
+        } else {
+            crate::vlog::blob_file::writer::BLOB_HEADER_LEN_V3
+        };
+
         // Zero-copy view of the on-disk key bytes for checksum and cross-check.
         // The full blob record is already in `value`, so slicing avoids an extra
         // allocation vs UserKey::from_reader (upstream #277).
-        let on_disk_key = value.slice(BLOB_HEADER_LEN..BLOB_HEADER_LEN + key_len as usize);
+        let on_disk_key = value.slice(header_len..header_len + key_len as usize);
 
         // Ensure the stored key bytes exactly match the caller-provided key.
         // This protects against handles that point at a different key with the
@@ -120,20 +159,25 @@ impl<'a> Reader<'a> {
             return Err(crate::Error::InvalidHeader("Blob"));
         }
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "add_size = BLOB_HEADER_LEN + key.len(); key.len() <= u16::MAX and BLOB_HEADER_LEN is a small constant, so add_size fits in usize"
-        )]
-        let raw_data = value.slice((add_size as usize)..);
+        // Slice exactly on_disk_val_len bytes — important for V3 backward
+        // compat where the read buffer is 4 bytes larger than the actual frame
+        // (over-read from using V4 max header size).
+        // No usize overflow: on_disk_val_len is u32, data_offset is ~42+key_len,
+        // and total is bounded by MAX_DECOMPRESSION_SIZE (256 MiB) cap check above.
+        let data_offset = header_len + key.len();
+        let raw_data = value.slice(data_offset..data_offset + on_disk_val_len as usize);
 
         {
             // Checksum covers on-disk key + raw value data (upstream #277).
-            // Key corruption is caught by the explicit cross-check above;
-            // checksum catches value/payload corruption.
+            // V4 additionally includes header_crc bytes so that recomputing
+            // header_crc after tampering header fields is still detected.
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
                 hasher.update(&on_disk_key);
                 hasher.update(&raw_data);
+                if let Some(hcrc) = stored_header_crc {
+                    hasher.update(&hcrc.to_le_bytes());
+                }
                 hasher.digest128()
             };
 
@@ -196,6 +240,7 @@ impl<'a> Reader<'a> {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::vlog::blob_file::writer::BLOB_HEADER_LEN_V3;
     use crate::SequenceNumberCounter;
     use test_log::test;
 
@@ -245,6 +290,8 @@ mod tests {
         Ok(())
     }
 
+    /// Tamper real_val_len to an absurd value: V4 header CRC catches the
+    /// corruption before the size-cap check is even reached.
     #[test]
     #[cfg(feature = "lz4")]
     fn blob_reader_reject_absurd_real_val_len() {
@@ -256,9 +303,6 @@ mod tests {
             .use_target_size(u64::MAX)
             .use_compression(CompressionType::Lz4);
 
-        // Write a valid blob, then byte-patch real_val_len in the on-disk header.
-        // The checksum covers (key + raw_data), NOT the header fields, so
-        // tampering real_val_len alone won't break the checksum.
         let handle = writer.write_raw(b"k", 0, b"value", 5).unwrap();
 
         let blob_file = writer.finish().unwrap();
@@ -275,8 +319,8 @@ mod tests {
 
         let result = reader.get(b"k", &handle);
         assert!(
-            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
-            "expected DecompressedSizeTooLarge, got: {result:?}",
+            matches!(result, Err(crate::Error::HeaderCrcMismatch { .. })),
+            "expected HeaderCrcMismatch, got: {result:?}",
         );
     }
 
@@ -308,9 +352,11 @@ mod tests {
         );
     }
 
+    /// Tamper real_val_len in lz4 blob: V4 header CRC catches the
+    /// corruption before decompression is attempted.
     #[test]
     #[cfg(feature = "lz4")]
-    fn blob_reader_lz4_corrupted_real_val_len_triggers_decompress_error() -> crate::Result<()> {
+    fn blob_reader_lz4_corrupted_real_val_len_triggers_header_crc_mismatch() -> crate::Result<()> {
         use byteorder::WriteBytesExt;
 
         let id_generator = SequenceNumberCounter::default();
@@ -325,8 +371,6 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        // Tamper the real_val_len field in the blob file.
-        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + ...
         // RealValLen is at offset 30 from the blob start.
         let real_val_len_offset = handle.offset + 4 + 16 + 8 + 2;
 
@@ -336,7 +380,6 @@ mod tests {
                 .write(true)
                 .open(&blob_file.0.path)?;
             file.seek(std::io::SeekFrom::Start(real_val_len_offset))?;
-            // Write a corrupted value: original len + 1
             file.write_u32::<LittleEndian>(b"abcdef".len() as u32 + 1)?;
             file.flush()?;
         }
@@ -345,9 +388,9 @@ mod tests {
         let reader = Reader::new(blob_file, &file);
 
         match reader.get(b"a", &handle) {
-            Err(crate::Error::Decompress(_)) => { /* expected */ }
-            Ok(_) => panic!("expected Error::Decompress, but got Ok"),
-            Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
+            Err(crate::Error::HeaderCrcMismatch { .. }) => { /* header CRC catches it */ }
+            Ok(_) => panic!("expected HeaderCrcMismatch, but got Ok"),
+            Err(other) => panic!("expected HeaderCrcMismatch, got: {other:?}"),
         }
 
         Ok(())
@@ -380,9 +423,11 @@ mod tests {
         );
     }
 
+    /// Tamper real_val_len in zstd blob: V4 header CRC catches the
+    /// corruption before decompression is attempted.
     #[test]
     #[cfg(feature = "zstd")]
-    fn blob_reader_zstd_corrupted_real_val_len_triggers_decompress_error() -> crate::Result<()> {
+    fn blob_reader_zstd_corrupted_real_val_len_triggers_header_crc_mismatch() -> crate::Result<()> {
         use byteorder::WriteBytesExt;
 
         let id_generator = SequenceNumberCounter::default();
@@ -397,8 +442,6 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        // Tamper the real_val_len field in the blob file.
-        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + ...
         // RealValLen is at offset 30 from the blob start.
         let real_val_len_offset = handle.offset + 4 + 16 + 8 + 2;
 
@@ -408,7 +451,6 @@ mod tests {
                 .write(true)
                 .open(&blob_file.0.path)?;
             file.seek(std::io::SeekFrom::Start(real_val_len_offset))?;
-            // Write a corrupted value: original len + 1
             file.write_u32::<LittleEndian>(b"abcdef".len() as u32 + 1)?;
             file.flush()?;
         }
@@ -417,14 +459,16 @@ mod tests {
         let reader = Reader::new(blob_file, &file);
 
         match reader.get(b"a", &handle) {
-            Err(crate::Error::Decompress(_)) => { /* expected */ }
-            Ok(_) => panic!("expected Error::Decompress, but got Ok"),
-            Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
+            Err(crate::Error::HeaderCrcMismatch { .. }) => { /* header CRC catches it */ }
+            Ok(_) => panic!("expected HeaderCrcMismatch, but got Ok"),
+            Err(other) => panic!("expected HeaderCrcMismatch, got: {other:?}"),
         }
 
         Ok(())
     }
 
+    /// Tamper real_val_len to exceed size cap: V4 header CRC catches the
+    /// corruption before the size-cap check is reached.
     #[test]
     fn blob_reader_rejects_oversized_real_val_len() -> crate::Result<()> {
         let id_generator = SequenceNumberCounter::default();
@@ -450,8 +494,8 @@ mod tests {
 
         let result = reader.get(b"a", &handle);
         assert!(
-            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
-            "expected DecompressedSizeTooLarge, got: {result:?}",
+            matches!(result, Err(crate::Error::HeaderCrcMismatch { .. })),
+            "expected HeaderCrcMismatch, got: {result:?}",
         );
         Ok(())
     }
@@ -499,9 +543,9 @@ mod tests {
         let blob_file = blob_file.first().unwrap();
 
         // Tamper on-disk key bytes.
-        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + OnDiskValLen(4) = 38
-        // Key starts at offset 38 from blob start.
-        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        // V4 header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + OnDiskValLen(4) + HeaderCrc(4) = 42
+        // Key starts at offset 42 from blob start (BLOB_HEADER_LEN_V4).
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN_V4;
         let mut raw = std::fs::read(&blob_file.0.path)?;
         raw[key_offset] ^= 0xFF; // flip bits in first key byte
         let corrupted_key = raw[key_offset..key_offset + 3].to_vec();
@@ -612,8 +656,8 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        // Value payload starts after header + key: offset + BLOB_HEADER_LEN + key_len
-        let payload_offset = handle.offset as usize + BLOB_HEADER_LEN + b"key".len();
+        // Value payload starts after header + key: offset + BLOB_HEADER_LEN_V4 + key_len
+        let payload_offset = handle.offset as usize + BLOB_HEADER_LEN_V4 + b"key".len();
         let mut raw = std::fs::read(&blob_file.0.path)?;
         raw[payload_offset] ^= 0xFF; // flip bits in first value byte
         std::fs::write(&blob_file.0.path, &raw)?;
@@ -647,7 +691,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN_V4;
         let mut raw = std::fs::read(&blob_file.0.path)?;
         raw[key_offset] ^= 0xFF;
         std::fs::write(&blob_file.0.path, &raw)?;
@@ -681,7 +725,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let key_offset = handle.offset as usize + BLOB_HEADER_LEN;
+        let key_offset = handle.offset as usize + BLOB_HEADER_LEN_V4;
         let mut raw = std::fs::read(&blob_file.0.path)?;
         raw[key_offset] ^= 0xFF;
         std::fs::write(&blob_file.0.path, &raw)?;
@@ -694,6 +738,197 @@ mod tests {
             matches!(result, Err(crate::Error::InvalidHeader("Blob"))),
             "expected InvalidHeader for corrupted zstd key, got: {result:?}",
         );
+
+        Ok(())
+    }
+
+    /// V4 header CRC detects seqno corruption — the primary motivating
+    /// case for upstream #278. A corrupted seqno could cause MVCC
+    /// time-travel returning wrong versions.
+    #[test]
+    fn blob_reader_v4_corrupted_seqno_detected_by_header_crc() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"key", 42, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Tamper seqno: offset + magic(4) + checksum(16) = 20
+        let seqno_offset = handle.offset as usize + 20;
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        // Change seqno from 42 to 99
+        raw[seqno_offset..seqno_offset + 8].copy_from_slice(&99u64.to_le_bytes());
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"key", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::HeaderCrcMismatch { .. })),
+            "expected HeaderCrcMismatch for corrupted seqno, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// V4 header CRC field itself corrupted (header fields intact) is
+    /// detected before the data checksum check.
+    #[test]
+    fn blob_reader_v4_corrupted_header_crc_field_detected() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"key", 0, b"value")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // header_crc is at offset 38 (after magic+checksum+seqno+key_len+real_val_len+on_disk_val_len)
+        let header_crc_offset = handle.offset as usize + 4 + 16 + 8 + 2 + 4 + 4;
+        let mut raw = std::fs::read(&blob_file.0.path)?;
+        raw[header_crc_offset] ^= 0xFF; // flip bits
+        std::fs::write(&blob_file.0.path, &raw)?;
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"key", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::HeaderCrcMismatch { .. })),
+            "expected HeaderCrcMismatch for corrupted header_crc field, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    /// Verify V4 header layout: BLOB_HEADER_LEN_V4 = 42 bytes
+    /// (magic:4 + checksum:16 + seqno:8 + key_len:2 + real_val_len:4 + on_disk_val_len:4 + header_crc:4).
+    #[test]
+    fn blob_header_len_v4_is_42() {
+        assert_eq!(BLOB_HEADER_LEN_V4, 42);
+        assert_eq!(BLOB_HEADER_LEN_V3, 38);
+    }
+
+    /// Write a V3 blob file manually and verify the reader handles it
+    /// via the V3 backward compat path (no header_crc validation).
+    #[test]
+    fn blob_reader_v3_backward_compat_roundtrip() -> crate::Result<()> {
+        use crate::file_accessor::FileAccessor;
+        use crate::vlog::{blob_file::Inner as BlobFileInner, ValueHandle};
+        use byteorder::WriteBytesExt;
+        use std::io::Write;
+        use std::sync::{atomic::AtomicBool, Arc};
+
+        let folder = tempfile::tempdir()?;
+        let blob_file_path = folder.path().join("0");
+
+        let key = b"abc";
+        let value = b"hello_v3";
+
+        // V3 data checksum: xxh3_128(key + value) — no header_crc
+        let checksum = {
+            let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+            hasher.update(key);
+            hasher.update(value);
+            hasher.digest128()
+        };
+
+        // Write V3 blob file manually using sfa framing
+        {
+            let file = std::fs::File::create(&blob_file_path)?;
+            let mut sfa_writer = sfa::Writer::from_writer(file);
+            sfa_writer.start("data")?;
+
+            // V3 frame: BLOB magic, no header_crc
+            sfa_writer.write_all(b"BLOB")?;
+            sfa_writer.write_u128::<byteorder::LittleEndian>(checksum)?;
+            sfa_writer.write_u64::<byteorder::LittleEndian>(42)?; // seqno
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test key length fits in u16"
+            )]
+            sfa_writer.write_u16::<byteorder::LittleEndian>(key.len() as u16)?;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test value length fits in u32"
+            )]
+            sfa_writer.write_u32::<byteorder::LittleEndian>(value.len() as u32)?;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test value length fits in u32"
+            )]
+            sfa_writer.write_u32::<byteorder::LittleEndian>(value.len() as u32)?;
+            sfa_writer.write_all(key)?;
+            sfa_writer.write_all(value)?;
+
+            // Write metadata
+            sfa_writer.start("meta")?;
+            let metadata = crate::vlog::blob_file::meta::Metadata {
+                id: 0,
+                version: 3,
+                created_at: 0,
+                item_count: 1,
+                total_compressed_bytes: value.len() as u64,
+                total_uncompressed_bytes: value.len() as u64,
+                key_range: crate::KeyRange::new((key[..].into(), key[..].into())),
+                compression: CompressionType::None,
+            };
+            metadata.encode_into(&mut sfa_writer)?;
+            let mut inner = sfa_writer.into_inner()?;
+            inner.sync_all()?;
+        }
+
+        // Construct a BlobFile with V3 metadata for the reader
+        let file = File::open(&blob_file_path)?;
+        let file2 = File::open(&blob_file_path)?;
+        let blob_file = crate::BlobFile(Arc::new(BlobFileInner {
+            id: 0,
+            tree_id: 0,
+            path: blob_file_path,
+            meta: crate::vlog::blob_file::meta::Metadata {
+                id: 0,
+                version: 3,
+                created_at: 0,
+                item_count: 1,
+                total_compressed_bytes: value.len() as u64,
+                total_uncompressed_bytes: value.len() as u64,
+                key_range: crate::KeyRange::new((key[..].into(), key[..].into())),
+                compression: CompressionType::None,
+            },
+            is_deleted: AtomicBool::new(false),
+            checksum: crate::Checksum::from_raw(0),
+            file_accessor: FileAccessor::File(Arc::new(file2)),
+        }));
+
+        let reader = Reader::new(&blob_file, &file);
+
+        // V3 frame offset: sfa "data" segment header comes first.
+        // Find actual data start via sfa reader.
+        let sfa_reader = sfa::Reader::new(&blob_file.0.path)?;
+        let data_section = sfa_reader.toc().section(b"data").unwrap();
+        let data_start = data_section.pos();
+
+        let handle = ValueHandle {
+            blob_file_id: 0,
+            offset: data_start,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test value length fits in u32"
+            )]
+            on_disk_size: value.len() as u32,
+        };
+
+        let result = reader.get(key, &handle)?;
+        assert_eq!(result, value);
 
         Ok(())
     }

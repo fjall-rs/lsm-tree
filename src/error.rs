@@ -29,6 +29,16 @@ pub enum Error {
         expected: Checksum,
     },
 
+    /// Blob frame header CRC mismatch (V4 format).
+    /// Distinct from `ChecksumMismatch` which covers data payload checksums.
+    HeaderCrcMismatch {
+        /// CRC recomputed from header fields
+        recomputed: u32,
+
+        /// CRC stored in the blob frame header
+        stored: u32,
+    },
+
     /// Invalid enum tag
     InvalidTag((&'static str, u8)),
 
