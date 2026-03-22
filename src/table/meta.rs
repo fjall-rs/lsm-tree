@@ -3,12 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
+use crate::fs::FsFile;
 use crate::{
     checksum::ChecksumType, coding::Decode, comparator::default_comparator,
     table::block::BlockType, CompressionType, KeyRange, SeqNo, TableId,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::{fs::File, ops::Deref};
+use std::ops::Deref;
 
 /// Nanosecond timestamp.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
@@ -98,7 +99,7 @@ fn validated_kv_seqno(kv_seqno: SeqNo, max_seqno: SeqNo) -> crate::Result<SeqNo>
 impl ParsedMeta {
     #[expect(clippy::expect_used, clippy::too_many_lines)]
     pub fn load_with_handle(
-        file: &File,
+        file: &impl FsFile,
         handle: &BlockHandle,
         encryption: Option<&dyn crate::encryption::EncryptionProvider>,
     ) -> crate::Result<Self> {

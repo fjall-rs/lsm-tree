@@ -21,10 +21,10 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 use crate::{
     coding::{Decode, Encode},
     encryption::EncryptionProvider,
+    fs::FsFile,
     table::BlockHandle,
     Checksum, CompressionType, Slice,
 };
-use std::fs::File;
 
 /// Safety cap on block payload size (256 MiB).
 ///
@@ -267,7 +267,7 @@ impl Block {
     /// Pipeline: read → verify checksum → decrypt → decompress.
     /// When `encryption` is `None`, the decrypt step is skipped.
     pub fn from_file(
-        file: &File,
+        file: &impl FsFile,
         handle: BlockHandle,
         compression: CompressionType,
         encryption: Option<&dyn EncryptionProvider>,

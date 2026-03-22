@@ -84,7 +84,7 @@ pub fn load_block(
         (Arc::new(fd), true)
     };
 
-    let block = Block::from_file(&fd, *handle, compression, encryption)?;
+    let block = Block::from_file(&*fd, *handle, compression, encryption)?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((
