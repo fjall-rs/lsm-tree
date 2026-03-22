@@ -26,3 +26,6 @@ fuzz*/**/out*
 old
 .claude/
 .forge/
+
+# proptest regression artifacts
+**/proptest-regressions/
