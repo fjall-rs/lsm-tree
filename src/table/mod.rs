@@ -32,6 +32,7 @@ use crate::{
     comparator::SharedComparator,
     descriptor_table::DescriptorTable,
     file_accessor::FileAccessor,
+    fs::FsFile,
     range_tombstone::RangeTombstone,
     table::{
         block::{BlockType, ParsedItem},
@@ -120,7 +121,7 @@ impl Table {
                 };
 
             // Read the exact region using pread-style helper
-            let buf = crate::file::read_exact(&fd, *handle.offset(), handle.size() as usize)?;
+            let buf = crate::file::read_exact(&*fd, *handle.offset(), handle.size() as usize)?;
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {
@@ -429,7 +430,7 @@ impl Table {
 
     fn read_tli(
         regions: &ParsedRegions,
-        file: &File,
+        file: &impl FsFile,
         compression: CompressionType,
         encryption: Option<&dyn crate::encryption::EncryptionProvider>,
     ) -> crate::Result<IndexBlock> {
@@ -502,7 +503,7 @@ impl Table {
 
             let block = Self::read_tli(
                 &regions,
-                &file,
+                &*file,
                 metadata.index_block_compression,
                 encryption.as_deref(),
             )?;
@@ -528,7 +529,7 @@ impl Table {
 
             let block = Self::read_tli(
                 &regions,
-                &file,
+                &*file,
                 metadata.index_block_compression,
                 encryption.as_deref(),
             )?;
@@ -553,7 +554,7 @@ impl Table {
 
         let pinned_filter_index = if let Some(filter_tli_handle) = regions.filter_tli {
             let block = Block::from_file(
-                &file,
+                &*file,
                 filter_tli_handle,
                 metadata.index_block_compression,
                 encryption.as_deref(),
@@ -573,7 +574,7 @@ impl Table {
                     );
 
                     let block = Block::from_file(
-                        &file,
+                        &*file,
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                         encryption.as_deref(),
@@ -600,7 +601,7 @@ impl Table {
         let range_tombstones = if let Some(rt_handle) = regions.range_tombstones {
             log::trace!("Loading range tombstone block, with rt_ptr={rt_handle:?}");
             let block = Block::from_file(
-                &file,
+                &*file,
                 rt_handle,
                 crate::CompressionType::None,
                 encryption.as_deref(),

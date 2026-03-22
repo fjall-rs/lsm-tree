@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::Slice;
-use std::{fs::File, io::Write, path::Path};
+use crate::{fs::FsFile, Slice};
+use std::{io::Write, path::Path};
 
 pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
@@ -12,10 +12,10 @@ pub const BLOBS_FOLDER: &str = "blobs";
 pub const CURRENT_VERSION_FILE: &str = "current";
 
 /// Reads bytes from a file using `pread`.
-pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slice> {
+pub fn read_exact(file: &impl FsFile, offset: u64, size: usize) -> std::io::Result<Slice> {
     // SAFETY: This slice builder starts uninitialized, but we know its length
     //
-    // We use read_at/seek_read which give us the number of bytes read
+    // We use FsFile::read_at which gives us the number of bytes read
     // If that number does not match the slice length, the function errors,
     // so the (partially) uninitialized buffer is discarded
     //
@@ -24,35 +24,13 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     #[expect(unsafe_code, reason = "see safety")]
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
-    {
-        let bytes_read: usize;
+    let bytes_read = file.read_at(&mut builder, offset)?;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileExt;
-
-            bytes_read = file.read_at(&mut builder, offset)?;
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::FileExt;
-
-            bytes_read = file.seek_read(&mut builder, offset)?;
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            compile_error!("unsupported platform");
-            unimplemented!();
-        }
-
-        if bytes_read != size {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                format!("read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}", file.metadata()?.len()),
-            ));
-        }
+    if bytes_read != size {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            format!("read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}", file.metadata()?.len),
+        ));
     }
 
     Ok(builder.freeze().into())
