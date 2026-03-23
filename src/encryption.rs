@@ -57,6 +57,33 @@ pub trait EncryptionProvider:
     /// Returns [`crate::Error::Decrypt`] if the ciphertext is invalid,
     /// tampered, or encrypted with a different key.
     fn decrypt(&self, ciphertext: &[u8]) -> crate::Result<Vec<u8>>;
+
+    /// Encrypt an owned plaintext buffer, reusing its allocation when possible.
+    ///
+    /// The default implementation delegates to [`encrypt`](EncryptionProvider::encrypt).
+    /// Providers may override this to avoid an extra allocation by prepending
+    /// the nonce and appending the tag in-place.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Encrypt`] if the encryption operation fails.
+    fn encrypt_vec(&self, plaintext: Vec<u8>) -> crate::Result<Vec<u8>> {
+        self.encrypt(&plaintext)
+    }
+
+    /// Decrypt an owned ciphertext buffer, reusing its allocation when possible.
+    ///
+    /// The default implementation delegates to [`decrypt`](EncryptionProvider::decrypt).
+    /// Providers may override this to decrypt in-place, stripping the nonce
+    /// prefix and tag suffix without a second allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Decrypt`] if the ciphertext is invalid,
+    /// tampered, or encrypted with a different key.
+    fn decrypt_vec(&self, ciphertext: Vec<u8>) -> crate::Result<Vec<u8>> {
+        self.decrypt(&ciphertext)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +295,73 @@ impl EncryptionProvider for Aes256GcmProvider {
 
         Ok(buf)
     }
+
+    fn encrypt_vec(&self, mut buf: Vec<u8>) -> crate::Result<Vec<u8>> {
+        use aes_gcm::AeadCore;
+        use aes_gcm::AeadInPlace;
+
+        let nonce = thread_local_rng(|rng| aes_gcm::Aes256Gcm::generate_nonce(rng));
+
+        // Reserve space for nonce prefix + tag suffix in one allocation,
+        // then shift plaintext right and write the nonce into the gap.
+        let plaintext_len = buf.len();
+        buf.reserve(Self::NONCE_LEN + Self::TAG_LEN);
+        buf.resize(plaintext_len + Self::NONCE_LEN, 0);
+        buf.copy_within(..plaintext_len, Self::NONCE_LEN);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "buf was just resized to include NONCE_LEN"
+        )]
+        buf[..Self::NONCE_LEN].copy_from_slice(&nonce);
+
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "buf length ≥ NONCE_LEN after resize + copy_within"
+        )]
+        let tag = self
+            .cipher
+            .encrypt_in_place_detached(&nonce, b"", &mut buf[Self::NONCE_LEN..])
+            .map_err(|_| crate::Error::Encrypt("AES-256-GCM encryption failed"))?;
+
+        buf.extend_from_slice(&tag);
+
+        Ok(buf)
+    }
+
+    fn decrypt_vec(&self, mut buf: Vec<u8>) -> crate::Result<Vec<u8>> {
+        use aes_gcm::aead::generic_array::GenericArray;
+        use aes_gcm::AeadInPlace;
+
+        // Error::Decrypt takes &'static str — can't include runtime lengths
+        // without changing the upstream error type to accept String/Cow.
+        let min_len = Self::NONCE_LEN + Self::TAG_LEN;
+        if buf.len() < min_len {
+            return Err(crate::Error::Decrypt(
+                "ciphertext too short for AES-256-GCM (need nonce + tag)",
+            ));
+        }
+
+        // Copy nonce and tag to the stack before mutating the buffer.
+        #[expect(clippy::indexing_slicing, reason = "length checked above")]
+        let nonce = *GenericArray::from_slice(&buf[..Self::NONCE_LEN]);
+
+        let tag_start = buf.len() - Self::TAG_LEN;
+        #[expect(clippy::indexing_slicing, reason = "length checked above")]
+        let tag = *GenericArray::from_slice(&buf[tag_start..]);
+
+        // Strip nonce prefix and tag suffix via copy_within + truncate
+        // (single memmove, avoids Drain iterator adapter overhead).
+        buf.copy_within(Self::NONCE_LEN..tag_start, 0);
+        buf.truncate(tag_start - Self::NONCE_LEN);
+
+        self.cipher
+            .decrypt_in_place_detached(&nonce, b"", &mut buf, &tag)
+            .map_err(|_| {
+                crate::Error::Decrypt("AES-256-GCM decryption failed (bad key or tampered data)")
+            })?;
+
+        Ok(buf)
+    }
 }
 
 #[cfg(test)]
@@ -278,6 +372,55 @@ mod tests {
     fn encryption_provider_trait_is_object_safe() {
         // Compile-time check: the trait can be used as a trait object.
         fn _assert_object_safe(_: &dyn EncryptionProvider) {}
+    }
+
+    /// Minimal provider that only implements required methods,
+    /// exercising the default encrypt_vec/decrypt_vec implementations.
+    struct XorProvider;
+
+    impl std::panic::UnwindSafe for XorProvider {}
+    impl std::panic::RefUnwindSafe for XorProvider {}
+
+    impl EncryptionProvider for XorProvider {
+        fn encrypt(&self, plaintext: &[u8]) -> crate::Result<Vec<u8>> {
+            Ok(plaintext.iter().map(|b| b ^ 0xAA).collect())
+        }
+
+        fn max_overhead(&self) -> u32 {
+            0
+        }
+
+        fn decrypt(&self, ciphertext: &[u8]) -> crate::Result<Vec<u8>> {
+            Ok(ciphertext.iter().map(|b| b ^ 0xAA).collect())
+        }
+    }
+
+    #[test]
+    fn default_encrypt_vec_delegates_to_encrypt() -> crate::Result<()> {
+        let provider = XorProvider;
+        let plaintext = b"test default encrypt_vec";
+
+        let via_encrypt = provider.encrypt(plaintext)?;
+        let via_encrypt_vec = provider.encrypt_vec(plaintext.to_vec())?;
+        assert_eq!(via_encrypt, via_encrypt_vec);
+
+        let decrypted = provider.decrypt(&via_encrypt_vec)?;
+        assert_eq!(decrypted, plaintext);
+        Ok(())
+    }
+
+    #[test]
+    fn default_decrypt_vec_delegates_to_decrypt() -> crate::Result<()> {
+        let provider = XorProvider;
+        let plaintext = b"test default decrypt_vec";
+
+        let ciphertext = provider.encrypt(plaintext)?;
+
+        let via_decrypt = provider.decrypt(&ciphertext)?;
+        let via_decrypt_vec = provider.decrypt_vec(ciphertext.clone())?;
+        assert_eq!(via_decrypt, via_decrypt_vec);
+        assert_eq!(via_decrypt_vec, plaintext);
+        Ok(())
     }
 
     #[cfg(feature = "encryption")]
@@ -444,6 +587,82 @@ mod tests {
                 std::process::id(),
                 "PID should be restored to real process ID after reseed"
             );
+        }
+
+        #[test]
+        fn encrypt_vec_roundtrip() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+            let plaintext = b"block data for encrypt_vec test";
+
+            let ciphertext = provider.encrypt_vec(plaintext.to_vec())?;
+            assert_eq!(
+                ciphertext.len(),
+                Aes256GcmProvider::NONCE_LEN + plaintext.len() + Aes256GcmProvider::TAG_LEN,
+            );
+
+            // encrypt_vec output must be decryptable by decrypt
+            let decrypted = provider.decrypt(&ciphertext)?;
+            assert_eq!(decrypted, plaintext);
+            Ok(())
+        }
+
+        #[test]
+        fn decrypt_vec_roundtrip() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+            let plaintext = b"block data for decrypt_vec test";
+
+            // encrypt output must be decryptable by decrypt_vec
+            let ciphertext = provider.encrypt(plaintext)?;
+            let decrypted = provider.decrypt_vec(ciphertext)?;
+            assert_eq!(decrypted, plaintext);
+            Ok(())
+        }
+
+        #[test]
+        fn encrypt_vec_decrypt_vec_roundtrip() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+            let plaintext = vec![0xCD_u8; 16 * 1024]; // 16 KiB
+
+            let ciphertext = provider.encrypt_vec(plaintext.clone())?;
+            let decrypted = provider.decrypt_vec(ciphertext)?;
+            assert_eq!(decrypted, plaintext);
+            Ok(())
+        }
+
+        #[test]
+        fn encrypt_vec_empty() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+
+            let ciphertext = provider.encrypt_vec(vec![])?;
+            let decrypted = provider.decrypt_vec(ciphertext)?;
+            assert!(decrypted.is_empty());
+            Ok(())
+        }
+
+        #[test]
+        fn decrypt_vec_truncated_fails() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+            let result = provider.decrypt_vec(vec![0u8; 10]);
+            assert!(result.is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn decrypt_vec_tampered_fails() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+            let mut ciphertext = provider.encrypt_vec(b"data".to_vec())?;
+
+            let mid = Aes256GcmProvider::NONCE_LEN + 1;
+            if mid < ciphertext.len() {
+                #[expect(clippy::indexing_slicing)]
+                {
+                    ciphertext[mid] ^= 0xFF;
+                }
+            }
+
+            let result = provider.decrypt_vec(ciphertext);
+            assert!(result.is_err());
+            Ok(())
         }
     }
 }
