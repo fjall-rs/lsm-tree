@@ -450,7 +450,7 @@ fn reverse_comparator_compaction_with_updates() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "RunReader needs comparator plumbing (#116)"]
+#[ignore = "range bounds interpretation for reverse comparator (#116)"]
 fn reverse_comparator_range_scan_after_compaction() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let seqno = SequenceNumberCounter::default();
@@ -829,7 +829,7 @@ fn reverse_comparator_merge_after_compaction() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "RunReader needs comparator plumbing (#116)"]
+#[ignore = "range bounds interpretation for reverse comparator (#116)"]
 fn reverse_comparator_merge_range_scan_after_compaction() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let seqno = SequenceNumberCounter::default();

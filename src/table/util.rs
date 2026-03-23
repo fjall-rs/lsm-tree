@@ -12,6 +12,11 @@ use std::{path::Path, sync::Arc};
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
+/// Returns the bounding key range of a table slice.
+///
+/// Takes `first().min()` and `last().max()` — no comparison needed because
+/// callers pass tables that are already sorted in comparator order (via
+/// `push_cmp` / `sort_by_cmp`). Works correctly for any comparator.
 #[must_use]
 pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]

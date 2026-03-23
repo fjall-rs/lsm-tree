@@ -34,12 +34,16 @@ impl RangeBounds<Slice> for OwnedBounds {
 }
 
 impl OwnedBounds {
+    /// Returns `true` if the key range is fully contained in these bounds,
+    /// using the given comparator for key ordering.
     #[must_use]
-    pub fn contains(&self, range: &KeyRange) -> bool {
+    pub fn contains(&self, range: &KeyRange, cmp: &dyn crate::comparator::UserComparator) -> bool {
+        use std::cmp::Ordering;
+
         let lower_ok = match &self.start {
             Bound::Unbounded => true,
-            Bound::Included(key) => key.as_ref() <= range.min().as_ref(),
-            Bound::Excluded(key) => key.as_ref() < range.min().as_ref(),
+            Bound::Included(key) => cmp.compare(key.as_ref(), range.min()) != Ordering::Greater,
+            Bound::Excluded(key) => cmp.compare(key.as_ref(), range.min()) == Ordering::Less,
         };
 
         if !lower_ok {
@@ -48,8 +52,8 @@ impl OwnedBounds {
 
         match &self.end {
             Bound::Unbounded => true,
-            Bound::Included(key) => key.as_ref() >= range.max().as_ref(),
-            Bound::Excluded(key) => key.as_ref() > range.max().as_ref(),
+            Bound::Included(key) => cmp.compare(key.as_ref(), range.max()) != Ordering::Less,
+            Bound::Excluded(key) => cmp.compare(key.as_ref(), range.max()) == Ordering::Greater,
         }
     }
 }
@@ -72,16 +76,18 @@ impl CompactionStrategy for Strategy {
         "DropRangeCompaction"
     }
 
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice {
+        let cmp = config.comparator.as_ref();
+
         let table_ids: HashSet<_> = version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| {
-                run.range_overlap_indexes(&self.bounds)
+                run.range_overlap_indexes_cmp(&self.bounds, cmp)
                     .and_then(|(lo, hi)| run.get(lo..=hi))
                     .unwrap_or_default()
                     .iter()
-                    .filter(|x| self.bounds.contains(x.key_range()))
+                    .filter(|x| self.bounds.contains(x.key_range(), cmp))
             })
             .map(Table::id)
             .collect();

@@ -62,6 +62,25 @@ impl<T: Ranged> std::ops::Deref for Run<T> {
     }
 }
 
+/// Returns the span between the first and last element matching `pred`.
+///
+/// Note: non-matching elements *between* matches are included. This is
+/// correct for `get_contained` / `get_contained_cmp` where the overlap
+/// window guarantees contiguity of matching tables.
+fn trim_slice<T, F>(s: &[T], pred: F) -> &[T]
+where
+    F: Fn(&T) -> bool,
+{
+    let start = s.iter().position(&pred).unwrap_or(s.len());
+    let end = s.iter().rposition(&pred).map_or(start, |i| i + 1);
+
+    #[expect(
+        clippy::expect_used,
+        reason = "start..end are derived from position/rposition on the same slice"
+    )]
+    s.get(start..end).expect("should be in range")
+}
+
 impl<T: Ranged> Run<T> {
     pub fn new(items: Vec<T>) -> Option<Self> {
         if items.is_empty() {
@@ -195,23 +214,6 @@ impl<T: Ranged> Run<T> {
     /// Returns the sub slice of tables of tables in the run that have
     /// a key range fully contained in the input key range.
     pub fn get_contained<'a>(&'a self, key_range: &KeyRange) -> &'a [T] {
-        fn trim_slice<T, F>(s: &[T], pred: F) -> &[T]
-        where
-            F: Fn(&T) -> bool,
-        {
-            // find first index where pred holds
-            let start = s.iter().position(&pred).unwrap_or(s.len());
-
-            // find last index where pred holds
-            let end = s.iter().rposition(&pred).map_or(start, |i| i + 1);
-
-            #[expect(
-                clippy::expect_used,
-                reason = "start..end are derived from position/rposition on the same slice"
-            )]
-            s.get(start..end).expect("should be in range")
-        }
-
         let range = key_range.min()..=key_range.max();
 
         let Some((lo, hi)) = self.range_overlap_indexes::<crate::Slice, _>(&range) else {
@@ -220,6 +222,23 @@ impl<T: Ranged> Run<T> {
 
         self.get(lo..=hi)
             .map(|slice| trim_slice(slice, |x| key_range.contains_range(x.key_range())))
+            .unwrap_or_default()
+    }
+
+    /// Like [`get_contained`], but uses a custom comparator for key ordering.
+    pub fn get_contained_cmp<'a>(
+        &'a self,
+        key_range: &KeyRange,
+        cmp: &dyn UserComparator,
+    ) -> &'a [T] {
+        let range = key_range.min()..=key_range.max();
+
+        let Some((lo, hi)) = self.range_overlap_indexes_cmp::<crate::Slice, _>(&range, cmp) else {
+            return &[];
+        };
+
+        self.get(lo..=hi)
+            .map(|slice| trim_slice(slice, |x| key_range.contains_range_cmp(x.key_range(), cmp)))
             .unwrap_or_default()
     }
 
@@ -536,6 +555,74 @@ mod tests {
             &[0, 1, 2, 3],
             &*run
                 .get_contained(&KeyRange::new((b"a".into(), b"z".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn run_range_contained_cmp_reverse() {
+        use crate::comparator::UserComparator;
+        use crate::TableId;
+
+        struct ReverseCmp;
+        impl UserComparator for ReverseCmp {
+            fn name(&self) -> &'static str {
+                "reverse"
+            }
+            fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+                b.cmp(a)
+            }
+        }
+
+        // Reverse comparator: tables store (comparator_min, comparator_max).
+        // In reverse order "z" < "p" < "o" < ... < "a", so key ranges are
+        // (z,p), (o,k), (j,e), (d,a) — matching production SST metadata.
+        let items = vec![
+            s(0, "z", "p"),
+            s(1, "o", "k"),
+            s(2, "j", "e"),
+            s(3, "d", "a"),
+        ];
+        let run = Run(items);
+        let cmp = ReverseCmp;
+
+        // Full range contains all
+        assert_eq!(
+            &[0, 1, 2, 3],
+            &*run
+                .get_contained_cmp(&KeyRange::new((b"z".into(), b"a".into())), &cmp)
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        // Partial: z..k contains tables 0 and 1
+        assert_eq!(
+            &[0, 1],
+            &*run
+                .get_contained_cmp(&KeyRange::new((b"z".into(), b"k".into())), &cmp)
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        // Exact match: single table
+        assert_eq!(
+            &[2 as TableId],
+            &*run
+                .get_contained_cmp(&KeyRange::new((b"j".into(), b"e".into())), &cmp)
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        // No table fully contained
+        assert_eq!(
+            &[] as &[TableId],
+            &*run
+                .get_contained_cmp(&KeyRange::new((b"z".into(), b"z".into())), &cmp)
                 .iter()
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),

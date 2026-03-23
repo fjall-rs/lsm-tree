@@ -137,6 +137,33 @@ impl Level {
             KeyRange::aggregate(key_ranges.iter())
         }
     }
+
+    /// Like [`aggregate_key_range`], but uses a custom comparator for key ordering.
+    ///
+    /// Per-run aggregation via [`Run::aggregate_key_range`] is comparator-correct
+    /// because runs are sorted in comparator order (ensured by `push_cmp`), so
+    /// `first().min()` and `last().max()` yield the true extremes under the
+    /// configured comparator. The cross-run aggregation then uses `aggregate_cmp`
+    /// to find the global min/max.
+    pub fn aggregate_key_range_cmp(&self, cmp: &dyn crate::comparator::UserComparator) -> KeyRange {
+        if self.run_count() == 1 {
+            #[expect(
+                clippy::expect_used,
+                reason = "we check for run_count, so the first run must exist"
+            )]
+            self.runs
+                .first()
+                .expect("should exist")
+                .aggregate_key_range()
+        } else {
+            let key_ranges = self
+                .iter()
+                .map(|x| Run::aggregate_key_range(x))
+                .collect::<Vec<_>>();
+
+            KeyRange::aggregate_cmp(key_ranges.iter(), cmp)
+        }
+    }
 }
 
 pub struct VersionInner {
@@ -246,6 +273,10 @@ impl Version {
                             })
                             .collect::<crate::Result<Vec<_>>>()?;
 
+                        // Tables are in persisted order, which preserves the
+                        // comparator-sorted order from when the run was written.
+                        // No re-sort needed — the manifest faithfully round-trips
+                        // the run's table sequence.
                         Ok(Arc::new(
                             #[expect(
                                 clippy::expect_used,
