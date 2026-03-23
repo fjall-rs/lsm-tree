@@ -1,9 +1,14 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{InternalValue, Memtable};
+use lsm_tree::{DefaultUserComparator, InternalValue, Memtable, SharedComparator, MAX_SEQNO};
 use nanoid::nanoid;
+use std::sync::Arc;
+
+fn default_cmp() -> SharedComparator {
+    Arc::new(DefaultUserComparator)
+}
 
 fn memtable_get_hit(c: &mut Criterion) {
-    let memtable = Memtable::default();
+    let memtable = Memtable::new(0, default_cmp());
 
     memtable.insert(InternalValue::from_components(
         "abc_w5wa35aw35naw",
@@ -25,14 +30,14 @@ fn memtable_get_hit(c: &mut Criterion) {
         b.iter(|| {
             assert_eq!(
                 [1, 2, 3],
-                &*memtable.get(b"abc_w5wa35aw35naw", None).unwrap().value,
+                &*memtable.get(b"abc_w5wa35aw35naw", MAX_SEQNO).unwrap().value,
             )
         });
     });
 }
 
 fn memtable_get_snapshot(c: &mut Criterion) {
-    let memtable = Memtable::default();
+    let memtable = Memtable::new(0, default_cmp());
 
     memtable.insert(InternalValue::from_components(
         "abc_w5wa35aw35naw",
@@ -60,14 +65,14 @@ fn memtable_get_snapshot(c: &mut Criterion) {
         b.iter(|| {
             assert_eq!(
                 [1, 2, 3],
-                &*memtable.get(b"abc_w5wa35aw35naw", Some(1)).unwrap().value,
+                &*memtable.get(b"abc_w5wa35aw35naw", 1).unwrap().value,
             );
         });
     });
 }
 
 fn memtable_get_miss(c: &mut Criterion) {
-    let memtable = Memtable::default();
+    let memtable = Memtable::new(0, default_cmp());
 
     for _ in 0..1_000_000 {
         memtable.insert(InternalValue::from_components(
@@ -79,13 +84,13 @@ fn memtable_get_miss(c: &mut Criterion) {
     }
 
     c.bench_function("memtable get miss", |b| {
-        b.iter(|| assert!(memtable.get(b"abc_564321", None).is_none()));
+        b.iter(|| assert!(memtable.get(b"abc_564321", MAX_SEQNO).is_none()));
     });
 }
 
 fn memtable_highest_seqno(c: &mut Criterion) {
     c.bench_function("memtable highest seqno", |b| {
-        let memtable = Memtable::default();
+        let memtable = Memtable::new(0, default_cmp());
 
         for x in 0..100_000 {
             memtable.insert(InternalValue::from_components(

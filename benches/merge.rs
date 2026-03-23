@@ -1,14 +1,19 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::merge::{BoxedIterator, Merger};
-use lsm_tree::{mvcc_stream::MvccStream, InternalValue, Memtable};
+use lsm_tree::{
+    mvcc_stream::MvccStream, DefaultUserComparator, InternalValue, Memtable, SharedComparator,
+};
 use nanoid::nanoid;
+use std::sync::Arc;
 
 fn merger(c: &mut Criterion) {
+    let cmp: SharedComparator = Arc::new(DefaultUserComparator);
+
     for num in [2, 4, 8, 16, 30] {
         c.bench_function(&format!("Merge {num}"), |b| {
             let memtables = (0..num)
                 .map(|_| {
-                    let table = Memtable::default();
+                    let table = Memtable::new(0, cmp.clone());
 
                     for _ in 0..100 {
                         table.insert(InternalValue::from_components(
@@ -30,7 +35,7 @@ fn merger(c: &mut Criterion) {
                     .map(|x| Box::new(x) as BoxedIterator<'_>)
                     .collect();
 
-                let merger = Merger::new(iters);
+                let merger = Merger::new(iters, cmp.clone());
 
                 assert_eq!(num * 100, merger.count());
             })
@@ -39,11 +44,13 @@ fn merger(c: &mut Criterion) {
 }
 
 fn mvcc_stream(c: &mut Criterion) {
+    let cmp: SharedComparator = Arc::new(DefaultUserComparator);
+
     for num in [2, 4, 8, 16, 30] {
         c.bench_function(&format!("MVCC stream {num} versions"), |b| {
             let memtables = (0..num)
                 .map(|_| {
-                    let table = Memtable::default();
+                    let table = Memtable::new(0, cmp.clone());
 
                     for key in 'a'..='z' {
                         table.insert(InternalValue::from_components(
@@ -65,7 +72,7 @@ fn mvcc_stream(c: &mut Criterion) {
                     .map(|x| Box::new(x) as BoxedIterator<'_>)
                     .collect();
 
-                let merger = MvccStream::new(Merger::new(iters));
+                let merger = MvccStream::new(Merger::new(iters, cmp.clone()), None);
 
                 assert_eq!(26, merger.count());
             })
