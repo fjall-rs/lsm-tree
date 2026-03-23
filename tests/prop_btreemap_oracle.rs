@@ -49,13 +49,12 @@ impl Oracle {
         let start = (key.to_vec(), Reverse(read_seqno - 1));
         let end_inclusive = (key.to_vec(), Reverse(0));
 
-        for ((k, _), val) in self.data.range(start..=end_inclusive) {
-            if k != key {
-                break;
-            }
-            return val.clone();
-        }
-        None
+        self.data
+            .range(start..=end_inclusive)
+            .take_while(|((k, _), _)| k == key)
+            .map(|(_, val)| val.clone())
+            .next()
+            .flatten()
     }
 
     /// Full scan: return all visible (key, value) pairs at read_seqno, sorted by key.
@@ -137,45 +136,51 @@ fn ops_strategy() -> impl Strategy<Value = Vec<Op>> {
 
 fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
     let tmpdir = lsm_tree::get_tmp_folder();
-    let tree = Config::new(
-        &tmpdir,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()
-    .map_err(|e| TestCaseError::fail(format!("failed to open tree: {e}")))?;
+    let seqno_counter = SequenceNumberCounter::default();
+    let visible_seqno = SequenceNumberCounter::default();
+    let tree = Config::new(&tmpdir, seqno_counter.clone(), visible_seqno.clone())
+        .open()
+        .map_err(|e| TestCaseError::fail(format!("failed to open tree: {e}")))?;
 
     let mut oracle = Oracle::new();
-    let mut seqno: u64 = 1;
 
     // Apply all ops.
+    // Data seqnos come from the shared counter (as required by the API).
+    // Internal operations (flush, compact) may also advance this counter via
+    // upgrade_version when they do work, keeping SV seqnos and data seqnos
+    // interleaved in those cases.
     for op in &ops {
         match op {
             Op::Insert { key_idx, value } => {
                 let key = key_from_idx(*key_idx);
+                let seqno = seqno_counter.next();
                 oracle.insert(key.clone(), value.clone(), seqno);
                 tree.insert(key, value.clone(), seqno);
-                seqno += 1;
+                visible_seqno.fetch_max(seqno + 1);
             }
             Op::Remove { key_idx } => {
                 let key = key_from_idx(*key_idx);
+                let seqno = seqno_counter.next();
                 oracle.remove(key.clone(), seqno);
                 tree.remove(key, seqno);
-                seqno += 1;
+                visible_seqno.fetch_max(seqno + 1);
             }
             Op::Flush => {
                 tree.flush_active_memtable(0)
                     .map_err(|e| TestCaseError::fail(format!("flush failed: {e}")))?;
             }
             Op::Compact => {
-                tree.major_compact(common::COMPACTION_TARGET, seqno)
+                let gc_watermark = seqno_counter.get();
+                tree.major_compact(common::COMPACTION_TARGET, gc_watermark)
                     .map_err(|e| TestCaseError::fail(format!("compact failed: {e}")))?;
             }
         }
     }
 
     // Verify point reads.
-    let read_seqno = seqno;
+    // Use visible_seqno — it tracks the visibility watermark and won't
+    // drift ahead of what the tree considers readable.
+    let read_seqno = visible_seqno.get();
     for idx in 0..KEY_SPACE {
         let key = key_from_idx(idx);
         let expected = oracle.get(&key, read_seqno);
