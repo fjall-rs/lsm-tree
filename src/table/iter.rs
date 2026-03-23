@@ -106,6 +106,8 @@ pub struct Iter {
     cache: Arc<Cache>,
     compression: CompressionType,
     encryption: Option<Arc<dyn EncryptionProvider>>,
+    #[cfg(feature = "zstd")]
+    zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
     comparator: SharedComparator,
 
     index_initialized: bool,
@@ -136,6 +138,7 @@ impl Iter {
         cache: Arc<Cache>,
         compression: CompressionType,
         encryption: Option<Arc<dyn EncryptionProvider>>,
+        #[cfg(feature = "zstd")] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
         comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> Self {
@@ -150,6 +153,8 @@ impl Iter {
             cache,
             compression,
             encryption,
+            #[cfg(feature = "zstd")]
+            zstd_dictionary,
             comparator,
 
             index_initialized: false,
@@ -270,6 +275,8 @@ impl Iterator for Iter {
                         crate::table::block::BlockType::Data,
                         self.compression,
                         self.encryption.as_deref(),
+                        #[cfg(feature = "zstd")]
+                        self.zstd_dictionary.as_deref(),
                         #[cfg(feature = "metrics")]
                         &self.metrics,
                     ))
@@ -392,6 +399,8 @@ impl DoubleEndedIterator for Iter {
                         crate::table::block::BlockType::Data,
                         self.compression,
                         self.encryption.as_deref(),
+                        #[cfg(feature = "zstd")]
+                        self.zstd_dictionary.as_deref(),
                         #[cfg(feature = "metrics")]
                         &self.metrics,
                     ))

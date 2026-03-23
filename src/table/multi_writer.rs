@@ -66,6 +66,9 @@ pub struct MultiWriter {
     prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 
     encryption: Option<Arc<dyn EncryptionProvider>>,
+
+    #[cfg(feature = "zstd")]
+    zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 
 impl MultiWriter {
@@ -117,6 +120,9 @@ impl MultiWriter {
             prefix_extractor: None,
 
             encryption: None,
+
+            #[cfg(feature = "zstd")]
+            zstd_dictionary: None,
         })
     }
 
@@ -362,6 +368,17 @@ impl MultiWriter {
         self
     }
 
+    #[cfg(feature = "zstd")]
+    #[must_use]
+    pub fn use_zstd_dictionary(
+        mut self,
+        dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+    ) -> Self {
+        self.zstd_dictionary.clone_from(&dictionary);
+        self.writer = self.writer.use_zstd_dictionary(dictionary);
+        self
+    }
+
     /// Flushes the current writer, stores its metadata, and sets up a new writer for the next table
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating table writer");
@@ -387,6 +404,11 @@ impl MultiWriter {
 
         new_writer = new_writer.use_prefix_extractor(self.prefix_extractor.clone());
         new_writer = new_writer.use_encryption(self.encryption.clone());
+
+        #[cfg(feature = "zstd")]
+        {
+            new_writer = new_writer.use_zstd_dictionary(self.zstd_dictionary.clone());
+        }
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
         old_writer.spill_block()?;
@@ -593,6 +615,8 @@ mod tests {
                 false,
                 false,
                 None,
+                #[cfg(feature = "zstd")]
+                None,
                 comparator.clone(),
                 #[cfg(feature = "metrics")]
                 Arc::new(crate::Metrics::default()),
@@ -680,6 +704,8 @@ mod tests {
                 None,
                 false,
                 false,
+                None,
+                #[cfg(feature = "zstd")]
                 None,
                 comparator.clone(),
                 #[cfg(feature = "metrics")]

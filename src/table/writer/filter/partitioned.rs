@@ -87,6 +87,8 @@ impl PartitionedFilterWriter {
             crate::table::block::BlockType::Filter,
             CompressionType::None,
             self.encryption.as_deref(),
+            #[cfg(feature = "zstd")]
+            None, // filter blocks don't use dictionary compression
         )?;
 
         #[expect(
@@ -134,6 +136,8 @@ impl PartitionedFilterWriter {
             crate::table::block::BlockType::Index,
             self.compression,
             self.encryption.as_deref(),
+            #[cfg(feature = "zstd")]
+            None, // filter blocks don't use dictionary compression
         )?;
 
         #[expect(

@@ -66,6 +66,8 @@ impl PartitionedIndexWriter {
             crate::table::block::BlockType::Index,
             self.compression,
             self.encryption.as_deref(),
+            #[cfg(feature = "zstd")]
+            None, // index blocks don't use dictionary compression (dict trained on data, not index structures)
         )?;
 
         #[expect(
@@ -129,6 +131,8 @@ impl PartitionedIndexWriter {
             crate::table::block::BlockType::Index,
             self.compression,
             self.encryption.as_deref(),
+            #[cfg(feature = "zstd")]
+            None, // index blocks don't use dictionary compression (dict trained on data, not index structures)
         )?;
 
         #[expect(

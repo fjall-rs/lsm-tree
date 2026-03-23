@@ -94,7 +94,7 @@ pub(super) fn prepare_table_writer(
     let last_level = (version.level_count() - 1) as u8;
     let is_last_level = payload.dest_level == last_level;
 
-    Ok(table_writer
+    let table_writer = table_writer
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
         .use_data_block_compression(data_block_compression)
@@ -123,7 +123,12 @@ pub(super) fn prepare_table_writer(
                     None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
             }
-        }))
+        });
+
+    #[cfg(feature = "zstd")]
+    let table_writer = table_writer.use_zstd_dictionary(opts.config.zstd_dictionary.clone());
+
+    Ok(table_writer)
 }
 
 // TODO: find a better name
@@ -383,6 +388,8 @@ impl StandardCompaction {
                     pin_filter,
                     pin_index,
                     opts.config.encryption.clone(),
+                    #[cfg(feature = "zstd")]
+                    opts.config.zstd_dictionary.clone(),
                     opts.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     opts.metrics.clone(),

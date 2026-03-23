@@ -24,6 +24,9 @@ pub struct Scanner {
 
     encryption: Option<Arc<dyn EncryptionProvider>>,
     comparator: SharedComparator,
+
+    #[cfg(feature = "zstd")]
+    zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 
 impl Scanner {
@@ -33,12 +36,19 @@ impl Scanner {
         compression: CompressionType,
         global_seqno: SeqNo,
         encryption: Option<Arc<dyn EncryptionProvider>>,
+        #[cfg(feature = "zstd")] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
         comparator: SharedComparator,
     ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
-        let block = Self::fetch_next_block(&mut reader, compression, encryption.as_deref())?;
+        let block = Self::fetch_next_block(
+            &mut reader,
+            compression,
+            encryption.as_deref(),
+            #[cfg(feature = "zstd")]
+            zstd_dictionary.as_deref(),
+        )?;
         let cmp = comparator.clone();
         let iter = OwnedDataBlockIter::new(block, |b| b.iter(cmp));
 
@@ -53,6 +63,9 @@ impl Scanner {
             global_seqno,
             encryption,
             comparator,
+
+            #[cfg(feature = "zstd")]
+            zstd_dictionary,
         })
     }
 
@@ -60,8 +73,15 @@ impl Scanner {
         reader: &mut BufReader<File>,
         compression: CompressionType,
         encryption: Option<&dyn EncryptionProvider>,
+        #[cfg(feature = "zstd")] zstd_dict: Option<&crate::compression::ZstdDictionary>,
     ) -> crate::Result<DataBlock> {
-        let block = Block::from_reader(reader, compression, encryption);
+        let block = Block::from_reader(
+            reader,
+            compression,
+            encryption,
+            #[cfg(feature = "zstd")]
+            zstd_dict,
+        );
 
         match block {
             Ok(block) => {
@@ -98,6 +118,8 @@ impl Iterator for Scanner {
                 &mut self.reader,
                 self.compression,
                 self.encryption.as_deref(),
+                #[cfg(feature = "zstd")]
+                self.zstd_dictionary.as_deref(),
             ));
             let cmp = self.comparator.clone();
             self.iter = OwnedDataBlockIter::new(block, |b| b.iter(cmp));

@@ -226,6 +226,14 @@ impl<'a> Reader<'a> {
 
                 UserValue::from(decompressed)
             }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::ZstdDict { .. } => {
+                return Err(crate::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "zstd dictionary compression is not supported for blob files",
+                )));
+            }
         };
 
         debug_assert_eq!(real_val_len, value.len());

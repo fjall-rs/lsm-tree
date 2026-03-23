@@ -106,6 +106,11 @@ impl<'a> Ingestion<'a> {
         writer = writer.use_prefix_extractor(tree.config.prefix_extractor.clone());
         writer = writer.use_encryption(tree.config.encryption.clone());
 
+        #[cfg(feature = "zstd")]
+        {
+            writer = writer.use_zstd_dictionary(tree.config.zstd_dictionary.clone());
+        }
+
         Ok(Self {
             folder,
             tree,
@@ -306,6 +311,8 @@ impl<'a> Ingestion<'a> {
                     false,
                     false,
                     self.tree.config.encryption.clone(),
+                    #[cfg(feature = "zstd")]
+                    self.tree.config.zstd_dictionary.clone(),
                     self.tree.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.tree.metrics.clone(),

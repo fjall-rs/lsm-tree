@@ -216,6 +216,14 @@ impl Writer {
                 check_size_cap(compressed.len())?;
                 std::borrow::Cow::Owned(compressed)
             }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::ZstdDict { .. } => {
+                return Err(crate::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "zstd dictionary compression is not supported for blob files",
+                )));
+            }
         };
 
         // Ensure the compressed value length fits in u32 before we write it
@@ -428,5 +436,25 @@ mod tests {
     fn check_size_cap_accepts_at_limit() {
         assert!(super::check_size_cap(MAX_DECOMPRESSION_SIZE).is_ok());
         assert!(super::check_size_cap(0).is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn blob_write_zstd_dict_unsupported() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let dict = crate::compression::ZstdDictionary::new(b"test dictionary");
+        let compression = CompressionType::ZstdDict {
+            level: 3,
+            dict_id: dict.id(),
+        };
+        let mut writer = Writer::new(&path, 0, 0, &StdFs)?.use_compression(compression);
+
+        let result = writer.write(b"key", 0, b"value");
+        assert!(
+            matches!(&result, Err(crate::Error::Io(e)) if e.kind() == std::io::ErrorKind::Unsupported),
+            "expected Io(Unsupported), got: {result:?}",
+        );
+        Ok(())
     }
 }

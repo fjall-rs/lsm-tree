@@ -454,6 +454,12 @@ impl AbstractTree for BlobTree {
             table_writer.use_prefix_extractor(self.index.config.prefix_extractor.clone());
         table_writer = table_writer.use_encryption(self.index.config.encryption.clone());
 
+        #[cfg(feature = "zstd")]
+        {
+            table_writer =
+                table_writer.use_zstd_dictionary(self.index.config.zstd_dictionary.clone());
+        }
+
         #[expect(
             clippy::expect_used,
             reason = "cannot create blob tree without defining kv separation options"
@@ -541,6 +547,8 @@ impl AbstractTree for BlobTree {
                     pin_filter,
                     pin_index,
                     self.index.config.encryption.clone(),
+                    #[cfg(feature = "zstd")]
+                    self.index.config.zstd_dictionary.clone(),
                     self.index.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.index.metrics.clone(),

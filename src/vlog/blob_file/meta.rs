@@ -113,6 +113,8 @@ impl Metadata {
             crate::table::block::BlockType::Meta,
             CompressionType::None,
             None,
+            #[cfg(feature = "zstd")]
+            None,
         )?;
 
         Ok(())
@@ -130,7 +132,13 @@ impl Metadata {
         }
 
         // TODO: Block::from_slice
-        let block = Block::from_reader(reader, CompressionType::None, None)?;
+        let block = Block::from_reader(
+            reader,
+            CompressionType::None,
+            None,
+            #[cfg(feature = "zstd")]
+            None,
+        )?;
         let block = DataBlock::new(block);
 
         // Metadata keys are always lexicographic, so use the default comparator.
@@ -242,6 +250,8 @@ mod tests {
             &encoded,
             BlockType::Meta,
             CompressionType::None,
+            None,
+            #[cfg(feature = "zstd")]
             None,
         )
         .unwrap();

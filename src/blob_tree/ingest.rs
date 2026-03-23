@@ -233,6 +233,8 @@ impl<'a> BlobIngestion<'a> {
                     false,
                     false,
                     index.config.encryption.clone(),
+                    #[cfg(feature = "zstd")]
+                    index.config.zstd_dictionary.clone(),
                     index.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     index.metrics.clone(),

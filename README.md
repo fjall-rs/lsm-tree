@@ -64,6 +64,15 @@ Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeit
 
 *Disabled by default.*
 
+### zstd
+
+Allows using `Zstd` compression, powered by [`zstd`](https://github.com/gyscos/zstd-rs).
+Supports both regular zstd (`CompressionType::Zstd`) and dictionary compression
+(`CompressionType::ZstdDict`) for improved ratios on small table blocks (4–64 KiB).
+Blob-file dictionary compression is currently not supported.
+
+*Disabled by default.*
+
 ### bytes
 
 Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type.

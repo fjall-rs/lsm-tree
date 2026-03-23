@@ -420,6 +420,11 @@ impl AbstractTree for Tree {
         table_writer = table_writer.use_prefix_extractor(self.config.prefix_extractor.clone());
         table_writer = table_writer.use_encryption(self.config.encryption.clone());
 
+        #[cfg(feature = "zstd")]
+        {
+            table_writer = table_writer.use_zstd_dictionary(self.config.zstd_dictionary.clone());
+        }
+
         // Set range tombstones BEFORE writing KV items so that if MultiWriter
         // rotates to a new table during the write loop, earlier tables already
         // carry the RT metadata.
@@ -450,6 +455,8 @@ impl AbstractTree for Tree {
                     pin_filter,
                     pin_index,
                     self.config.encryption.clone(),
+                    #[cfg(feature = "zstd")]
+                    self.config.zstd_dictionary.clone(),
                     self.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     self.metrics.clone(),
@@ -1561,6 +1568,8 @@ impl Tree {
                     pin_filter,
                     pin_index,
                     config.encryption.clone(),
+                    #[cfg(feature = "zstd")]
+                    config.zstd_dictionary.clone(),
                     config.comparator.clone(),
                     #[cfg(feature = "metrics")]
                     metrics.clone(),

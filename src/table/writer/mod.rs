@@ -111,6 +111,10 @@ pub struct Writer {
 
     /// Block encryption provider (if encryption at rest is enabled)
     encryption: Option<Arc<dyn EncryptionProvider>>,
+
+    /// Pre-trained zstd dictionary for dictionary compression
+    #[cfg(feature = "zstd")]
+    zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 
 impl Writer {
@@ -175,6 +179,9 @@ impl Writer {
             range_tombstones: Vec::new(),
 
             encryption: None,
+
+            #[cfg(feature = "zstd")]
+            zstd_dictionary: None,
         })
     }
 
@@ -258,6 +265,15 @@ impl Writer {
 
     #[must_use]
     pub fn use_index_block_compression(mut self, compression: CompressionType) -> Self {
+        // ZstdDict is not useful for index/filter blocks (dictionaries are trained
+        // on data block content). Downgrade to plain Zstd to avoid ZstdDictMismatch
+        // errors on read — index readers never carry a dictionary.
+        #[cfg(feature = "zstd")]
+        let compression = match compression {
+            CompressionType::ZstdDict { level, .. } => CompressionType::Zstd(level),
+            other => other,
+        };
+
         self.index_block_compression = compression;
         self.index_writer = self.index_writer.use_compression(compression);
         self.filter_writer = self.filter_writer.use_tli_compression(compression);
@@ -273,6 +289,17 @@ impl Writer {
         self.index_writer = self.index_writer.use_encryption(encryption.clone());
         self.filter_writer = self.filter_writer.use_encryption(encryption.clone());
         self.encryption = encryption;
+        self
+    }
+
+    /// Sets the zstd dictionary for dictionary compression of data blocks.
+    #[cfg(feature = "zstd")]
+    #[must_use]
+    pub fn use_zstd_dictionary(
+        mut self,
+        dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+    ) -> Self {
+        self.zstd_dictionary = dictionary;
         self
     }
 
@@ -391,6 +418,8 @@ impl Writer {
             super::block::BlockType::Data,
             self.data_block_compression,
             self.encryption.as_deref(),
+            #[cfg(feature = "zstd")]
+            self.zstd_dictionary.as_deref(),
         )?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
@@ -567,6 +596,8 @@ impl Writer {
                 crate::table::block::BlockType::RangeTombstone,
                 CompressionType::None,
                 self.encryption.as_deref(),
+                #[cfg(feature = "zstd")]
+                None,
             )?;
         }
 
@@ -699,6 +730,8 @@ impl Writer {
                 crate::table::block::BlockType::Meta,
                 CompressionType::None,
                 self.encryption.as_deref(),
+                #[cfg(feature = "zstd")]
+                None,
             )?;
         };
 

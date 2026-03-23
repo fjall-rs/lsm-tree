@@ -280,6 +280,16 @@ pub struct Config<F: Fs = StdFs> {
     /// using this provider after compression and before checksumming.
     pub(crate) encryption: Option<Arc<dyn EncryptionProvider>>,
 
+    /// Pre-trained zstd dictionary for dictionary compression.
+    ///
+    /// When set together with a [`CompressionType::ZstdDict`] compression
+    /// policy, data blocks are compressed using this dictionary. The
+    /// dictionary must remain the same for the lifetime of the tree —
+    /// opening a tree with a different dictionary will produce
+    /// [`Error::ZstdDictMismatch`](crate::Error::ZstdDictMismatch) errors.
+    #[cfg(feature = "zstd")]
+    pub(crate) zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+
     /// The global sequence number generator.
     ///
     /// Should be shared between multiple trees of a database.
@@ -351,6 +361,9 @@ impl Default for Config {
 
             kv_separation_opts: None,
 
+            #[cfg(feature = "zstd")]
+            zstd_dictionary: None,
+
             comparator: comparator::default_comparator(),
             encryption: None,
         }
@@ -377,12 +390,66 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    /// Returns [`Error::ZstdDictMismatch`](crate::Error::ZstdDictMismatch) if
+    /// the compression policy references a `dict_id` that doesn't match the
+    /// configured dictionary.
     pub fn open(self) -> crate::Result<AnyTree> {
+        #[cfg(feature = "zstd")]
+        self.validate_zstd_dictionary()?;
+
         Ok(if self.kv_separation_opts.is_some() {
             AnyTree::Blob(BlobTree::open(self)?)
         } else {
             AnyTree::Standard(Tree::open(self)?)
         })
+    }
+
+    /// Validates that every `ZstdDict` entry in compression policies references
+    /// a `dict_id` that matches the configured dictionary. Catches mismatches
+    /// at open time rather than at first block write/read.
+    #[cfg(feature = "zstd")]
+    fn validate_zstd_dictionary(&self) -> crate::Result<()> {
+        let dict_id = self.zstd_dictionary.as_ref().map(|d| d.id());
+
+        // NOTE: Only data block policies are validated. Index blocks never
+        // carry a dictionary — Writer::use_index_block_compression() downgrades
+        // ZstdDict to plain Zstd. Validating index policies here would reject
+        // configs that use ZstdDict solely for index blocks even though the
+        // writer handles them correctly.
+        for ct in self.data_block_compression_policy.iter() {
+            if let &CompressionType::ZstdDict {
+                dict_id: required, ..
+            } = ct
+            {
+                match dict_id {
+                    None => {
+                        return Err(crate::Error::ZstdDictMismatch {
+                            expected: required,
+                            got: None,
+                        });
+                    }
+                    Some(actual) if actual != required => {
+                        return Err(crate::Error::ZstdDictMismatch {
+                            expected: required,
+                            got: Some(actual),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Blob files don't support dictionary compression — reject early.
+        if let Some(ref kv_opts) = self.kv_separation_opts {
+            if matches!(kv_opts.compression, CompressionType::ZstdDict { .. }) {
+                return Err(crate::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "zstd dictionary compression is not supported for blob files",
+                )));
+            }
+        }
+
+        Ok(())
     }
 
     /// Like [`Config::new`], but accepts pre-built shared generators.
@@ -635,6 +702,36 @@ impl<F: Fs> Config<F> {
     #[must_use]
     pub fn with_encryption(mut self, encryption: Option<Arc<dyn EncryptionProvider>>) -> Self {
         self.encryption = encryption;
+        self
+    }
+
+    /// Sets the pre-trained zstd dictionary for dictionary compression.
+    ///
+    /// When set, data blocks using [`CompressionType::ZstdDict`] will be
+    /// compressed and decompressed with this dictionary. The dictionary
+    /// should be trained on representative data samples for best results.
+    ///
+    /// Create a dictionary with [`ZstdDictionary::new`](crate::ZstdDictionary::new),
+    /// then use [`CompressionType::zstd_dict`] to create a matching
+    /// compression type:
+    ///
+    /// ```ignore
+    /// use lsm_tree::{CompressionType, ZstdDictionary};
+    ///
+    /// let dict = ZstdDictionary::new(&training_data);
+    /// let compression = CompressionType::zstd_dict(3, dict.id()).unwrap();
+    ///
+    /// config
+    ///     .zstd_dictionary(Some(Arc::new(dict)))
+    ///     .data_block_compression_policy(CompressionPolicy::all(compression));
+    /// ```
+    #[cfg(feature = "zstd")]
+    #[must_use]
+    pub fn zstd_dictionary(
+        mut self,
+        dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+    ) -> Self {
+        self.zstd_dictionary = dictionary;
         self
     }
 }

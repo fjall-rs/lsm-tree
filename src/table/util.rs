@@ -46,6 +46,7 @@ pub fn load_block(
     block_type: BlockType,
     compression: CompressionType,
     encryption: Option<&dyn EncryptionProvider>,
+    #[cfg(feature = "zstd")] zstd_dict: Option<&crate::compression::ZstdDictionary>,
     #[cfg(feature = "metrics")] metrics: &Metrics,
 ) -> crate::Result<Block> {
     #[cfg(feature = "metrics")]
@@ -93,7 +94,14 @@ pub fn load_block(
         (fd, true)
     };
 
-    let block = Block::from_file(fd.as_ref(), *handle, compression, encryption)?;
+    let block = Block::from_file(
+        fd.as_ref(),
+        *handle,
+        compression,
+        encryption,
+        #[cfg(feature = "zstd")]
+        zstd_dict,
+    )?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((
