@@ -2,14 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::GlobalTableId;
+use crate::{fs::FsFile, GlobalTableId};
 use quick_cache::{sync::Cache as QuickCache, UnitWeighter};
-use std::{fs::File, sync::Arc};
+use std::sync::Arc;
 
 const TAG_BLOCK: u8 = 0;
 const TAG_BLOB: u8 = 1;
 
-type Item = Arc<File>;
+type Item = Arc<dyn FsFile>;
 
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64);
@@ -40,7 +40,7 @@ impl DescriptorTable {
     }
 
     #[must_use]
-    pub fn access_for_table(&self, id: &GlobalTableId) -> Option<Arc<File>> {
+    pub fn access_for_table(&self, id: &GlobalTableId) -> Option<Arc<dyn FsFile>> {
         let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
         self.inner.get(&key)
     }
@@ -51,7 +51,7 @@ impl DescriptorTable {
     }
 
     #[must_use]
-    pub fn access_for_blob_file(&self, id: &GlobalTableId) -> Option<Arc<File>> {
+    pub fn access_for_blob_file(&self, id: &GlobalTableId) -> Option<Arc<dyn FsFile>> {
         let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
         self.inner.get(&key)
     }

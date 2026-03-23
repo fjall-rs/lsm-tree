@@ -267,7 +267,7 @@ impl Block {
     /// Pipeline: read → verify checksum → decrypt → decompress.
     /// When `encryption` is `None`, the decrypt step is skipped.
     pub fn from_file(
-        file: &impl FsFile,
+        file: &dyn FsFile,
         handle: BlockHandle,
         compression: CompressionType,
         encryption: Option<&dyn EncryptionProvider>,

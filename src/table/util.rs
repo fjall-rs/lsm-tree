@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    encryption::EncryptionProvider, file_accessor::FileAccessor, table::block::BlockType,
-    version::run::Ranged, Cache, CompressionType, KeyRange, Table,
+    encryption::EncryptionProvider, file_accessor::FileAccessor, fs::FsFile,
+    table::block::BlockType, version::run::Ranged, Cache, CompressionType, KeyRange, Table,
 };
 use std::{path::Path, sync::Arc};
 
@@ -76,15 +76,19 @@ pub fn load_block(
 
         (cached_fd, false)
     } else {
-        let fd = std::fs::File::open(path)?;
+        let file = std::fs::File::open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
 
-        (Arc::new(fd), true)
+        // The if-branch returns Arc<dyn FsFile> from the descriptor
+        // table, so the else-branch needs an explicit type annotation
+        // to trigger unsizing coercion.
+        let fd: Arc<dyn FsFile> = Arc::new(file);
+        (fd, true)
     };
 
-    let block = Block::from_file(&*fd, *handle, compression, encryption)?;
+    let block = Block::from_file(fd.as_ref(), *handle, compression, encryption)?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((

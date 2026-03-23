@@ -11,19 +11,24 @@ pub const TABLES_FOLDER: &str = "tables";
 pub const BLOBS_FOLDER: &str = "blobs";
 pub const CURRENT_VERSION_FILE: &str = "current";
 
-/// Reads bytes from a file using `pread`.
-pub fn read_exact(file: &impl FsFile, offset: u64, size: usize) -> std::io::Result<Slice> {
+/// Reads bytes from a file at the given offset without changing the cursor.
+///
+/// Uses [`FsFile::read_at`] (equivalent to `pread(2)`) so multiple threads
+/// can call this concurrently on the same file handle.
+pub fn read_exact(file: &dyn FsFile, offset: u64, size: usize) -> std::io::Result<Slice> {
     // SAFETY: This slice builder starts uninitialized, but we know its length
     //
-    // We use FsFile::read_at which gives us the number of bytes read
+    // We use FsFile::read_at which gives us the number of bytes read.
     // If that number does not match the slice length, the function errors,
-    // so the (partially) uninitialized buffer is discarded
+    // so the (partially) uninitialized buffer is discarded.
     //
     // Additionally, generally, block loads furthermore do a checksum check which
-    // would likely catch the buffer being wrong somehow
+    // would likely catch the buffer being wrong somehow.
     #[expect(unsafe_code, reason = "see safety")]
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
+    // Single call is correct: FsFile::read_at has fill-or-EOF semantics —
+    // implementations handle EINTR/short-read retry internally.
     let bytes_read = file.read_at(&mut builder, offset)?;
 
     if bytes_read != size {
@@ -86,6 +91,23 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use test_log::test;
+
+    #[test]
+    fn read_exact_short_read_returns_error() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("short.bin");
+        {
+            let mut f = File::create(&path)?;
+            f.write_all(b"hello")?; // 5 bytes
+        }
+
+        let file = File::open(&path)?;
+        // Request 10 bytes from a 5-byte file → short read → UnexpectedEof
+        let err = read_exact(&file, 0, 10).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+
+        Ok(())
+    }
 
     #[test]
     fn atomic_rewrite() -> crate::Result<()> {

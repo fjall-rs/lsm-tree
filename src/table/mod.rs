@@ -48,7 +48,6 @@ use inner::Inner;
 use iter::Iter;
 use std::{
     borrow::Cow,
-    fs::File,
     ops::{Bound, RangeBounds},
     path::PathBuf,
     sync::Arc,
@@ -117,11 +116,13 @@ impl Table {
                 if let Some(fd) = self.file_accessor.access_for_table(&table_id) {
                     (fd, false)
                 } else {
-                    (Arc::new(File::open(&*self.path)?), true)
+                    let fd: Arc<dyn FsFile> = Arc::new(std::fs::File::open(&*self.path)?);
+                    (fd, true)
                 };
 
             // Read the exact region using pread-style helper
-            let buf = crate::file::read_exact(&*fd, *handle.offset(), handle.size() as usize)?;
+            let buf =
+                crate::file::read_exact(fd.as_ref(), *handle.offset(), handle.size() as usize)?;
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {
@@ -430,7 +431,7 @@ impl Table {
 
     fn read_tli(
         regions: &ParsedRegions,
-        file: &impl FsFile,
+        file: &dyn FsFile,
         compression: CompressionType,
         encryption: Option<&dyn crate::encryption::EncryptionProvider>,
     ) -> crate::Result<IndexBlock> {
@@ -487,12 +488,12 @@ impl Table {
         let metadata =
             ParsedMeta::load_with_handle(&file, &regions.metadata, encryption.as_deref())?;
 
-        let file = Arc::new(file);
+        let file_handle: Arc<dyn FsFile> = Arc::new(file);
 
         let file_accessor = if let Some(dt) = descriptor_table {
             FileAccessor::DescriptorTable(dt)
         } else {
-            FileAccessor::File(file.clone())
+            FileAccessor::File(file_handle.clone())
         };
 
         let block_index = if regions.index.is_some() {
@@ -503,7 +504,7 @@ impl Table {
 
             let block = Self::read_tli(
                 &regions,
-                &*file,
+                file_handle.as_ref(),
                 metadata.index_block_compression,
                 encryption.as_deref(),
             )?;
@@ -529,7 +530,7 @@ impl Table {
 
             let block = Self::read_tli(
                 &regions,
-                &*file,
+                file_handle.as_ref(),
                 metadata.index_block_compression,
                 encryption.as_deref(),
             )?;
@@ -554,7 +555,7 @@ impl Table {
 
         let pinned_filter_index = if let Some(filter_tli_handle) = regions.filter_tli {
             let block = Block::from_file(
-                &*file,
+                file_handle.as_ref(),
                 filter_tli_handle,
                 metadata.index_block_compression,
                 encryption.as_deref(),
@@ -574,7 +575,7 @@ impl Table {
                     );
 
                     let block = Block::from_file(
-                        &*file,
+                        file_handle.as_ref(),
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                         encryption.as_deref(),
@@ -601,7 +602,7 @@ impl Table {
         let range_tombstones = if let Some(rt_handle) = regions.range_tombstones {
             log::trace!("Loading range tombstone block, with rt_ptr={rt_handle:?}");
             let block = Block::from_file(
-                &*file,
+                file_handle.as_ref(),
                 rt_handle,
                 crate::CompressionType::None,
                 encryption.as_deref(),
