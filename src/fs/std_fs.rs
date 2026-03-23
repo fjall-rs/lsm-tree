@@ -14,29 +14,6 @@ use std::path::Path;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StdFs;
 
-/// Iterator over directory entries returned by [`StdFs::read_dir`].
-pub struct StdReadDir(std::fs::ReadDir);
-
-impl Iterator for StdReadDir {
-    type Item = io::Result<FsDirEntry>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|res| {
-            let entry = res?;
-            let file_type = entry.file_type()?;
-            let file_name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-UTF-8 filename"))?;
-            Ok(FsDirEntry {
-                path: entry.path(),
-                file_name,
-                is_dir: file_type.is_dir(),
-            })
-        })
-    }
-}
-
 // ---------------------------------------------------------------------------
 // FsFile for std::fs::File
 // ---------------------------------------------------------------------------
@@ -125,26 +102,45 @@ impl FsFile for File {
 // ---------------------------------------------------------------------------
 
 impl Fs for StdFs {
-    type File = File;
-    type ReadDir = StdReadDir;
-
-    fn open(&self, path: &Path, opts: &FsOpenOptions) -> io::Result<File> {
-        OpenOptions::new()
+    fn open(&self, path: &Path, opts: &FsOpenOptions) -> io::Result<Box<dyn FsFile>> {
+        let file = OpenOptions::new()
             .read(opts.read)
             .write(opts.write)
             .create(opts.create)
             .create_new(opts.create_new)
             .truncate(opts.truncate)
             .append(opts.append)
-            .open(path)
+            .open(path)?;
+        Ok(Box::new(file))
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
         std::fs::create_dir_all(path)
     }
 
-    fn read_dir(&self, path: &Path) -> io::Result<StdReadDir> {
-        std::fs::read_dir(path).map(StdReadDir)
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<FsDirEntry>> {
+        // Fail-fast on bad entries is intentional: non-UTF-8 filenames in an
+        // lsm-tree data directory indicate filesystem corruption (see FsDirEntry docs).
+        std::fs::read_dir(path)?
+            .map(|res| {
+                let entry = res?;
+                let file_type = entry.file_type()?;
+                let file_name_os = entry.file_name();
+                let file_name = file_name_os.into_string().map_err(|os| {
+                    #[expect(
+                        clippy::unnecessary_debug_formatting,
+                        reason = "OsString has no Display impl — Debug is required"
+                    )]
+                    let msg = format!("non-UTF-8 filename in directory {}: {os:?}", path.display());
+                    io::Error::new(io::ErrorKind::InvalidData, msg)
+                })?;
+                Ok(FsDirEntry {
+                    path: entry.path(),
+                    file_name,
+                    is_dir: file_type.is_dir(),
+                })
+            })
+            .collect()
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
@@ -331,7 +327,7 @@ mod tests {
         let opts = FsOpenOptions::new().write(true).create(true);
         let mut file = fs.open(&path, &opts)?;
         file.write_all(b"hello world")?;
-        FsFile::sync_all(&file)?;
+        file.sync_all()?;
         drop(file);
 
         // Read back
@@ -361,7 +357,7 @@ mod tests {
         drop(file);
 
         // read_dir
-        let entries: Vec<_> = fs.read_dir(&nested)?.collect::<io::Result<Vec<_>>>()?;
+        let entries = fs.read_dir(&nested)?;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].file_name, "data.bin");
         assert!(!entries[0].is_dir);
@@ -424,7 +420,7 @@ mod tests {
         let mut file = fs.open(&path, &opts)?;
         file.write_all(b"12345")?;
 
-        let meta = FsFile::metadata(&file)?;
+        let meta = file.metadata()?;
         assert!(meta.is_file);
         assert_eq!(meta.len, 5);
 
@@ -440,9 +436,9 @@ mod tests {
         let opts = FsOpenOptions::new().write(true).create(true).read(true);
         let mut file = fs.open(&path, &opts)?;
         file.write_all(b"hello world")?;
-        FsFile::set_len(&file, 5)?;
+        file.set_len(5)?;
 
-        let meta = FsFile::metadata(&file)?;
+        let meta = file.metadata()?;
         assert_eq!(meta.len, 5);
 
         Ok(())
@@ -457,7 +453,7 @@ mod tests {
         let path = dir.path().join("lockfile");
         let opts = FsOpenOptions::new().write(true).create(true);
         let file = fs.open(&path, &opts)?;
-        FsFile::lock_exclusive(&file)?;
+        file.lock_exclusive()?;
 
         // Verifies flock() syscall succeeds without error. Testing actual
         // lock contention (try_lock from second thread) is out of scope for
@@ -478,12 +474,12 @@ mod tests {
 
         // read_at at offset 6 should return "world"
         let mut buf = [0u8; 5];
-        let n = FsFile::read_at(&file, &mut buf, 6)?;
+        let n = file.read_at(&mut buf, 6)?;
         assert_eq!(n, 5);
         assert_eq!(&buf, b"world");
 
         // read_at at offset 0 should return "hello"
-        let n = FsFile::read_at(&file, &mut buf, 0)?;
+        let n = file.read_at(&mut buf, 0)?;
         assert_eq!(n, 5);
         assert_eq!(&buf, b"hello");
 
@@ -527,7 +523,7 @@ mod tests {
         let opts = FsOpenOptions::new().write(true).create(true);
         let mut file = fs.open(&path, &opts)?;
         file.write_all(b"data")?;
-        FsFile::sync_data(&file)?;
+        file.sync_data()?;
 
         Ok(())
     }
@@ -577,7 +573,7 @@ mod tests {
         let opts = FsOpenOptions::new().write(true).create(true);
         fs.open(&file_path, &opts)?;
 
-        let mut entries: Vec<_> = fs.read_dir(dir.path())?.collect::<io::Result<Vec<_>>>()?;
+        let mut entries = fs.read_dir(dir.path())?;
         entries.sort_by(|a, b| a.file_name.cmp(&b.file_name));
 
         assert_eq!(entries.len(), 2);
@@ -600,11 +596,48 @@ mod tests {
         Ok(())
     }
 
-    /// Compile-time assertion: `Fs` is object-safe when associated types
-    /// are specified.
+    // Linux only: macOS (HFS+/APFS) rejects non-UTF-8 filenames at the FS layer.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn read_dir_rejects_non_utf8_filename() -> io::Result<()> {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir()?;
+        // Create a file with invalid UTF-8 bytes in its name.
+        let bad_name = OsStr::from_bytes(&[0xff, 0xfe]);
+        let bad_path = dir.path().join(bad_name);
+        if std::fs::write(&bad_path, b"data").is_err() {
+            // Filesystem rejected the non-UTF-8 filename (e.g. overlay,
+            // container mounts, restrictive mount options) — test
+            // precondition cannot be met, skip gracefully.
+            return Ok(());
+        }
+
+        let fs = StdFs;
+        match fs.read_dir(dir.path()) {
+            Err(err) => {
+                assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("non-UTF-8 filename"),
+                    "unexpected error: {msg}"
+                );
+                assert!(
+                    msg.contains(&dir.path().display().to_string()),
+                    "error should include directory path: {msg}",
+                );
+            }
+            Ok(_) => panic!("read_dir should fail on non-UTF-8 filename"),
+        }
+        Ok(())
+    }
+
+    /// Compile-time assertion: `Fs` is object-safe without specifying
+    /// associated types — enables simple `Arc<dyn Fs>` for per-level routing.
     #[test]
     fn object_safety() -> io::Result<()> {
-        let fs: Arc<dyn Fs<File = File, ReadDir = StdReadDir>> = Arc::new(StdFs);
+        let fs: Arc<dyn Fs> = Arc::new(StdFs);
         let dir = tempfile::tempdir()?;
         let bogus = dir.path().join("nonexistent");
         assert!(!fs.exists(&bogus)?);

@@ -15,7 +15,7 @@
 
 mod std_fs;
 
-pub use std_fs::{StdFs, StdReadDir};
+pub use std_fs::StdFs;
 
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -202,25 +202,25 @@ pub trait FsFile: Read + Write + Seek + Send + Sync {
 ///
 /// # Object safety
 ///
-/// `Fs` is object-safe when associated types are specified:
+/// `Fs` is object-safe and can be used as `Arc<dyn Fs>` directly:
 /// ```
-/// # use lsm_tree::fs::{Fs, StdFs, StdReadDir};
+/// # use lsm_tree::fs::{Fs, StdFs};
 /// # use std::sync::Arc;
-/// let _: Arc<dyn Fs<File = std::fs::File, ReadDir = StdReadDir>> = Arc::new(StdFs);
+/// let _: Arc<dyn Fs> = Arc::new(StdFs);
 /// ```
 pub trait Fs: Send + Sync + 'static {
-    /// The file handle type returned by [`open`](Fs::open).
-    type File: FsFile;
-
-    /// The iterator type returned by [`read_dir`](Fs::read_dir).
-    type ReadDir: Iterator<Item = io::Result<FsDirEntry>>;
-
     /// Opens a file at `path` with the given options.
+    ///
+    /// Returns a boxed file handle. For syscall-backed implementations
+    /// like [`StdFs`], the allocation and dynamic dispatch overhead is
+    /// typically negligible compared to the underlying I/O operations.
     ///
     /// # Errors
     ///
     /// Returns an I/O error if the file cannot be opened.
-    fn open(&self, path: &Path, opts: &FsOpenOptions) -> io::Result<Self::File>;
+    // Box<dyn FsFile> is intentionally 'static (the default) — file handles are
+    // owned values that do not borrow from the Fs instance that created them.
+    fn open(&self, path: &Path, opts: &FsOpenOptions) -> io::Result<Box<dyn FsFile>>;
 
     /// Recursively creates all directories leading to `path`.
     ///
@@ -229,12 +229,18 @@ pub trait Fs: Send + Sync + 'static {
     /// Returns an I/O error if directory creation fails.
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
 
-    /// Returns an iterator over the entries in a directory.
+    /// Returns all entries in a directory (order is unspecified).
+    ///
+    /// Returns a `Vec` rather than a streaming iterator because
+    /// `read_dir` is a cold-path operation (recovery, compaction file
+    /// listing) where directory sizes are expected to remain small.
+    /// Callers that need a specific order must sort the result.
     ///
     /// # Errors
     ///
-    /// Returns an I/O error if the directory cannot be read.
-    fn read_dir(&self, path: &Path) -> io::Result<Self::ReadDir>;
+    /// Returns an I/O error if the directory cannot be read or if any
+    /// individual entry fails.
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<FsDirEntry>>;
 
     /// Removes a single file.
     ///
