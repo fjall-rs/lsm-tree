@@ -85,6 +85,7 @@ fn compute_dict_id(raw: &[u8]) -> u32 {
 
 /// Compression algorithm to use
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum CompressionType {
     /// No compression
     ///
