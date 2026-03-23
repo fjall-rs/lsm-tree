@@ -75,10 +75,11 @@ impl Arena {
 
     /// Allocates `size` bytes with the given alignment.
     ///
-    /// Returns the encoded offset, or `None` if the arena is exhausted
-    /// (> 4 GiB total).  `align` **must** be a power of two.
+    /// Returns the encoded offset, or `None` if `size` is zero,
+    /// `size >= BLOCK_SIZE`, `align` is not a power of two, or the
+    /// arena is exhausted (> 4 GiB total).
     pub fn alloc(&self, size: u32, align: u32) -> Option<u32> {
-        if !align.is_power_of_two() || size == 0 {
+        if !align.is_power_of_two() || size == 0 || size >= BLOCK_SIZE {
             return None;
         }
 
@@ -90,11 +91,21 @@ impl Arena {
             let cur = self.cursor.load(Ordering::Acquire);
             let block_idx = cur >> BLOCK_SHIFT;
             let offset = cur & BLOCK_MASK;
-            // Cannot overflow: offset < BLOCK_SIZE (≤ 2^26), align ≤ 4.
+            // Cannot overflow: offset < BLOCK_SIZE (≤ 2^26), align < BLOCK_SIZE.
             let aligned = (offset + align - 1) & !(align - 1);
 
             if let Some(new_end) = aligned.checked_add(size) {
-                if new_end <= BLOCK_SIZE {
+                if new_end < BLOCK_SIZE {
+                    // Strict `<`: when new_end == BLOCK_SIZE the bitwise OR
+                    // on the next line would set bit BLOCK_SHIFT in new_end,
+                    // colliding with the block_idx bits and wrapping the
+                    // cursor back to offset 0 of the *current* block.
+                    // Falling through to the next-block path abandons any
+                    // remaining bytes in the current block (at most
+                    // `BLOCK_SIZE - offset`, including a would-have-fit
+                    // allocation at the end).  This waste is acceptable
+                    // for typical node sizes.  See #119.
+                    //
                     // Ensure the block exists BEFORE publishing the offset via
                     // CAS — otherwise another thread could read the cursor,
                     // compute the same block_idx, and call decode() before the
@@ -381,6 +392,8 @@ mod tests {
         let arena = Arena::new();
         assert!(arena.alloc(100, 3).is_none()); // 3 is not a power of two
         assert!(arena.alloc(0, 4).is_none()); // zero size
+        assert!(arena.alloc(BLOCK_SIZE, 1).is_none()); // size == BLOCK_SIZE
+        assert!(arena.alloc(BLOCK_SIZE + 1, 1).is_none()); // size > BLOCK_SIZE
     }
 
     #[test]
@@ -398,5 +411,66 @@ mod tests {
         let _ = arena.alloc(big, 1).expect("block 0");
         let _ = arena.alloc(64, 4).expect("block 1");
         // Drop runs here — deallocates both blocks.
+    }
+
+    /// Regression test for #119: when an allocation fills a block exactly
+    /// to BLOCK_SIZE, the cursor OR produced `(block_idx << SHIFT) | BLOCK_SIZE`
+    /// which wrapped back to offset 0 of the *same* block, causing subsequent
+    /// allocations to overwrite existing data.
+    ///
+    /// The bug only triggers when block_idx >= 1 because for block 0
+    /// `(0 << SHIFT) | BLOCK_SIZE` correctly decodes as block 1, offset 0.
+    /// For block_idx >= 1 the BLOCK_SHIFT bit is already set in the block
+    /// index, so the OR does not carry and the cursor wraps.
+    #[test]
+    fn exact_block_fill_does_not_corrupt() {
+        let arena = Arena::new();
+
+        // Jump the cursor directly to block 1, offset 0 — avoids allocating
+        // an entire block 0 (64 MiB on 64-bit) just to advance past it.
+        arena.cursor.store(1 << BLOCK_SHIFT, Ordering::Relaxed);
+
+        // Allocate (BLOCK_SIZE - 4) bytes to bring block 1's cursor to
+        // offset BLOCK_SIZE - 4.
+        let filler = BLOCK_SIZE - 4;
+        let f = arena.alloc(filler, 1).expect("filler");
+        assert_eq!(f >> BLOCK_SHIFT, 1, "filler should be in block 1");
+
+        // Write a sentinel pattern into the last allocated byte.
+        // SAFETY: `f` was just returned by alloc(filler, 1), so
+        // [f, f+filler) is allocated and we have exclusive access.
+        unsafe {
+            let bytes = arena.get_bytes_mut(f, filler);
+            bytes[filler as usize - 1] = 0xAB;
+        }
+
+        // Now cursor is at BLOCK_SIZE - 4 within block 1.  Allocate exactly
+        // 4 bytes (align=4): new_end = BLOCK_SIZE exactly.  With the fix,
+        // this allocation moves to block 2 (the tail bytes in block 1 are
+        // sacrificed).
+        let boundary = arena.alloc(4, 4).expect("boundary alloc");
+        assert_eq!(
+            boundary >> BLOCK_SHIFT,
+            2,
+            "exact-fill allocation must advance to the next block"
+        );
+
+        // A further allocation must also be in block 2 (not wrap to block 1).
+        let next = arena.alloc(8, 4).expect("next alloc");
+        assert_eq!(
+            next >> BLOCK_SHIFT,
+            2,
+            "subsequent allocation must stay in the advanced block"
+        );
+
+        // Verify the sentinel byte in block 1 was NOT overwritten.
+        // SAFETY: `f` is the offset returned by alloc(filler, 1) above,
+        // guaranteeing [f, f+filler) is allocated and initialised.
+        let read_sentinel = unsafe { arena.get_bytes(f, filler) };
+        assert_eq!(
+            read_sentinel[filler as usize - 1],
+            0xAB,
+            "block 1 data must not be corrupted by subsequent allocations"
+        );
     }
 }
