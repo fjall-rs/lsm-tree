@@ -11,7 +11,7 @@ use crate::{
     config::Config,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     table::{util::aggregate_run_key_range, Table},
-    version::{Run, Version},
+    version::{run::Ranged, Run, Version},
     HashSet, TableId,
 };
 
@@ -748,19 +748,26 @@ impl CompactionStrategy for Strategy {
                         // Include ALL L1 tables (we're emptying L1 into L2)
                         table_ids.extend(target_level.list_ids());
 
-                        // Include overlapping L2 tables
-                        let combined_key_range = first_level.aggregate_key_range();
-                        let l1_key_range = target_level.aggregate_key_range();
-                        let merged_range =
-                            crate::KeyRange::aggregate([combined_key_range, l1_key_range].iter());
-
-                        let l2_overlapping: Vec<_> = l2
-                            .iter()
-                            .flat_map(|run| run.get_overlapping(&merged_range))
-                            .map(Table::id)
-                            .collect();
-
-                        table_ids.extend(&l2_overlapping);
+                        // Include overlapping L2 tables — query per input
+                        // table range instead of one coarse aggregate (#72).
+                        // An aggregate across disjoint tables (e.g. [a,d] and
+                        // [x,z] → [a,z]) covers gaps and pulls in L2 tables
+                        // that don't actually overlap any input table.
+                        //
+                        // Per-table queries are O(L2_runs * input_tables *
+                        // log L2_run_size). Merging input ranges into disjoint
+                        // intervals first would reduce queries but adds
+                        // complexity; not worth it for typical input sizes
+                        // (~10–30 tables). See #120.
+                        for run in l2.iter() {
+                            for input_run in target_level.iter().chain(first_level.iter()) {
+                                for t in input_run.iter() {
+                                    for l2t in run.get_overlapping(t.key_range()) {
+                                        table_ids.insert(Table::id(l2t));
+                                    }
+                                }
+                            }
+                        }
 
                         #[expect(
                             clippy::cast_possible_truncation,

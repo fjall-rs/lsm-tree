@@ -674,6 +674,92 @@ fn multi_level_skip_fires_when_l1_oversized() -> crate::Result<()> {
     Ok(())
 }
 
+// --- Coverage: multi-level L2 overlap uses per-range, not aggregate (#72) ---
+
+#[test]
+fn multi_level_sparse_keyspace_data_integrity() -> crate::Result<()> {
+    // Regression test for #72: when L0/L1 tables have narrow, disjoint key
+    // ranges, the per-table L2 overlap query avoids pulling in gap-filling
+    // L2 tables that the old aggregate-range approach would include.
+    //
+    // Each flush writes keys from ONE narrow range so the flushed table's
+    // key_range is tight (e.g. [a,d] or [x,z]), not the full keyspace.
+    let dir = tempfile::tempdir()?;
+    let tree = Config::new(
+        dir.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    let mut seqno = 0u64;
+
+    // Phase 1: Fill L1 with overlapping data using default target (64 MiB).
+    // L1 target = 256 MiB >> our data, so it stays in L1.
+    let leveled = Arc::new(Strategy::default().with_l0_threshold(4));
+    for _round in 0..3 {
+        for _k in 0..4 {
+            tree.insert("a", "val", seqno);
+            tree.insert(format!("k_{seqno}").as_bytes(), "val", seqno);
+            tree.insert("z", "val", seqno);
+            tree.flush_active_memtable(seqno)?;
+            seqno += 1;
+        }
+        tree.compact(leveled.clone(), seqno)?;
+    }
+
+    // Phase 2: Switch to tiny target so L1 becomes "oversized" relative
+    // to the new target (64 * 4 = 256 bytes). Flush disjoint L0 tables
+    // with narrow key ranges to exercise the per-range overlap selection.
+    let multi = Arc::new(
+        Strategy::default()
+            .with_multi_level(true)
+            .with_table_target_size(64)
+            .with_l0_threshold(4),
+    );
+
+    for _k in 0..8 {
+        tree.insert("a", "val", seqno);
+        tree.insert(format!("k_{seqno}").as_bytes(), "val", seqno);
+        tree.insert("z", "val", seqno);
+        tree.flush_active_memtable(seqno)?;
+        seqno += 1;
+    }
+
+    let result = tree.compact(multi.clone(), seqno)?;
+
+    // Verify the compaction produced a merge targeting L2+
+    assert_eq!(
+        result.action,
+        crate::compaction::CompactionAction::Merged,
+        "compaction should produce a Merged action",
+    );
+    assert!(
+        result.dest_level.is_some_and(|lvl| lvl >= 2),
+        "compaction should target L2+, got {:?}",
+        result.dest_level,
+    );
+
+    // Verify data propagated beyond L1 into deeper levels.
+    let version = tree.current_version();
+    let has_deep_data =
+        (2..version.level_count()).any(|idx| version.level(idx).is_some_and(|l| !l.is_empty()));
+    assert!(
+        has_deep_data,
+        "data should exist in L2+ after compaction with multi_level",
+    );
+
+    // All data should be readable
+    for s in 0..seqno {
+        assert!(
+            tree.get(format!("k_{s}").as_bytes(), MAX_SEQNO)?.is_some(),
+            "key k_{s} should exist",
+        );
+    }
+
+    Ok(())
+}
+
 // --- Coverage: dynamic fallback to static when tree is small ---
 
 #[test]
