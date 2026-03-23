@@ -29,8 +29,9 @@ use std::sync::Arc;
 /// # Important
 ///
 /// Once a tree is created with a comparator, it must always be opened with the
-/// same comparator. Using a different comparator on an existing tree will produce
-/// incorrect results.
+/// same comparator. The comparator's [`name`](UserComparator::name) is
+/// persisted and checked on every subsequent open — a mismatch causes the open
+/// to fail with [`Error::ComparatorMismatch`](crate::Error::ComparatorMismatch).
 ///
 /// # Examples
 ///
@@ -42,6 +43,10 @@ use std::sync::Arc;
 /// struct U64Comparator;
 ///
 /// impl UserComparator for U64Comparator {
+///     fn name(&self) -> &'static str {
+///         "u64-big-endian"
+///     }
+///
 ///     fn compare(&self, a: &[u8], b: &[u8]) -> Ordering {
 ///         if a.len() == 8 && b.len() == 8 {
 ///             // Length checked, conversion cannot fail.
@@ -57,6 +62,21 @@ use std::sync::Arc;
 /// }
 /// ```
 pub trait UserComparator: Send + Sync + std::panic::RefUnwindSafe + 'static {
+    /// Returns a stable identifier for this comparator.
+    ///
+    /// The name is persisted when a tree is first created. On subsequent
+    /// opens the stored name is compared against the caller-supplied
+    /// comparator's name — a mismatch causes the open to fail, preventing
+    /// silent data corruption from using an incompatible ordering.
+    ///
+    /// Choose a name that uniquely identifies the ordering logic and will
+    /// not change across releases (e.g. `"u64-big-endian"`, `"reverse-lexicographic"`).
+    //
+    // Intentionally required (no default impl): a shared fallback name would
+    // let two distinct comparators pass the mismatch check, silently producing
+    // corrupt reads on reopen — the exact scenario this method prevents.
+    fn name(&self) -> &'static str;
+
     /// Compares two user keys, returning their ordering.
     fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering;
 
@@ -78,6 +98,10 @@ pub trait UserComparator: Send + Sync + std::panic::RefUnwindSafe + 'static {
 pub struct DefaultUserComparator;
 
 impl UserComparator for DefaultUserComparator {
+    fn name(&self) -> &'static str {
+        "default"
+    }
+
     #[inline]
     fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
         a.cmp(b)
@@ -92,6 +116,11 @@ impl UserComparator for DefaultUserComparator {
 /// Shared reference to a [`UserComparator`].
 pub type SharedComparator = Arc<dyn UserComparator>;
 
+/// Maximum byte length for a comparator name.
+///
+/// Enforced on write (`persist_version`) and read (`Manifest::decode_from`).
+pub const MAX_COMPARATOR_NAME_BYTES: usize = 256;
+
 /// Returns the default comparator (lexicographic byte ordering).
 ///
 /// Uses a shared static instance to avoid repeated allocations.
@@ -101,4 +130,20 @@ pub fn default_comparator() -> SharedComparator {
     static DEFAULT: std::sync::LazyLock<SharedComparator> =
         std::sync::LazyLock::new(|| Arc::new(DefaultUserComparator));
     DEFAULT.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_comparator_name() {
+        assert_eq!(DefaultUserComparator.name(), "default");
+        assert_eq!(default_comparator().name(), "default");
+    }
+
+    #[test]
+    fn default_comparator_is_lexicographic() {
+        assert!(DefaultUserComparator.is_lexicographic());
+    }
 }

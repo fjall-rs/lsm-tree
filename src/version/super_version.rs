@@ -27,25 +27,33 @@ pub struct SuperVersion {
     pub(crate) seqno: SeqNo,
 }
 
-pub struct SuperVersions(VecDeque<SuperVersion>);
+pub struct SuperVersions {
+    versions: VecDeque<SuperVersion>,
+
+    /// Stable comparator identity persisted in every version file.
+    comparator_name: Arc<str>,
+}
 
 impl SuperVersions {
     pub fn new(version: Version, comparator: SharedComparator) -> Self {
-        Self(
-            vec![SuperVersion {
+        let comparator_name: Arc<str> = comparator.name().into();
+
+        Self {
+            versions: vec![SuperVersion {
                 active_memtable: Arc::new(Memtable::new(0, comparator)),
                 sealed_memtables: Arc::default(),
                 version,
                 seqno: 0,
             }]
             .into(),
-        )
+            comparator_name,
+        }
     }
 
     pub fn memtable_size_sum(&self) -> u64 {
         let mut set = crate::HashMap::default();
 
-        for super_version in &self.0 {
+        for super_version in &self.versions {
             set.entry(super_version.active_memtable.id)
                 .and_modify(|bytes| *bytes += super_version.active_memtable.size())
                 .or_insert_with(|| super_version.active_memtable.size());
@@ -61,7 +69,7 @@ impl SuperVersions {
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.versions.len()
     }
 
     pub fn free_list_len(&self) -> usize {
@@ -79,9 +87,9 @@ impl SuperVersions {
 
         log::trace!("Running manifest GC with watermark={gc_watermark}");
 
-        if let Some(hi_idx) = self.0.iter().rposition(|x| x.seqno < gc_watermark) {
+        if let Some(hi_idx) = self.versions.iter().rposition(|x| x.seqno < gc_watermark) {
             for _ in 0..hi_idx {
-                let Some(head) = self.0.front() else {
+                let Some(head) = self.versions.front() else {
                     break;
                 };
 
@@ -96,11 +104,14 @@ impl SuperVersions {
                     std::fs::remove_file(path)?;
                 }
 
-                self.0.pop_front();
+                self.versions.pop_front();
             }
         }
 
-        log::trace!("Manifest GC done, version length now {}", self.0.len());
+        log::trace!(
+            "Manifest GC done, version length now {}",
+            self.versions.len()
+        );
 
         Ok(())
     }
@@ -140,7 +151,7 @@ impl SuperVersions {
         next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
 
-        persist_version(tree_path, &next_version.version)?;
+        persist_version(tree_path, &next_version.version, &self.comparator_name)?;
         self.append_version(next_version);
 
         // Clamp to stay below the reserved MSB range.
@@ -151,18 +162,18 @@ impl SuperVersions {
     }
 
     pub fn append_version(&mut self, version: SuperVersion) {
-        self.0.push_back(version);
+        self.versions.push_back(version);
     }
 
     pub fn replace_latest_version(&mut self, version: SuperVersion) {
-        if self.0.pop_back().is_some() {
-            self.0.push_back(version);
+        if self.versions.pop_back().is_some() {
+            self.versions.push_back(version);
         }
     }
 
     pub fn latest_version(&self) -> SuperVersion {
         #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
-        self.0
+        self.versions
             .iter()
             .last()
             .cloned()
@@ -173,14 +184,14 @@ impl SuperVersions {
         if seqno == 0 {
             #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
             return self
-                .0
+                .versions
                 .front()
                 .cloned()
                 .expect("should always find a SuperVersion");
         }
 
         let version = self
-            .0
+            .versions
             .iter()
             .rev()
             .find(|version| version.seqno < seqno)
@@ -190,7 +201,7 @@ impl SuperVersions {
             log::error!("Failed to find a SuperVersion for snapshot with seqno={seqno}");
             log::error!("SuperVersions:");
 
-            for version in self.0.iter().rev() {
+            for version in self.versions.iter().rev() {
                 log::error!("-> {}, seqno={}", version.version.id(), version.seqno);
             }
         }
@@ -210,31 +221,35 @@ mod tests {
         Memtable::new(id, default_comparator())
     }
 
+    fn test_super_versions(versions: Vec<SuperVersion>) -> SuperVersions {
+        SuperVersions {
+            versions: versions.into(),
+            comparator_name: "default".into(),
+        }
+    }
+
     #[test]
     fn super_version_gc_above_watermark() -> crate::Result<()> {
-        let mut history = SuperVersions(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 1,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-            ]
-            .into(),
-        );
+        let mut history = test_super_versions(vec![
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 0,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 1,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 2,
+            },
+        ]);
 
         history.maintenance(Path::new("."), 0)?;
 
@@ -245,29 +260,26 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_simple() -> crate::Result<()> {
-        let mut history = SuperVersions(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 1,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-            ]
-            .into(),
-        );
+        let mut history = test_super_versions(vec![
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 0,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 1,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 2,
+            },
+        ]);
 
         history.maintenance(Path::new("."), 3)?;
 
@@ -278,35 +290,32 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_simple_2() -> crate::Result<()> {
-        let mut history = SuperVersions(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 1,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 8,
-                },
-            ]
-            .into(),
-        );
+        let mut history = test_super_versions(vec![
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 0,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 1,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 2,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 8,
+            },
+        ]);
 
         history.maintenance(Path::new("."), 3)?;
 
@@ -317,23 +326,20 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_keep() -> crate::Result<()> {
-        let mut history = SuperVersions(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 8,
-                },
-            ]
-            .into(),
-        );
+        let mut history = test_super_versions(vec![
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 0,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 8,
+            },
+        ]);
 
         history.maintenance(Path::new("."), 3)?;
 
@@ -344,23 +350,20 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_shadowed() -> crate::Result<()> {
-        let mut history = SuperVersions(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(new_memtable(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-            ]
-            .into(),
-        );
+        let mut history = test_super_versions(vec![
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 0,
+            },
+            SuperVersion {
+                active_memtable: Arc::new(new_memtable(0)),
+                sealed_memtables: Arc::default(),
+                version: Version::new(0, crate::TreeType::Standard),
+                seqno: 2,
+            },
+        ]);
 
         history.maintenance(Path::new("."), 3)?;
 

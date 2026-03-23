@@ -1330,6 +1330,40 @@ impl Tree {
 
         log::info!("Recovering LSM-tree at {}", config.path.display());
 
+        // Validate manifest metadata (format version, comparator name)
+        // BEFORE recover_levels, so a rejected open is side-effect free
+        // — recover_levels loads tables and cleans up orphans.
+        // Tree type is checked after recovery (needs the Version object).
+        // NOTE: the version file is read twice (here for metadata, then inside
+        // recover_levels for table/blob data). This is intentional — metadata
+        // validation must complete before any disk-mutating recovery work.
+        {
+            let version_id = crate::version::recovery::get_current_version(&config.path)?;
+            let manifest_path = config.path.join(format!("v{version_id}"));
+            let reader = sfa::Reader::new(&manifest_path)?;
+            let manifest = Manifest::decode_from(&manifest_path, &reader)?;
+
+            if !matches!(manifest.version, FormatVersion::V3 | FormatVersion::V4) {
+                return Err(crate::Error::InvalidVersion(manifest.version.into()));
+            }
+
+            let supplied_name = config.comparator.name();
+            if manifest.comparator_name != supplied_name {
+                log::warn!(
+                    "Comparator mismatch: tree was created with {:?} but opened with {:?}",
+                    manifest.comparator_name,
+                    supplied_name,
+                );
+                return Err(crate::Error::ComparatorMismatch {
+                    stored: manifest.comparator_name,
+                    supplied: supplied_name,
+                });
+            }
+
+            // IMPORTANT: Restore persisted config
+            config.level_count = manifest.level_count;
+        }
+
         let tree_id = get_next_tree_id();
 
         #[cfg(feature = "metrics")]
@@ -1344,14 +1378,6 @@ impl Tree {
         )?;
 
         {
-            let manifest_path = config.path.join(format!("v{}", version.id()));
-            let reader = sfa::Reader::new(&manifest_path)?;
-            let manifest = Manifest::decode_from(&manifest_path, &reader)?;
-
-            if !matches!(manifest.version, FormatVersion::V3 | FormatVersion::V4) {
-                return Err(crate::Error::InvalidVersion(manifest.version.into()));
-            }
-
             let requested_tree_type = match config.kv_separation_opts {
                 Some(_) => crate::TreeType::Blob,
                 None => crate::TreeType::Standard,
@@ -1364,9 +1390,6 @@ impl Tree {
                 );
                 return Err(crate::Error::Unrecoverable);
             }
-
-            // IMPORTANT: Restore persisted config
-            config.level_count = manifest.level_count;
         }
 
         let highest_table_id = version

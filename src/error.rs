@@ -76,6 +76,18 @@ pub enum Error {
     /// Decryption failed
     Decrypt(&'static str),
 
+    /// Comparator mismatch on tree reopen.
+    ///
+    /// The tree was created with a comparator whose [`crate::UserComparator::name`]
+    /// differs from the one supplied at reopen time.
+    ComparatorMismatch {
+        /// Comparator name persisted in the tree metadata.
+        stored: String,
+
+        /// Comparator name supplied by the caller.
+        supplied: &'static str,
+    },
+
     /// Range tombstone block decode failure.
     RangeTombstoneDecode {
         /// Which field or validation failed (e.g. `start_len`, `start`, `seqno`, `interval`)

@@ -605,13 +605,10 @@ impl<F: Fs> Config<F> {
     ///
     /// # Important
     ///
-    /// Once a tree is created with a custom comparator, it **must** be
-    /// re-opened with the same comparator. Using a different comparator
-    /// on an existing tree produces incorrect results.
-    ///
-    /// The comparator identity is **not** persisted to disk — the caller
-    /// is responsible for ensuring the same comparator is used across
-    /// open/close cycles (same approach as `RocksDB`).
+    /// The comparator's [`crate::UserComparator::name`] is persisted when a tree is
+    /// first created. On subsequent opens the stored name is compared against
+    /// the supplied comparator's name — a mismatch causes the open to fail
+    /// with [`Error::ComparatorMismatch`](crate::Error::ComparatorMismatch).
     #[must_use]
     pub fn comparator(mut self, comparator: SharedComparator) -> Self {
         self.comparator = comparator;

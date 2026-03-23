@@ -631,6 +631,7 @@ impl Version {
     pub(crate) fn encode_into(
         &self,
         writer: &mut sfa::Writer<impl std::io::Write + std::io::Seek>,
+        comparator_name: &str,
     ) -> Result<(), crate::Error> {
         use crate::FormatVersion;
         use byteorder::{LittleEndian, WriteBytesExt};
@@ -658,6 +659,9 @@ impl Version {
 
         writer.start("filter_hash_type")?;
         writer.write_u8(u8::from(ChecksumType::Xxh3))?;
+
+        writer.start("comparator_name")?;
+        writer.write_all(comparator_name.as_bytes())?;
 
         //
         // Levels
