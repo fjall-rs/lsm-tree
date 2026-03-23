@@ -450,7 +450,6 @@ fn reverse_comparator_compaction_with_updates() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "range bounds interpretation for reverse comparator (#116)"]
 fn reverse_comparator_range_scan_after_compaction() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let seqno = SequenceNumberCounter::default();
@@ -829,7 +828,6 @@ fn reverse_comparator_merge_after_compaction() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "range bounds interpretation for reverse comparator (#116)"]
 fn reverse_comparator_merge_range_scan_after_compaction() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let seqno = SequenceNumberCounter::default();
@@ -873,6 +871,86 @@ fn reverse_comparator_merge_range_scan_after_compaction() -> lsm_tree::Result<()
             ("b".into(), 15), // 10 + 5
         ]
     );
+
+    Ok(())
+}
+
+// ===========================================================================
+// Section 5: Ingestion write guards with custom comparator (#118)
+//
+// Historically, ingestion guards used lexicographic `key > *prev`.
+// These tests validate the fixed behavior: ordering is now enforced
+// by the configured comparator, so reverse-comparator ingestion accepts
+// reverse-lexicographic key order.
+// ===========================================================================
+
+#[test]
+fn reverse_comparator_ingestion_accepts_correct_order() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let cmp: SharedComparator = Arc::new(ReverseComparator);
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .comparator(cmp)
+    .open()?;
+
+    let mut ingest = tree.ingestion()?;
+
+    // Reverse comparator: "c" < "b" < "a", so correct ingestion order is c, b, a
+    ingest.write(b"c", b"val_c")?;
+    ingest.write(b"b", b"val_b")?;
+    ingest.write(b"a", b"val_a")?;
+    ingest.finish()?;
+
+    assert_eq!(
+        tree.get("c", SeqNo::MAX)?.map(|v| v.to_vec()),
+        Some(b"val_c".to_vec())
+    );
+    assert_eq!(
+        tree.get("b", SeqNo::MAX)?.map(|v| v.to_vec()),
+        Some(b"val_b".to_vec())
+    );
+    assert_eq!(
+        tree.get("a", SeqNo::MAX)?.map(|v| v.to_vec()),
+        Some(b"val_a".to_vec())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn reverse_comparator_ingestion_tombstone_accepts_correct_order() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let cmp: SharedComparator = Arc::new(ReverseComparator);
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .comparator(cmp)
+    .open()?;
+
+    // Insert some data first
+    tree.insert(b"a", b"val", 0);
+    tree.insert(b"b", b"val", 0);
+    tree.insert(b"c", b"val", 0);
+    tree.flush_active_memtable(0)?;
+
+    let mut ingest = tree.ingestion()?;
+
+    // Reverse order: tombstones for c, b, a
+    ingest.write_tombstone(b"c".as_slice())?;
+    ingest.write_tombstone(b"b".as_slice())?;
+    ingest.write_tombstone(b"a".as_slice())?;
+    ingest.finish()?;
+
+    assert!(tree.get("a", SeqNo::MAX)?.is_none());
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert!(tree.get("c", SeqNo::MAX)?.is_none());
 
     Ok(())
 }

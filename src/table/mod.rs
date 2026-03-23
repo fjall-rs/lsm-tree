@@ -821,9 +821,15 @@ impl Table {
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    /// Checks if a key range is (partially or fully) contained in this table.
-    pub(crate) fn check_key_range_overlap(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
-        self.metadata.key_range.overlaps_with_bounds(bounds)
+    /// Checks if a key range overlaps (partially or fully) with this table's key range.
+    pub(crate) fn check_key_range_overlap_cmp(
+        &self,
+        bounds: &(Bound<&[u8]>, Bound<&[u8]>),
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> bool {
+        self.metadata
+            .key_range
+            .overlaps_with_bounds_cmp(bounds, cmp)
     }
 
     /// Checks the full-table bloom filter for a hash value.

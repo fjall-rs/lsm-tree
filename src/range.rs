@@ -257,7 +257,7 @@ impl TreeIter {
                 // the target key. The key-range check avoids loading RTs from
                 // tables that cannot possibly contain a covering tombstone.
                 for table in run.iter() {
-                    if !table.check_key_range_overlap(&bounds) {
+                    if !table.check_key_range_overlap_cmp(&bounds, lock.comparator.as_ref()) {
                         continue;
                     }
                     range_tombstones.extend(
@@ -276,7 +276,9 @@ impl TreeIter {
                         #[expect(clippy::expect_used, reason = "we checked for length")]
                         let table = run.first().expect("should exist");
 
-                        if table.check_key_range_overlap(&bounds) && bloom_passes(lock, table) {
+                        if table.check_key_range_overlap_cmp(&bounds, lock.comparator.as_ref())
+                            && bloom_passes(lock, table)
+                        {
                             let reader =
                                 table
                                     .range(user_range.clone())
@@ -291,7 +293,8 @@ impl TreeIter {
                         let surviving: Vec<_> = run
                             .iter()
                             .filter(|table| {
-                                table.check_key_range_overlap(&bounds) && bloom_passes(lock, table)
+                                table.check_key_range_overlap_cmp(&bounds, lock.comparator.as_ref())
+                                    && bloom_passes(lock, table)
                             })
                             .cloned()
                             .collect();
@@ -488,10 +491,13 @@ impl TreeIter {
 
                         // Check key range overlap first (cheap metadata check) before
                         // running the O(rt_count) table-skip scan.
-                        if table.check_key_range_overlap(&(
-                            user_range.0.as_ref().map(std::convert::AsRef::as_ref),
-                            user_range.1.as_ref().map(std::convert::AsRef::as_ref),
-                        )) && bloom_passes(lock, table)
+                        if table.check_key_range_overlap_cmp(
+                            &(
+                                user_range.0.as_ref().map(std::convert::AsRef::as_ref),
+                                user_range.1.as_ref().map(std::convert::AsRef::as_ref),
+                            ),
+                            lock.comparator.as_ref(),
+                        ) && bloom_passes(lock, table)
                         {
                             single_tables.push(table.clone());
                         }
@@ -525,7 +531,10 @@ impl TreeIter {
                                 .filter(|table| {
                                     // Cheap key-range metadata check first to avoid
                                     // bloom filter I/O for non-overlapping tables.
-                                    if !table.check_key_range_overlap(&bounds) {
+                                    if !table.check_key_range_overlap_cmp(
+                                        &bounds,
+                                        lock.comparator.as_ref(),
+                                    ) {
                                         return false;
                                     }
 

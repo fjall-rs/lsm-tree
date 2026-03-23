@@ -105,6 +105,53 @@ impl KeyRange {
             && cmp.compare(start1, end2) != std::cmp::Ordering::Greater
     }
 
+    /// Like [`Self::overlaps_with_bounds`], but uses a custom comparator for key ordering.
+    #[must_use]
+    pub fn overlaps_with_bounds_cmp(
+        &self,
+        bounds: &(Bound<&[u8]>, Bound<&[u8]>),
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> bool {
+        use std::cmp::Ordering;
+
+        let (lo, hi) = bounds;
+        let (my_lo, my_hi) = self.as_tuple();
+
+        if *lo == Bound::Unbounded && *hi == Bound::Unbounded {
+            return true;
+        }
+
+        if *hi == Bound::Unbounded {
+            return match lo {
+                Bound::Included(key) => cmp.compare(key, my_hi) != Ordering::Greater,
+                Bound::Excluded(key) => cmp.compare(key, my_hi) == Ordering::Less,
+                Bound::Unbounded => unreachable!(),
+            };
+        }
+
+        if *lo == Bound::Unbounded {
+            return match hi {
+                Bound::Included(key) => cmp.compare(key, my_lo) != Ordering::Less,
+                Bound::Excluded(key) => cmp.compare(key, my_lo) == Ordering::Greater,
+                Bound::Unbounded => unreachable!(),
+            };
+        }
+
+        let lo_included = match lo {
+            Bound::Included(key) => cmp.compare(key, my_hi) != Ordering::Greater,
+            Bound::Excluded(key) => cmp.compare(key, my_hi) == Ordering::Less,
+            Bound::Unbounded => unreachable!(),
+        };
+
+        let hi_included = match hi {
+            Bound::Included(key) => cmp.compare(key, my_lo) != Ordering::Less,
+            Bound::Excluded(key) => cmp.compare(key, my_lo) == Ordering::Greater,
+            Bound::Unbounded => unreachable!(),
+        };
+
+        lo_included && hi_included
+    }
+
     /// Returns `true` if the ranges overlap partially or fully.
     #[must_use]
     pub fn overlaps_with_bounds(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
@@ -380,6 +427,100 @@ mod tests {
             let key_range = KeyRange(UserKey::from("key5"), UserKey::from("key8"));
             let bounds = (Unbounded, Excluded(b"key6" as &[u8]));
             assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+    }
+
+    mod overlaps_with_bounds_cmp {
+        use super::*;
+        use crate::comparator::UserComparator;
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+        use test_log::test;
+
+        struct ReverseComparator;
+
+        impl UserComparator for ReverseComparator {
+            fn name(&self) -> &'static str {
+                "reverse"
+            }
+
+            fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+                b.cmp(a)
+            }
+        }
+
+        #[test]
+        fn both_unbounded() {
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Unbounded, Unbounded);
+            assert!(kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn inclusive_reverse_overlap() {
+            // Reverse: f < e < d < c < b < a. Key range min=f, max=a.
+            // Bounds "e"..="b" in reverse → should overlap.
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Included(b"e" as &[u8]), Included(b"b" as &[u8]));
+            assert!(kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn no_overlap_reverse() {
+            // Key range f..a (reverse). Bounds "z"..="x" → z < x in reverse?
+            // No: z and x are both below f in reverse order (reverse: a > b > ... > z).
+            // Actually reverse: z < y < x < ... < a. So "z"..="x" is valid.
+            // kr min=f, max=a. cmp("z", "a")=reverse of z.cmp(a)=reverse(Greater)=Less.
+            // So z < a in reverse → bounds lo "z" is below kr min "f"? Let's check:
+            // lo_included: cmp("z", "a"(max)) = reverse(z.cmp(a)) = reverse(Greater) = Less.
+            // Less != Greater → true. hi_included: cmp("x", "f"(min)) = reverse(x.cmp(f)) = reverse(Greater) = Less.
+            // Less is Less → false. So no overlap.
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Included(b"z" as &[u8]), Included(b"x" as &[u8]));
+            assert!(!kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn semi_open_hi_unbounded() {
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Included(b"c" as &[u8]), Unbounded);
+            assert!(kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn semi_open_lo_unbounded() {
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Unbounded, Included(b"c" as &[u8]));
+            assert!(kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn exclusive_overlap() {
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            // Excluded "a" as hi → hi must be > min "f" in reverse.
+            // cmp("a", "f") = reverse(a.cmp(f)) = reverse(Less) = Greater → true.
+            // But excluded "f" as lo → lo must be < max "a" in reverse.
+            // cmp("f", "a") = reverse(f.cmp(a)) = reverse(Greater) = Less → true.
+            // Both true → overlaps.
+            let bounds = (Excluded(b"f" as &[u8]), Excluded(b"a" as &[u8]));
+            assert!(kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn semi_open_excluded_no_overlap() {
+            // kr min=f, max=a. Excluded "f" as hi, lo unbounded.
+            // cmp("f", "f"(min)) = reverse(f.cmp(f)) = Equal. Greater? No → false.
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Unbounded, Excluded(b"f" as &[u8]));
+            assert!(!kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
+        }
+
+        #[test]
+        fn semi_open_excluded_lo_no_overlap() {
+            // kr min=f, max=a. lo=Excluded("a"), hi unbounded.
+            // cmp("a", "a"(max)) = Equal. Less? No → false.
+            let kr = KeyRange(UserKey::from("f"), UserKey::from("a"));
+            let bounds = (Excluded(b"a" as &[u8]), Unbounded);
+            assert!(!kr.overlaps_with_bounds_cmp(&bounds, &ReverseComparator));
         }
     }
 

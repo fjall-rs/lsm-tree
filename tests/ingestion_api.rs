@@ -128,7 +128,9 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[should_panic(expected = "next key in ingestion must be greater than last key")]
+#[should_panic(
+    expected = "next key in ingestion must be ordered after last key by configured comparator"
+)]
 fn ingestion_enforces_order_standard_panics() {
     let folder = tempfile::tempdir().unwrap();
     let tree = lsm_tree::Config::new(

@@ -7,6 +7,7 @@ use crate::{
     config::FilterPolicyEntry, table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey,
     UserValue,
 };
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 pub const INITIAL_CANONICAL_LEVEL: usize = 1;
@@ -128,8 +129,8 @@ impl<'a> Ingestion<'a> {
 
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 
@@ -157,8 +158,8 @@ impl<'a> Ingestion<'a> {
     pub fn write(&mut self, key: UserKey, value: UserValue) -> crate::Result<()> {
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 
@@ -183,8 +184,8 @@ impl<'a> Ingestion<'a> {
     pub fn write_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 
@@ -209,8 +210,8 @@ impl<'a> Ingestion<'a> {
     pub fn write_weak_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 

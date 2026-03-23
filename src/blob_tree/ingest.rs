@@ -6,6 +6,7 @@ use crate::{
     blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER, table::Table,
     tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey, UserValue,
 };
+use std::cmp::Ordering;
 
 /// Bulk ingestion for [`BlobTree`]
 ///
@@ -74,8 +75,8 @@ impl<'a> BlobIngestion<'a> {
         // Check order before any blob I/O to avoid partial writes on failure
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.index.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 
@@ -114,8 +115,8 @@ impl<'a> BlobIngestion<'a> {
     pub fn write_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.index.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 
@@ -135,8 +136,8 @@ impl<'a> BlobIngestion<'a> {
     pub fn write_weak_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
         if let Some(prev) = &self.last_key {
             assert!(
-                key > *prev,
-                "next key in ingestion must be greater than last key"
+                self.tree.index.config.comparator.compare(prev, &key) == Ordering::Less,
+                "next key in ingestion must be ordered after last key by configured comparator"
             );
         }
 
