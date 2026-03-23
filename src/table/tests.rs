@@ -1814,3 +1814,98 @@ fn meta_seqno_kv_max_corruption_returns_invalid_data() -> crate::Result<()> {
 
     Ok(())
 }
+
+/// bloom_may_contain_key with full (non-partitioned) filter delegates to
+/// bloom_may_contain_hash. Both methods agree for full filters.
+#[test]
+fn bloom_may_contain_key_full_filter() -> crate::Result<()> {
+    let items: Vec<InternalValue> = ["a", "c", "e"]
+        .iter()
+        .enumerate()
+        .map(|(i, &k)| {
+            InternalValue::from_components(k, "v", i as u64 + 1, crate::ValueType::Value)
+        })
+        .collect();
+
+    test_with_table(
+        &items,
+        |table| {
+            let hash_a = BloomBuilder::get_hash(b"a");
+            let hash_b = BloomBuilder::get_hash(b"b");
+
+            // Existing key: both methods must accept
+            assert!(
+                table.bloom_may_contain_key(b"a", hash_a)?,
+                "bloom_may_contain_key must not reject existing key"
+            );
+            assert!(
+                table.bloom_may_contain_key_hash(hash_a)?,
+                "bloom_may_contain_key_hash must not reject existing key"
+            );
+
+            // For full filters, bloom_may_contain_key delegates to the same
+            // hash-only path, so both methods return the same result.
+            let key_result = table.bloom_may_contain_key(b"b", hash_b)?;
+            let hash_result = table.bloom_may_contain_key_hash(hash_b)?;
+            assert_eq!(
+                key_result, hash_result,
+                "full filter: key-based and hash-only should agree"
+            );
+
+            Ok(())
+        },
+        None,
+        Some(|w: Writer| w.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(10.0))),
+    )
+}
+
+/// bloom_may_contain_key with partitioned filter seeks the correct partition
+/// and returns Ok(false) for a key beyond all partition boundaries.
+///
+/// Contrast: bloom_may_contain_key_hash returns Ok(true) conservatively
+/// for the same key because it cannot seek partitions by hash alone.
+/// This is the core behavioral improvement introduced by this PR.
+#[test]
+fn bloom_may_contain_key_partitioned_filter() -> crate::Result<()> {
+    let items: Vec<InternalValue> = (0u64..100)
+        .map(|i| {
+            let key = format!("key_{i:04}");
+            InternalValue::from_components(key, "v", i + 1, crate::ValueType::Value)
+        })
+        .collect();
+
+    test_with_table(
+        &items,
+        |table| {
+            // Key that exists: both methods must accept
+            let hash_exist = BloomBuilder::get_hash(b"key_0050");
+            assert!(
+                table.bloom_may_contain_key(b"key_0050", hash_exist)?,
+                "bloom must not reject existing key in partitioned filter"
+            );
+
+            // Key beyond all partitions: with a pinned partition index, key-based
+            // seek finds no ceiling and must return Ok(false).
+            // Note: pinned_filter_index is always loaded when filter_tli exists
+            // (unconditional in Table::recover), so this is always the partition-aware path.
+            let hash_beyond = BloomBuilder::get_hash(b"zzz_beyond");
+            assert!(
+                !table.bloom_may_contain_key(b"zzz_beyond", hash_beyond)?,
+                "key beyond all partitions should be rejected when partition index is available"
+            );
+
+            // Hash-only path always returns Ok(true) conservatively for partitioned filters
+            assert!(
+                table.bloom_may_contain_key_hash(hash_beyond)?,
+                "hash-only bloom check should remain conservative for partitioned filters"
+            );
+
+            Ok(())
+        },
+        None,
+        Some(|w: Writer| {
+            w.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(10.0))
+                .use_partitioned_filter()
+        }),
+    )
+}

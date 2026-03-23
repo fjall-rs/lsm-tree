@@ -88,6 +88,14 @@ pub struct IterState {
     /// whose bloom filter reports no match for this hash will be skipped.
     pub(crate) key_hash: Option<u64>,
 
+    /// Optional user key for partition-aware bloom filter seeking.
+    ///
+    /// When set alongside `key_hash`, enables partitioned/TLI bloom filters
+    /// to seek directly to the relevant partition instead of returning the
+    /// conservative `Ok(true)` fallback. Only set for single-key pipelines
+    /// (e.g. `resolve_merge_via_pipeline`).
+    pub(crate) bloom_key: Option<UserKey>,
+
     /// Optional metrics handle for recording prefix-related statistics (e.g. bloom skips).
     ///
     /// `None` when the caller does not wish to record metrics; this is
@@ -161,8 +169,20 @@ fn bloom_passes(state: &IterState, table: &crate::table::Table) -> bool {
         }
     }
 
+    // bloom_key without key_hash is meaningless — catch misuse early
+    debug_assert!(
+        state.bloom_key.is_none() || state.key_hash.is_some(),
+        "bloom_key requires key_hash to be set"
+    );
+
     if let Some(key_hash) = state.key_hash {
-        match table.bloom_may_contain_key_hash(key_hash) {
+        let result = if let Some(bloom_key) = &state.bloom_key {
+            // UserKey (Slice) implements Deref<Target=[u8]>, coerces to &[u8]
+            table.bloom_may_contain_key(bloom_key, key_hash)
+        } else {
+            table.bloom_may_contain_key_hash(key_hash)
+        };
+        match result {
             Ok(false) => return false,
             Err(e) => {
                 log::debug!("key bloom check failed for table {:?}: {e}", table.id(),);
