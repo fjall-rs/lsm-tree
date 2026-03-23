@@ -121,6 +121,82 @@ impl Aes256GcmProvider {
     }
 }
 
+/// Create a new [`ChaCha20Rng`](rand_chacha::ChaCha20Rng) seeded from the OS RNG.
+///
+/// Returns the RNG directly (not `Result`) because callers are
+/// `thread_local!` init and fork-reseed, neither of which can propagate
+/// errors. This function will panic if OS entropy is unavailable.
+#[cfg(feature = "encryption")]
+fn new_chacha_rng() -> rand_chacha::ChaCha20Rng {
+    // Use rand_core re-exported by aes_gcm to avoid version-skew with a
+    // direct rand_core dependency.
+    use aes_gcm::aead::rand_core::{OsRng, SeedableRng};
+
+    #[expect(
+        clippy::expect_used,
+        reason = "intentionally panics if OsRng is unavailable"
+    )]
+    rand_chacha::ChaCha20Rng::from_rng(OsRng)
+        .expect("OS RNG should be available for initial CSPRNG seed")
+}
+
+/// Thread-local CSPRNG wrapper with fork-aware PID tracking.
+///
+/// On each access, compares the stored PID with `std::process::id()`.
+/// If they differ (i.e. the process was forked), the RNG is reseeded
+/// from `OsRng` to avoid nonce reuse across processes.
+#[cfg(feature = "encryption")]
+struct ForkAwareRng {
+    pid: std::cell::Cell<u32>,
+    rng: std::cell::RefCell<rand_chacha::ChaCha20Rng>,
+}
+
+#[cfg(feature = "encryption")]
+impl ForkAwareRng {
+    fn new() -> Self {
+        Self {
+            pid: std::cell::Cell::new(std::process::id()),
+            rng: std::cell::RefCell::new(new_chacha_rng()),
+        }
+    }
+
+    fn with_rng<R>(&self, f: impl FnOnce(&mut rand_chacha::ChaCha20Rng) -> R) -> R {
+        let mut rng_ref = self.rng.borrow_mut();
+        let current_pid = std::process::id();
+        if self.pid.get() != current_pid {
+            // Process was forked; reseed RNG to avoid nonce reuse across PIDs.
+            self.pid.set(current_pid);
+            *rng_ref = new_chacha_rng();
+        }
+
+        // The RefMut guard is held while f() runs. This is safe because
+        // f() only generates a 12-byte nonce (no reentrant RNG access).
+        // Deref-coercion: &mut RefMut<ChaCha20Rng> → &mut ChaCha20Rng
+        // (explicit &mut *rng_ref is denied by clippy::explicit_auto_deref).
+        f(&mut rng_ref)
+    }
+}
+
+#[cfg(feature = "encryption")]
+thread_local! {
+    // Module-scope so all monomorphizations of `thread_local_rng`
+    // share a single thread-local instance.
+    static THREAD_RNG: ForkAwareRng = ForkAwareRng::new();
+}
+
+/// Access a thread-local CSPRNG seeded from the OS RNG in a fork-aware way.
+///
+/// Using a thread-local [`ChaCha20Rng`](rand_chacha::ChaCha20Rng) avoids a
+/// `getrandom` syscall on every nonce generation, which saves 1-10 µs per
+/// block under contention. The RNG is cryptographically secure and seeded
+/// from `OsRng` on first access per thread, and is lazily reseeded on the
+/// next use if the process ID changes (e.g., after a `fork()`) to reduce
+/// the risk of nonce reuse across processes.
+#[cfg(feature = "encryption")]
+fn thread_local_rng<R>(f: impl FnOnce(&mut rand_chacha::ChaCha20Rng) -> R) -> R {
+    THREAD_RNG.with(|state| state.with_rng(f))
+}
+
 #[cfg(feature = "encryption")]
 impl EncryptionProvider for Aes256GcmProvider {
     fn max_overhead(&self) -> u32 {
@@ -132,11 +208,10 @@ impl EncryptionProvider for Aes256GcmProvider {
     }
 
     fn encrypt(&self, plaintext: &[u8]) -> crate::Result<Vec<u8>> {
-        use aes_gcm::aead::OsRng;
         use aes_gcm::AeadCore;
         use aes_gcm::AeadInPlace;
 
-        let nonce = aes_gcm::Aes256Gcm::generate_nonce(&mut OsRng);
+        let nonce = thread_local_rng(|rng| aes_gcm::Aes256Gcm::generate_nonce(rng));
 
         let mut buf = Vec::with_capacity(Self::NONCE_LEN + plaintext.len() + Self::TAG_LEN);
         buf.extend_from_slice(&nonce);
@@ -313,6 +388,62 @@ mod tests {
             let decrypted = provider.decrypt(&ciphertext)?;
             assert_eq!(decrypted, plaintext);
             Ok(())
+        }
+
+        /// Verify the thread-local CSPRNG produces unique nonces across many
+        /// encrypt calls — no nonce reuse even under rapid sequential use.
+        #[test]
+        fn thread_local_rng_produces_unique_nonces() -> crate::Result<()> {
+            let provider = Aes256GcmProvider::new(&test_key());
+            let plaintext = b"nonce uniqueness test";
+
+            let mut nonces = std::collections::HashSet::new();
+            for _ in 0..1000 {
+                let ct = provider.encrypt(plaintext)?;
+
+                #[expect(clippy::indexing_slicing, reason = "ct always >= NONCE_LEN")]
+                #[expect(clippy::expect_used, reason = "test assertion")]
+                let nonce: [u8; Aes256GcmProvider::NONCE_LEN] = ct[..Aes256GcmProvider::NONCE_LEN]
+                    .try_into()
+                    .expect("nonce has expected length");
+
+                assert!(
+                    nonces.insert(nonce),
+                    "nonce collision detected — CSPRNG produced duplicate nonce"
+                );
+            }
+            Ok(())
+        }
+
+        /// Verify ForkAwareRng reseeds when it detects a PID change.
+        ///
+        /// Asserts on deterministic state (PID restoration) rather than
+        /// probabilistic RNG output to avoid flaky CI.
+        #[test]
+        fn fork_aware_rng_reseeds_on_pid_change() {
+            use aes_gcm::aead::rand_core::RngCore;
+
+            let rng = ForkAwareRng::new();
+
+            // Generate a value with the current PID (ensures RNG is initialized).
+            let _ = rng.with_rng(|r| r.next_u64());
+
+            // Simulate fork by setting a fake PID that differs from the real one.
+            let current_pid = std::process::id();
+            let fake_pid = current_pid ^ 1;
+            rng.pid.set(fake_pid);
+            assert_eq!(rng.pid.get(), fake_pid, "PID should be set to fake value");
+
+            // Next call sees real PID != fake PID → reseeds from OsRng and
+            // restores the stored PID to the real process ID.
+            let _ = rng.with_rng(|r| r.next_u64());
+
+            // Deterministic assertion: PID was restored after reseed.
+            assert_eq!(
+                rng.pid.get(),
+                std::process::id(),
+                "PID should be restored to real process ID after reseed"
+            );
         }
     }
 }
