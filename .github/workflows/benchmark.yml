@@ -35,7 +35,7 @@ jobs:
         if: steps.bot-token.outputs.token != ''
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "lsm-tree db_bench"
+          name: "coordinode-lsm-tree db_bench"
           tool: customBiggerIsBetter
           output-file-path: benchmark-results.json
           github-token: ${{ steps.bot-token.outputs.token }}

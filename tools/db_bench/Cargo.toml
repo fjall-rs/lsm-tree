@@ -1,4 +1,4 @@
-# Standalone benchmark tool — not part of the lsm-tree workspace.
+# Standalone benchmark tool — not part of the main coordinode-lsm-tree crate.
 # Build with: cd tools/db_bench && cargo build --release
 [package]
 name = "db-bench"
@@ -11,7 +11,7 @@ name = "db_bench"
 path = "src/main.rs"
 
 [dependencies]
-lsm-tree = { path = "../..", features = ["lz4", "zstd"] }
+lsm-tree = { package = "coordinode-lsm-tree", path = "../..", features = ["lz4", "zstd"] }
 clap = { version = "4", features = ["derive"] }
 hdrhistogram = "7"
 rand = "0.9"

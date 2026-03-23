@@ -1,4 +1,4 @@
-# GitHub Copilot Instructions for lsm-tree (structured-world fork)
+# GitHub Copilot Instructions for coordinode-lsm-tree (structured-world fork)
 
 ## Project Overview
 

@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 afl = "*"
 arbitrary = { version = "1", features = ["derive"] }
-lsm-tree = { path = "../.." }
+lsm-tree = { package = "coordinode-lsm-tree", path = "../.." }

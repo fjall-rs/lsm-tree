@@ -1,16 +1,16 @@
 [package]
-name = "lsm-tree"
-description = "A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs)"
+name = "coordinode-lsm-tree"
+description = "A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) — CoordiNode fork"
 license = "MIT OR Apache-2.0"
-version = "3.1.2"
+version = "4.0.0"
 edition = "2021"
 rust-version = "1.90"
 readme = "README.md"
 include = ["src/**/*", "LICENSE-APACHE", "LICENSE-MIT", "README.md", "CHANGELOG.md"]
-repository = "https://github.com/structured-world/lsm-tree"
-homepage = "https://github.com/structured-world/lsm-tree"
-keywords = ["lsmt", "lsm", "rocksdb", "leveldb", "key-value"]
-categories = ["data-structures", "database-implementations", "algorithms"]
+repository = "https://github.com/structured-world/coordinode-lsm-tree"
+homepage = "https://github.com/structured-world/coordinode-lsm-tree"
+keywords = ["lsm-tree", "storage", "database", "coordinode", "key-value"]
+categories = ["data-structures", "database-implementations"]
 
 [lib]
 name = "lsm_tree"
