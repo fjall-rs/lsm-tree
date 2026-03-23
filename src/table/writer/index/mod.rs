@@ -12,9 +12,9 @@ use crate::{
     checksum::ChecksummedWriter, encryption::EncryptionProvider,
     table::index_block::KeyedBlockHandle, CompressionType,
 };
-use std::{fs::File, io::BufWriter, sync::Arc};
+use std::sync::Arc;
 
-pub trait BlockIndexWriter<W: std::io::Write> {
+pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
     /// Registers a data block in the block index.
     fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()>;
 
@@ -23,7 +23,7 @@ pub trait BlockIndexWriter<W: std::io::Write> {
     /// Returns the number of index blocks written.
     fn finish(
         self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<W>>,
     ) -> crate::Result<usize>;
 
     fn use_compression(

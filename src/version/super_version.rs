@@ -4,6 +4,7 @@
 
 use crate::{
     comparator::SharedComparator,
+    fs::Fs,
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
@@ -130,8 +131,9 @@ impl SuperVersions {
         f: F,
         seqno: &SharedSequenceNumberGenerator,
         visible_seqno: &SharedSequenceNumberGenerator,
+        fs: &dyn Fs,
     ) -> crate::Result<()> {
-        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
+        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno, fs)
     }
 
     /// Like `upgrade_version`, but takes an already-allocated sequence number.
@@ -146,12 +148,13 @@ impl SuperVersions {
         f: F,
         seqno: SeqNo,
         visible_seqno: &SharedSequenceNumberGenerator,
+        fs: &dyn Fs,
     ) -> crate::Result<()> {
         let mut next_version = f(&self.latest_version())?;
         next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
 
-        persist_version(tree_path, &next_version.version, &self.comparator_name)?;
+        persist_version(tree_path, &next_version.version, &self.comparator_name, fs)?;
         self.append_version(next_version);
 
         // Clamp to stay below the reserved MSB range.

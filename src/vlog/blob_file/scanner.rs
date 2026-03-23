@@ -201,7 +201,7 @@ impl Iterator for Scanner {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::{vlog::blob_file::writer::Writer as BlobFileWriter, Slice};
+    use crate::{fs::StdFs, vlog::blob_file::writer::Writer as BlobFileWriter, Slice};
     use tempfile::tempdir;
     use test_log::test;
 
@@ -213,7 +213,7 @@ mod tests {
         let keys = [b"a", b"b", b"c", b"d", b"e"];
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0, &StdFs)?;
 
             for key in keys {
                 writer.write(key, 0, &key.repeat(100))?;
@@ -251,7 +251,7 @@ mod tests {
         let blob_file_path = dir.path().join("0");
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0, &StdFs)?;
             writer.write(b"key", 42, &b"v".repeat(100))?;
             writer.finish()?;
         }
@@ -288,7 +288,7 @@ mod tests {
         let blob_file_path = dir.path().join("0");
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0, &StdFs)?;
             writer.write(b"key", 0, &b"v".repeat(100))?;
             writer.finish()?;
         }
@@ -398,7 +398,7 @@ mod tests {
         let blob_file_path = dir.path().join("0");
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0, &StdFs)?;
             writer.write(b"key", 0, b"value")?;
             writer.finish()?;
         }
@@ -437,7 +437,7 @@ mod tests {
         let blob_file_path = dir.path().join("0");
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0, &StdFs)?;
             writer.write(b"a", 0, &b"v".repeat(50))?;
             writer.write(b"b", 1, &b"w".repeat(50))?;
             writer.finish()?;

@@ -51,6 +51,7 @@ impl<'a> Ingestion<'a> {
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             6,
+            tree.config.fs.clone(),
         )?
         .use_bloom_policy({
             if tree.config.expect_point_read_hits {
@@ -332,6 +333,7 @@ impl<'a> Ingestion<'a> {
             },
             global_seqno,
             &self.tree.config.visible_seqno,
+            &*self.tree.config.fs,
         )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).

@@ -226,6 +226,7 @@ fn move_tables(
         },
         &opts.global_seqno,
         &opts.visible_seqno,
+        &*opts.config.fs,
     )?;
 
     if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
@@ -478,6 +479,7 @@ fn merge_tables(
                     &blobs_folder,
                     opts.tree_id,
                     opts.config.descriptor_table.clone(),
+                    opts.config.fs.clone(),
                 )?
                 .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);
@@ -672,6 +674,7 @@ fn drop_tables(
         },
         &opts.global_seqno,
         &opts.visible_seqno,
+        &*opts.config.fs,
     )?;
 
     if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {

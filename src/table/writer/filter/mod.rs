@@ -12,11 +12,11 @@ use crate::{
     checksum::ChecksummedWriter, config::BloomConstructionPolicy, encryption::EncryptionProvider,
     prefix::PrefixExtractor, CompressionType, UserKey,
 };
-use std::{fs::File, io::BufWriter, sync::Arc};
+use std::sync::Arc;
 
 // All methods are required (no defaults) by design so that implementations must
 // explicitly handle configuration changes (e.g., filter policies, prefix extractors).
-pub trait FilterWriter<W: std::io::Write> {
+pub trait FilterWriter<W: std::io::Write + std::io::Seek> {
     // NOTE: We purposefully use a UserKey instead of &[u8]
     // so we can clone it without heap allocation, if needed
     /// Registers a key in the block index.
@@ -27,7 +27,7 @@ pub trait FilterWriter<W: std::io::Write> {
     /// Returns the number of filter blocks written (always 1 in case of full filter block).
     fn finish(
         self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<W>>,
     ) -> crate::Result<usize>;
 
     fn set_filter_policy(

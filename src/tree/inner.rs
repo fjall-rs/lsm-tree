@@ -80,7 +80,12 @@ impl TreeInner {
                 crate::TreeType::Standard
             },
         );
-        persist_version(&config.path, &version, config.comparator.name())?;
+        persist_version(
+            &config.path,
+            &version,
+            config.comparator.name(),
+            &*config.fs,
+        )?;
 
         let comparator = config.comparator.clone();
 

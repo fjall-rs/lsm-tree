@@ -138,12 +138,13 @@ pub struct BlobTree {
 impl BlobTree {
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
         use crate::file::{fsync_directory, BLOBS_FOLDER};
+        use crate::fs::Fs;
 
         let index = crate::Tree::open(config)?;
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
-        std::fs::create_dir_all(&blobs_folder)?;
-        fsync_directory(&blobs_folder)?;
+        (*index.config.fs).create_dir_all(&blobs_folder)?;
+        fsync_directory(&blobs_folder, &*index.config.fs)?;
 
         let blob_file_id_to_continue_with = index
             .current_version()
@@ -424,6 +425,7 @@ impl AbstractTree for BlobTree {
             self.index.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
+            self.index.config.fs.clone(),
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
@@ -468,6 +470,7 @@ impl AbstractTree for BlobTree {
             self.index.config.path.join(BLOBS_FOLDER),
             self.id(),
             self.index.config.descriptor_table.clone(),
+            self.index.config.fs.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);

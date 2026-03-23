@@ -6,6 +6,7 @@ use super::writer::Writer;
 use crate::fs::FsFile;
 use crate::{
     file_accessor::FileAccessor,
+    fs::Fs,
     vlog::{
         blob_file::{Inner as BlobFileInner, Metadata},
         ValueHandle,
@@ -19,6 +20,8 @@ use std::{
 
 /// Blob file writer, may write multiple blob files
 pub struct MultiWriter {
+    fs: Arc<dyn Fs>,
+
     folder: PathBuf,
     target_size: u64,
 
@@ -47,6 +50,7 @@ impl MultiWriter {
         folder: P,
         tree_id: TreeId,
         descriptor_table: Option<Arc<DescriptorTable>>,
+        fs: Arc<dyn Fs>,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
@@ -58,7 +62,7 @@ impl MultiWriter {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new(blob_file_path, blob_file_id, tree_id)?,
+            active_writer: Writer::new(blob_file_path, blob_file_id, tree_id, &*fs)?,
 
             results: Vec::new(),
 
@@ -67,6 +71,7 @@ impl MultiWriter {
 
             tree_id,
             descriptor_table,
+            fs,
         })
     }
 
@@ -103,7 +108,7 @@ impl MultiWriter {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
+        let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id, &*self.fs)?
             .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
@@ -111,6 +116,7 @@ impl MultiWriter {
             old_writer,
             self.passthrough_compression,
             self.descriptor_table.clone(),
+            &*self.fs,
         )?;
         self.results.extend(blob_file);
 
@@ -121,6 +127,7 @@ impl MultiWriter {
         writer: Writer,
         passthrough_compression: CompressionType,
         descriptor_table: Option<Arc<DescriptorTable>>,
+        fs: &dyn Fs,
     ) -> crate::Result<Option<BlobFile>> {
         if writer.item_count > 0 {
             let blob_file_id = writer.blob_file_id;
@@ -136,6 +143,8 @@ impl MultiWriter {
 
             let (metadata, checksum) = writer.finish()?;
 
+            // NOTE: Read-back uses std::fs::File because FileAccessor/DescriptorTable
+            // expect Arc<dyn FsFile>. Migrating the read path to Fs is a separate scope.
             let file: Arc<dyn FsFile> = Arc::new(std::fs::File::open(&path)?);
             let file_accessor = descriptor_table.map_or_else(
                 || FileAccessor::File(file.clone()),
@@ -174,7 +183,7 @@ impl MultiWriter {
                 writer.path.display(),
             );
 
-            if let Err(e) = std::fs::remove_file(&writer.path) {
+            if let Err(e) = fs.remove_file(&writer.path) {
                 log::warn!(
                     "Could not delete empty blob file at {}: {e:?}",
                     writer.path.display(),
@@ -249,6 +258,7 @@ impl MultiWriter {
             self.active_writer,
             self.passthrough_compression,
             self.descriptor_table.clone(),
+            &*self.fs,
         )?;
         self.results.extend(blob_file);
         Ok(self.results)

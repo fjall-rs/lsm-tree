@@ -78,6 +78,7 @@ pub(super) fn prepare_table_writer(
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
+        opts.config.fs.clone(),
     )?
     // Compaction consumes input tables, so clip RTs to each output table's key range.
     .use_clip_range_tombstones();
@@ -328,6 +329,7 @@ impl CompactionFlavour for RelocatingCompaction {
             },
             &opts.global_seqno,
             &opts.visible_seqno,
+            &*opts.config.fs,
         )?;
 
         // NOTE: If the application were to crash >here< it's fine
@@ -466,6 +468,7 @@ impl CompactionFlavour for StandardCompaction {
             },
             &opts.global_seqno,
             &opts.visible_seqno,
+            &*opts.config.fs,
         )?;
 
         // NOTE: If the application were to crash >here< it's fine

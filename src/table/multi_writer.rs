@@ -4,9 +4,10 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, encryption::EncryptionProvider, prefix::PrefixExtractor,
-    range_tombstone::RangeTombstone, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, encryption::EncryptionProvider, fs::Fs,
+    prefix::PrefixExtractor, range_tombstone::RangeTombstone, table::writer::LinkedFile,
+    value::InternalValue, vlog::BlobFileId, Checksum, CompressionType, HashMap,
+    SequenceNumberCounter, TableId, UserKey,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -14,6 +15,8 @@ use std::{path::PathBuf, sync::Arc};
 ///
 /// This results in a sorted "run" of tables
 pub struct MultiWriter {
+    fs: Arc<dyn Fs>,
+
     pub(crate) base_path: PathBuf,
 
     data_block_hash_ratio: f32,
@@ -72,13 +75,15 @@ impl MultiWriter {
         table_id_generator: SequenceNumberCounter,
         target_size: u64,
         initial_level: u8,
+        fs: Arc<dyn Fs>,
     ) -> crate::Result<Self> {
         let current_table_id = table_id_generator.next();
 
         let path = base_path.join(current_table_id.to_string());
-        let writer = Writer::new(path, current_table_id, initial_level)?;
+        let writer = Writer::new(path, current_table_id, initial_level, fs.clone())?;
 
         Ok(Self {
+            fs,
             initial_level,
 
             base_path,
@@ -318,7 +323,7 @@ impl MultiWriter {
         let new_table_id = self.table_id_generator.next();
         let path = self.base_path.join(new_table_id.to_string());
 
-        let mut new_writer = Writer::new(path, new_table_id, self.initial_level)?
+        let mut new_writer = Writer::new(path, new_table_id, self.initial_level, self.fs.clone())?
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)

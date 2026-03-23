@@ -48,6 +48,7 @@ impl<'a> BlobIngestion<'a> {
             tree.index.config.path.join(BLOBS_FOLDER),
             tree.index.id,
             tree.index.config.descriptor_table.clone(),
+            tree.index.config.fs.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);
@@ -261,6 +262,7 @@ impl<'a> BlobIngestion<'a> {
             },
             global_seqno,
             &self.tree.index.config.visible_seqno,
+            &*self.tree.index.config.fs,
         )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).

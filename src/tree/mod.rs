@@ -289,6 +289,7 @@ impl AbstractTree for Tree {
             },
             &self.config.seqno,
             &self.config.visible_seqno,
+            &*self.config.fs,
         )
     }
 
@@ -391,6 +392,7 @@ impl AbstractTree for Tree {
             self.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
+            self.config.fs.clone(),
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
@@ -502,6 +504,7 @@ impl AbstractTree for Tree {
             },
             &self.config.seqno,
             &self.config.visible_seqno,
+            &*self.config.fs,
         )?;
 
         if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
@@ -1430,19 +1433,19 @@ impl Tree {
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
         use crate::file::{fsync_directory, TABLES_FOLDER};
-        use std::fs::create_dir_all;
+        use crate::fs::Fs;
 
         let path = config.path.clone();
         log::trace!("Creating LSM-tree at {}", path.display());
 
-        create_dir_all(&path)?;
+        (*config.fs).create_dir_all(&path)?;
 
         let table_folder_path = path.join(TABLES_FOLDER);
-        create_dir_all(&table_folder_path)?;
+        (*config.fs).create_dir_all(&table_folder_path)?;
 
         // IMPORTANT: fsync folders on Unix
-        fsync_directory(&table_folder_path)?;
-        fsync_directory(&path)?;
+        fsync_directory(&table_folder_path, &*config.fs)?;
+        fsync_directory(&path, &*config.fs)?;
 
         let inner = TreeInner::create_new(config)?;
         Ok(Self(Arc::new(inner)))
@@ -1459,7 +1462,7 @@ impl Tree {
         config: &Config,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
-        use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
+        use crate::{file::fsync_directory, file::TABLES_FOLDER, fs::Fs, TableId};
 
         let tree_path = tree_path.as_ref();
 
@@ -1507,16 +1510,24 @@ impl Tree {
 
         let table_base_folder = tree_path.join(TABLES_FOLDER);
 
-        if !table_base_folder.try_exists()? {
-            std::fs::create_dir_all(&table_base_folder)?;
-            fsync_directory(&table_base_folder)?;
+        if !config.fs.exists(&table_base_folder)? {
+            (*config.fs).create_dir_all(&table_base_folder)?;
+            fsync_directory(&table_base_folder, &*config.fs)?;
         }
 
         let mut orphaned_tables = vec![];
 
-        for (idx, dirent) in std::fs::read_dir(&table_base_folder)?.enumerate() {
-            let dirent = dirent?;
-            let file_name = dirent.file_name();
+        for (idx, dirent) in config
+            .fs
+            .read_dir(&table_base_folder)?
+            .into_iter()
+            .enumerate()
+        {
+            let crate::fs::FsDirEntry {
+                path: table_file_path,
+                file_name,
+                is_dir,
+            } = dirent;
 
             // https://en.wikipedia.org/wiki/.DS_Store
             if file_name == ".DS_Store" {
@@ -1524,17 +1535,12 @@ impl Tree {
             }
 
             // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
-            if file_name.to_string_lossy().starts_with("._") {
+            if file_name.starts_with("._") {
                 continue;
             }
 
-            let table_file_name = file_name.to_str().ok_or_else(|| {
-                log::error!("invalid table file name {}", file_name.display());
-                crate::Error::Unrecoverable
-            })?;
-
-            let table_file_path = dirent.path();
-            assert!(!table_file_path.is_dir());
+            let table_file_name = &file_name;
+            assert!(!is_dir);
 
             let table_id = table_file_name.parse::<TableId>().map_err(|e| {
                 log::error!("invalid table file name {table_file_name:?}: {e:?}");

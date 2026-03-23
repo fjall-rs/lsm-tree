@@ -4,7 +4,8 @@
 
 use super::*;
 use crate::{
-    config::BloomConstructionPolicy, table::filter::standard_bloom::Builder as BloomBuilder,
+    config::BloomConstructionPolicy, fs::StdFs,
+    table::filter::standard_bloom::Builder as BloomBuilder,
 };
 use tempfile::tempdir;
 use test_log::test;
@@ -25,7 +26,7 @@ fn test_with_table(
     let file = dir.path().join("table");
 
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?;
+        let mut writer = Writer::new(file.clone(), 0, 0, Arc::new(StdFs))?;
 
         if let Some(f) = &config_writer {
             writer = f(writer);
@@ -203,7 +204,7 @@ fn test_with_table(
 
     // Test with partitioned indexes
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?.use_partitioned_index();
+        let mut writer = Writer::new(file.clone(), 0, 0, Arc::new(StdFs))?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);
@@ -1226,7 +1227,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let data_block_size = 97;
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, Arc::new(StdFs))
         .unwrap()
         .use_data_block_size(data_block_size);
 
@@ -1300,7 +1301,7 @@ fn table_partitioned_index() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, Arc::new(StdFs))
         .unwrap()
         .use_partitioned_index()
         .use_data_block_size(5)
@@ -1412,7 +1413,7 @@ fn table_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, Arc::new(StdFs))
         .unwrap()
         .use_partitioned_filter()
         .use_data_block_size(1)
@@ -1606,7 +1607,7 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
     let file = dir.path().join("table");
 
     // Build a table that contains a range tombstone block.
-    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    let mut writer = Writer::new(file.clone(), 0, 0, Arc::new(StdFs))?;
     writer.write(InternalValue::from_components(
         b"a",
         b"v1",
@@ -1726,7 +1727,7 @@ fn meta_seqno_kv_max_corruption_returns_invalid_data() -> crate::Result<()> {
 
     // Write a valid table with KV entries at seqnos 1..=5.
     // Both seqno#max and seqno#kv_max will be 5.
-    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    let mut writer = Writer::new(file.clone(), 0, 0, Arc::new(StdFs))?;
     for (i, key) in (b'a'..=b'e').enumerate() {
         writer.write(InternalValue::from_components(
             &[key],

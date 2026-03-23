@@ -1,15 +1,18 @@
 use crate::{
     checksum::ChecksummedWriter,
     file::{fsync_directory, rewrite_atomic, CURRENT_VERSION_FILE},
+    fs::{Fs, FsOpenOptions},
     version::Version,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{io::BufWriter, path::Path};
 
+/// Crate-internal (version module is not exported).
 pub fn persist_version(
     folder: &Path,
     version: &Version,
     comparator_name: &str,
+    fs: &dyn Fs,
 ) -> crate::Result<()> {
     if comparator_name.len() > crate::comparator::MAX_COMPARATOR_NAME_BYTES {
         return Err(crate::Error::from(std::io::Error::new(
@@ -29,7 +32,7 @@ pub fn persist_version(
     );
 
     let path = folder.join(format!("v{}", version.id()));
-    let file = std::fs::File::create_new(path)?;
+    let file = fs.open(&path, &FsOpenOptions::new().write(true).create_new(true))?;
     let writer = BufWriter::new(file);
     let mut writer = ChecksummedWriter::new(writer);
 
@@ -44,7 +47,7 @@ pub fn persist_version(
         })?;
 
         // IMPORTANT: fsync folder on Unix
-        fsync_directory(folder)?;
+        fsync_directory(folder, fs)?;
     }
 
     let checksum = writer.checksum();
@@ -54,7 +57,11 @@ pub fn persist_version(
     current_file_content.write_u128::<LittleEndian>(checksum.into_u128())?;
     current_file_content.write_u8(0)?; // 0 = xxh3
 
-    rewrite_atomic(&folder.join(CURRENT_VERSION_FILE), &current_file_content)?;
+    rewrite_atomic(
+        &folder.join(CURRENT_VERSION_FILE),
+        &current_file_content,
+        fs,
+    )?;
 
     Ok(())
 }

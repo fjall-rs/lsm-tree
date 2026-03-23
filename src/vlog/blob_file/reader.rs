@@ -238,9 +238,11 @@ impl<'a> Reader<'a> {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::fs::StdFs;
     use crate::vlog::blob_file::writer::BLOB_HEADER_LEN_V3;
     use crate::SequenceNumberCounter;
     use std::fs::File;
+    use std::sync::Arc;
     use test_log::test;
 
     #[test]
@@ -248,8 +250,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"a", 0, b"abcdef")?;
 
@@ -270,9 +278,15 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Lz4);
 
         let handle0 = writer.write(b"a", 0, b"abcdef")?;
         let handle1 = writer.write(b"b", 0, b"ghi")?;
@@ -297,10 +311,11 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir().unwrap();
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)
-            .unwrap()
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer =
+            crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None, Arc::new(StdFs))
+                .unwrap()
+                .use_target_size(u64::MAX)
+                .use_compression(CompressionType::Lz4);
 
         let handle = writer.write_raw(b"k", 0, b"value", 5).unwrap();
 
@@ -329,10 +344,11 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir().unwrap();
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)
-            .unwrap()
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer =
+            crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None, Arc::new(StdFs))
+                .unwrap()
+                .use_target_size(u64::MAX)
+                .use_compression(CompressionType::Lz4);
 
         // Zero real_val_len is allowed (valid for empty values), but when
         // compressed data is present, lz4 decompression fails on the mismatch.
@@ -361,9 +377,15 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Lz4);
 
         let handle = writer.write(b"a", 0, b"abcdef")?;
 
@@ -400,9 +422,10 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir().unwrap();
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)
-            .unwrap()
-            .use_target_size(u64::MAX);
+        let mut writer =
+            crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None, Arc::new(StdFs))
+                .unwrap()
+                .use_target_size(u64::MAX);
 
         let mut handle = writer.write(b"a", 0, b"hello").unwrap();
 
@@ -432,9 +455,15 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Zstd(3));
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Zstd(3));
 
         let handle = writer.write(b"a", 0, b"abcdef")?;
 
@@ -473,8 +502,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"a", 0, b"abcdef")?;
 
@@ -505,9 +540,15 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Zstd(3));
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Zstd(3));
 
         let handle0 = writer.write(b"a", 0, b"abcdef")?;
         let handle1 = writer.write(b"b", 0, b"ghi")?;
@@ -533,8 +574,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"abc", 0, b"value")?;
 
@@ -579,8 +626,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"aaa", 0, b"value")?;
 
@@ -611,8 +664,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"abc", 0, b"value")?;
 
@@ -647,8 +706,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"key", 0, b"payload_data")?;
 
@@ -681,9 +746,15 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Lz4);
 
         let handle = writer.write(b"abc", 0, b"value")?;
 
@@ -715,9 +786,15 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Zstd(3));
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Zstd(3));
 
         let handle = writer.write(b"abc", 0, b"value")?;
 
@@ -749,8 +826,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"key", 42, b"value")?;
 
@@ -783,8 +866,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+            Arc::new(StdFs),
+        )?
+        .use_target_size(u64::MAX);
 
         let handle = writer.write(b"key", 0, b"value")?;
 

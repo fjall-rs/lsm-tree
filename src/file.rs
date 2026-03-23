@@ -2,7 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{fs::FsFile, Slice};
+use crate::{
+    fs::{Fs, FsFile},
+    Slice,
+};
 use std::{io::Write, path::Path};
 
 pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
@@ -42,45 +45,50 @@ pub fn read_exact(file: &dyn FsFile, offset: u64, size: usize) -> std::io::Resul
 }
 
 /// Atomically rewrites a file.
-pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
+pub fn rewrite_atomic(path: &Path, content: &[u8], fs: &dyn Fs) -> std::io::Result<()> {
     #[expect(
         clippy::expect_used,
         reason = "every file should have a parent directory"
     )]
     let folder = path.parent().expect("should have a parent");
 
+    // NOTE: tempfile crate uses std::fs internally; migrating temp-file
+    // creation to Fs would require a custom implementation.
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;
     temp_file.write_all(content)?;
     temp_file.flush()?;
     temp_file.as_file_mut().sync_all()?;
     temp_file.persist(path)?;
 
-    // TODO: not sure why it fails on Windows...
+    // Suppress unused-variable warning on Windows where the post-persist
+    // sync block is skipped (directory fsync is unsupported).
+    let _ = &fs;
+
     #[cfg(not(target_os = "windows"))]
     {
-        let file = std::fs::File::open(path)?;
-        file.sync_all()?;
+        use crate::fs::FsOpenOptions;
+
+        let file = fs.open(path, &FsOpenOptions::new().read(true))?;
+        FsFile::sync_all(&*file)?;
 
         #[expect(
             clippy::expect_used,
             reason = "files should always have a parent directory"
         )]
         let folder = path.parent().expect("should have parent folder");
-        fsync_directory(folder)?;
+        fs.sync_directory(folder)?;
     }
 
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
-    let file = std::fs::File::open(path)?;
-    debug_assert!(file.metadata()?.is_dir());
-    file.sync_all()
+pub fn fsync_directory(path: &Path, fs: &dyn Fs) -> std::io::Result<()> {
+    fs.sync_directory(path)
 }
 
 #[cfg(target_os = "windows")]
-pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
+pub fn fsync_directory(_path: &Path, _fs: &dyn Fs) -> std::io::Result<()> {
     // Cannot fsync directory on Windows
     Ok(())
 }
@@ -88,6 +96,7 @@ pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fs::StdFs;
     use std::fs::File;
     use std::io::Write;
     use test_log::test;
@@ -119,7 +128,7 @@ mod tests {
             write!(file, "asdasdasdasdasd")?;
         }
 
-        rewrite_atomic(&path, b"newcontent")?;
+        rewrite_atomic(&path, b"newcontent", &StdFs)?;
 
         let content = std::fs::read_to_string(&path)?;
         assert_eq!("newcontent", content);

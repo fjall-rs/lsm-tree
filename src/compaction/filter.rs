@@ -231,6 +231,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
                 self.shared.blobs_folder,
                 self.shared.opts.tree_id,
                 self.shared.opts.config.descriptor_table.clone(),
+                self.shared.opts.config.fs.clone(),
             )?
             .use_target_size(blob_opts.file_target_size)
             .use_compression(blob_opts.compression);
