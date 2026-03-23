@@ -205,6 +205,7 @@ mod tests {
     #[test]
     fn filter_bloom_standard_bpk() -> crate::Result<()> {
         let item_count = 1_000;
+        let probe_count = 100_000;
         let bpk = 5.0;
 
         let mut filter = Builder::with_bpk(item_count, bpk);
@@ -220,7 +221,7 @@ mod tests {
 
         let mut false_positives = 0;
 
-        for key in (0..item_count).map(|_| nanoid::nanoid!()) {
+        for key in (0..probe_count).map(|_| nanoid::nanoid!()) {
             let key = key.as_bytes();
 
             if filter.contains(key) {
@@ -229,7 +230,7 @@ mod tests {
         }
 
         #[expect(clippy::cast_precision_loss)]
-        let fpr = false_positives as f32 / item_count as f32;
+        let fpr = false_positives as f32 / probe_count as f32;
         assert!(fpr < 0.13);
 
         Ok(())
