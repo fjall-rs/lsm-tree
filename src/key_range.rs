@@ -53,6 +53,10 @@ impl KeyRange {
     }
 
     /// Returns `true` if the key falls within this key range.
+    ///
+    /// Uses lexicographic ordering. See [`overlaps_with_key_range_cmp`] for
+    /// custom comparator support; comparable `_cmp` variants for `contains_key`
+    /// and `contains_range` can be added when needed (#116).
     #[must_use]
     pub fn contains_key(&self, key: &[u8]) -> bool {
         let (start, end) = self.as_tuple();
@@ -73,6 +77,19 @@ impl KeyRange {
         let (start1, end1) = self.as_tuple();
         let (start2, end2) = other.as_tuple();
         end1 >= start2 && start1 <= end2
+    }
+
+    /// Like [`overlaps_with_key_range`], but uses a custom comparator for key ordering.
+    #[must_use]
+    pub fn overlaps_with_key_range_cmp(
+        &self,
+        other: &Self,
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> bool {
+        let (start1, end1) = self.as_tuple();
+        let (start2, end2) = other.as_tuple();
+        cmp.compare(end1, start2) != std::cmp::Ordering::Less
+            && cmp.compare(start1, end2) != std::cmp::Ordering::Greater
     }
 
     /// Returns `true` if the ranges overlap partially or fully.

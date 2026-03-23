@@ -251,9 +251,12 @@ impl<'a> BlobIngestion<'a> {
             &index.config.path,
             |current| {
                 let mut copy = current.clone();
-                copy.version =
-                    copy.version
-                        .with_new_l0_run(&created_tables, Some(&blob_files), None);
+                copy.version = copy.version.with_new_l0_run(
+                    &created_tables,
+                    Some(&blob_files),
+                    None,
+                    index.config.comparator.as_ref(),
+                );
                 Ok(copy)
             },
             global_seqno,

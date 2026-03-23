@@ -321,6 +321,7 @@ impl CompactionFlavour for RelocatingCompaction {
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),
+                    opts.config.comparator.as_ref(),
                 );
 
                 Ok(copy)
@@ -458,6 +459,7 @@ impl CompactionFlavour for StandardCompaction {
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),
+                    opts.config.comparator.as_ref(),
                 );
 
                 Ok(copy)

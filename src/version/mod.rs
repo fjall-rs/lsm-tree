@@ -21,6 +21,7 @@ use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
 use crate::TreeType;
 use crate::{
+    comparator::UserComparator,
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
@@ -329,6 +330,7 @@ impl Version {
         run: &[Table],
         blob_files: Option<&[BlobFile]>,
         diff: Option<FragmentationMap>,
+        comparator: &dyn UserComparator,
     ) -> Self {
         let id = self.id + 1;
 
@@ -367,7 +369,7 @@ impl Version {
 
             runs.extend(prev_runs);
 
-            let runs = optimize_runs(runs);
+            let runs = optimize_runs(runs, comparator);
 
             Level::from_runs(runs.into_iter().map(Arc::new).collect())
         });
@@ -411,6 +413,7 @@ impl Version {
         &self,
         ids: &[TableId],
         dropped_blob_files: &mut Vec<BlobFile>,
+        comparator: &dyn UserComparator,
     ) -> crate::Result<Self> {
         let id = self.id + 1;
 
@@ -437,7 +440,7 @@ impl Version {
                 .filter(|x| !x.is_empty())
                 .collect::<Vec<_>>();
 
-            let runs = optimize_runs(runs);
+            let runs = optimize_runs(runs, comparator);
 
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
@@ -488,6 +491,10 @@ impl Version {
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "comparator is essential for correctness"
+    )]
     pub fn with_merge(
         &self,
         old_ids: &[TableId],
@@ -496,6 +503,7 @@ impl Version {
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
         blob_files_to_drop: &HashSet<BlobFileId>,
+        comparator: &dyn UserComparator,
     ) -> Self {
         let id = self.id + 1;
 
@@ -529,7 +537,7 @@ impl Version {
                 }
             }
 
-            let runs = optimize_runs(runs);
+            let runs = optimize_runs(runs, comparator);
 
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
@@ -578,7 +586,12 @@ impl Version {
         }
     }
 
-    pub fn with_moved(&self, ids: &[TableId], dest_level: usize) -> Self {
+    pub fn with_moved(
+        &self,
+        ids: &[TableId],
+        dest_level: usize,
+        comparator: &dyn UserComparator,
+    ) -> Self {
         let id = self.id + 1;
 
         let affected_tables = self
@@ -610,7 +623,7 @@ impl Version {
                 }
             }
 
-            let runs = optimize_runs(runs);
+            let runs = optimize_runs(runs, comparator);
 
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }

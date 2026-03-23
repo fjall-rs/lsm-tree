@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::comparator::UserComparator;
 use crate::KeyRange;
 use std::ops::{Bound, RangeBounds};
 
@@ -74,6 +75,11 @@ impl<T: Ranged> Run<T> {
         &mut self.0
     }
 
+    /// Pushes a table into the run and re-sorts by min key using lexicographic
+    /// byte ordering. Only correct when the tree uses the default comparator.
+    /// For custom comparators, use [`push_cmp`] instead.
+    ///
+    /// Kept public for backward compatibility with existing callers and unit tests.
     pub fn push(&mut self, item: T) {
         self.0.push(item);
 
@@ -81,6 +87,26 @@ impl<T: Ranged> Run<T> {
             .sort_by(|a, b| a.key_range().min().cmp(b.key_range().min()));
     }
 
+    /// Like [`push`], but sorts tables using a custom comparator for key ordering.
+    ///
+    /// Re-sorts the entire run on each call (mirrors [`push`] behavior).
+    /// Acceptable for typical run sizes (<100 tables); for bulk insertion
+    /// use [`extend`] followed by [`sort_by_cmp`].
+    pub fn push_cmp(&mut self, item: T, cmp: &dyn UserComparator) {
+        self.0.push(item);
+        self.sort_by_cmp(cmp);
+    }
+
+    /// Sorts the run by min key using the provided user comparator.
+    ///
+    /// Use after [`extend`] to re-establish ordering in a single pass.
+    pub fn sort_by_cmp(&mut self, cmp: &dyn UserComparator) {
+        self.0
+            .sort_by(|a, b| cmp.compare(a.key_range().min(), b.key_range().min()));
+    }
+
+    /// Appends items without re-sorting. Callers must ensure the run remains
+    /// sorted (e.g. via [`sort_by_cmp`] after all items are added).
     pub fn extend(&mut self, items: Vec<T>) {
         self.0.extend(items);
     }
@@ -137,10 +163,29 @@ impl<T: Ranged> Run<T> {
 
     /// Returns the sub slice of tables in the run that have
     /// a key range overlapping the input key range.
+    ///
+    /// Uses lexicographic ordering. For custom comparators, use [`get_overlapping_cmp`].
     pub fn get_overlapping<'a>(&'a self, key_range: &'a KeyRange) -> &'a [T] {
         let range = key_range.min()..=key_range.max();
 
         let Some((lo, hi)) = self.range_overlap_indexes::<crate::Slice, _>(&range) else {
+            return &[];
+        };
+
+        self.get(lo..=hi).unwrap_or_default()
+    }
+
+    /// Like [`get_overlapping`], but uses a custom comparator for key ordering.
+    ///
+    /// Lifetime on `key_range` mirrors [`get_overlapping`] for API consistency.
+    pub fn get_overlapping_cmp<'a>(
+        &'a self,
+        key_range: &'a KeyRange,
+        cmp: &dyn UserComparator,
+    ) -> &'a [T] {
+        let range = key_range.min()..=key_range.max();
+
+        let Some((lo, hi)) = self.range_overlap_indexes_cmp::<crate::Slice, _>(&range, cmp) else {
             return &[];
         };
 
@@ -233,6 +278,68 @@ impl<T: Ranged> Run<T> {
 
         Some((lo, hi))
     }
+
+    /// Like [`range_overlap_indexes`], but uses a custom comparator for key ordering.
+    pub fn range_overlap_indexes_cmp<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        key_range: &R,
+        cmp: &dyn UserComparator,
+    ) -> Option<(usize, usize)> {
+        use std::cmp::Ordering;
+
+        let level = &self.0;
+
+        let lo = match key_range.start_bound() {
+            Bound::Unbounded => 0,
+            Bound::Included(start_key) => level.partition_point(|x| {
+                cmp.compare(x.key_range().max(), start_key.as_ref()) == Ordering::Less
+            }),
+            Bound::Excluded(start_key) => level.partition_point(|x| {
+                cmp.compare(x.key_range().max(), start_key.as_ref()) != Ordering::Greater
+            }),
+        };
+
+        if lo >= level.len() {
+            return None;
+        }
+
+        #[expect(clippy::indexing_slicing)]
+        let truncated_level = &level[lo..];
+
+        let hi = match key_range.end_bound() {
+            Bound::Unbounded => level.len() - 1,
+            Bound::Included(end_key) => {
+                let idx = lo
+                    + truncated_level.partition_point(|x| {
+                        cmp.compare(x.key_range().min(), end_key.as_ref()) != Ordering::Greater
+                    });
+
+                if idx == 0 {
+                    return None;
+                }
+
+                idx.saturating_sub(1)
+            }
+            Bound::Excluded(end_key) => {
+                let idx = lo
+                    + truncated_level.partition_point(|x| {
+                        cmp.compare(x.key_range().min(), end_key.as_ref()) == Ordering::Less
+                    });
+
+                if idx == 0 {
+                    return None;
+                }
+
+                idx.saturating_sub(1)
+            }
+        };
+
+        if lo > hi {
+            return None;
+        }
+
+        Some((lo, hi))
+    }
 }
 
 #[cfg(test)]
@@ -240,6 +347,8 @@ impl<T: Ranged> Run<T> {
 mod tests {
     use super::*;
     use test_log::test;
+
+    use crate::comparator::DefaultUserComparator;
 
     #[derive(Clone)]
     struct FakeTable {
@@ -257,6 +366,19 @@ mod tests {
         FakeTable {
             id,
             key_range: KeyRange::new((min.as_bytes().into(), max.as_bytes().into())),
+        }
+    }
+
+    /// Reverse comparator for testing non-lexicographic ordering.
+    struct ReverseCmp;
+
+    impl UserComparator for ReverseCmp {
+        fn name(&self) -> &'static str {
+            "reverse"
+        }
+
+        fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+            b.cmp(a)
         }
     }
 
@@ -483,5 +605,125 @@ mod tests {
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),
         );
+    }
+
+    #[test]
+    fn push_cmp_sorts_by_comparator() {
+        let mut run = Run::new(vec![s(0, "a", "d")]).unwrap();
+
+        // With default (lexicographic) comparator, "e" > "a" → appended after
+        run.push_cmp(s(1, "e", "j"), &DefaultUserComparator);
+        assert_eq!(0, run[0].id);
+        assert_eq!(1, run[1].id);
+
+        // With reverse comparator, "k" is "smaller" than "e" → sorted before
+        let mut rev_run = Run::new(vec![s(0, "e", "j")]).unwrap();
+        rev_run.push_cmp(s(1, "k", "o"), &ReverseCmp);
+        // Reverse order: k > e lexicographically, but ReverseCmp reverses → k < e
+        assert_eq!(1, rev_run[0].id); // "k" sorts first in reverse
+        assert_eq!(0, rev_run[1].id); // "e" sorts second in reverse
+    }
+
+    #[test]
+    fn get_overlapping_cmp_reverse() {
+        // With reverse comparator, SST key ranges store (comparator-min, comparator-max).
+        // Reverse comparator-min is the lexicographic max, so min > max lexicographically.
+        // Run sorted by comparator-min: z, o, j, d (descending lexicographic).
+        let items = vec![
+            s(3, "z", "p"),
+            s(2, "o", "k"),
+            s(1, "j", "e"),
+            s(0, "d", "a"),
+        ];
+        let run = Run(items);
+
+        let result = run
+            .get_overlapping_cmp(&KeyRange::new((b"j".into(), b"j".into())), &ReverseCmp)
+            .iter()
+            .map(|x| x.id)
+            .collect::<Vec<_>>();
+        assert_eq!(&[1], &*result);
+
+        let result = run
+            .get_overlapping_cmp(&KeyRange::new((b"o".into(), b"e".into())), &ReverseCmp)
+            .iter()
+            .map(|x| x.id)
+            .collect::<Vec<_>>();
+        assert_eq!(&[2, 1], &*result);
+    }
+
+    #[test]
+    fn range_overlap_indexes_cmp_reverse() {
+        let items = vec![
+            s(3, "z", "p"),
+            s(2, "o", "k"),
+            s(1, "j", "e"),
+            s(0, "d", "a"),
+        ];
+        let run = Run(items);
+        let cmp = ReverseCmp;
+
+        assert_eq!(
+            Some((0, 3)),
+            run.range_overlap_indexes_cmp::<&[u8], _>(&.., &cmp)
+        );
+
+        // Inclusive range covering one table (z..=p in reverse = first table)
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes_cmp(&(b"z" as &[u8]..=b"p"), &cmp)
+        );
+
+        // Inclusive range covering two tables (z..=k)
+        assert_eq!(
+            Some((0, 1)),
+            run.range_overlap_indexes_cmp(&(b"z" as &[u8]..=b"k"), &cmp)
+        );
+
+        // Out of range (beyond last table in reverse order)
+        assert!(run
+            .range_overlap_indexes_cmp(&(b"\x00" as &[u8]..=b"\x00"), &cmp)
+            .is_none());
+
+        // Exclusive start bound: skip first table (z..p), start from second (o..k)
+        let bounds_excl_start: (Bound<&[u8]>, Bound<&[u8]>) =
+            (Bound::Excluded(b"p"), Bound::Included(b"a"));
+        assert_eq!(
+            Some((1, 3)),
+            run.range_overlap_indexes_cmp::<&[u8], _>(&bounds_excl_start, &cmp)
+        );
+
+        // Exclusive end bound: include first table only
+        let bounds_excl_end: (Bound<&[u8]>, Bound<&[u8]>) =
+            (Bound::Included(b"z"), Bound::Excluded(b"o"));
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes_cmp::<&[u8], _>(&bounds_excl_end, &cmp)
+        );
+
+        // Semi-open range (start..): Included start, Unbounded end
+        assert_eq!(
+            Some((2, 3)),
+            run.range_overlap_indexes_cmp(&(b"j" as &[u8]..), &cmp)
+        );
+    }
+
+    #[test]
+    fn get_for_key_cmp_reverse() {
+        let items = vec![
+            s(3, "z", "p"),
+            s(2, "o", "k"),
+            s(1, "j", "e"),
+            s(0, "d", "a"),
+        ];
+        let run = Run(items);
+        let cmp = ReverseCmp;
+
+        assert_eq!(3, run.get_for_key_cmp(b"z", &cmp).unwrap().id);
+        assert_eq!(3, run.get_for_key_cmp(b"p", &cmp).unwrap().id);
+        assert_eq!(2, run.get_for_key_cmp(b"k", &cmp).unwrap().id);
+        assert_eq!(1, run.get_for_key_cmp(b"e", &cmp).unwrap().id);
+        assert_eq!(0, run.get_for_key_cmp(b"a", &cmp).unwrap().id);
+        assert!(run.get_for_key_cmp(b"\x00", &cmp).is_none());
     }
 }

@@ -490,6 +490,7 @@ impl AbstractTree for Tree {
                     tables,
                     blob_files,
                     frag_map.filter(|x| !x.is_empty()),
+                    self.config.comparator.as_ref(),
                 );
 
                 for &table_id in sealed_memtables_to_delete {

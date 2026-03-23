@@ -216,9 +216,11 @@ fn move_tables(
         |current| {
             let mut copy = current.clone();
 
-            copy.version = copy
-                .version
-                .with_moved(&table_ids, payload.dest_level as usize);
+            copy.version = copy.version.with_moved(
+                &table_ids,
+                payload.dest_level as usize,
+                opts.config.comparator.as_ref(),
+            );
 
             Ok(copy)
         },
@@ -660,9 +662,11 @@ fn drop_tables(
         |current| {
             let mut copy = current.clone();
 
-            copy.version = copy
-                .version
-                .with_dropped(ids_to_drop, &mut dropped_blob_files)?;
+            copy.version = copy.version.with_dropped(
+                ids_to_drop,
+                &mut dropped_blob_files,
+                opts.config.comparator.as_ref(),
+            )?;
 
             Ok(copy)
         },

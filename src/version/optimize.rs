@@ -3,9 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::run::Ranged;
+use crate::comparator::UserComparator;
 use crate::version::Run;
 
-pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
+pub fn optimize_runs<T: Clone + Ranged>(
+    runs: Vec<Run<T>>,
+    cmp: &dyn UserComparator,
+) -> Vec<Run<T>> {
     if runs.len() <= 1 {
         runs
     } else {
@@ -14,11 +18,12 @@ pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
         for run in runs.iter().rev() {
             'run: for table in run.iter().rev() {
                 for existing_run in new_runs.iter_mut().rev() {
-                    if existing_run
-                        .iter()
-                        .all(|x| !table.key_range().overlaps_with_key_range(x.key_range()))
-                    {
-                        existing_run.push(table.clone());
+                    if existing_run.iter().all(|x| {
+                        !table
+                            .key_range()
+                            .overlaps_with_key_range_cmp(x.key_range(), cmp)
+                    }) {
+                        existing_run.push_cmp(table.clone(), cmp);
                         continue 'run;
                     }
                 }
@@ -42,8 +47,13 @@ pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::comparator::DefaultUserComparator;
     use crate::KeyRange;
     use test_log::test;
+
+    fn default_cmp() -> &'static DefaultUserComparator {
+        &DefaultUserComparator
+    }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
     struct FakeTable {
@@ -67,7 +77,7 @@ mod tests {
     #[test]
     fn optimize_runs_empty() {
         let runs = vec![];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(Vec::<Run<FakeTable>>::new(), &*runs);
     }
@@ -75,7 +85,7 @@ mod tests {
     #[test]
     fn optimize_runs_one() {
         let runs = vec![Run::new(vec![s(0, "a", "b")]).unwrap()];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(vec![Run::new(vec![s(0, "a", "b")]).unwrap()], &*runs);
     }
@@ -86,7 +96,7 @@ mod tests {
             Run::new(vec![s(0, "a", "b")]).unwrap(),
             Run::new(vec![s(1, "a", "b")]).unwrap(),
         ];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(
             vec![
@@ -103,7 +113,7 @@ mod tests {
             Run::new(vec![s(0, "a", "z")]).unwrap(),
             Run::new(vec![s(1, "c", "f")]).unwrap(),
         ];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(
             vec![
@@ -120,7 +130,7 @@ mod tests {
             Run::new(vec![s(0, "c", "f")]).unwrap(),
             Run::new(vec![s(1, "a", "z")]).unwrap(),
         ];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(
             vec![
@@ -137,7 +147,7 @@ mod tests {
             Run::new(vec![s(0, "a", "c")]).unwrap(),
             Run::new(vec![s(1, "d", "f")]).unwrap(),
         ];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(
             vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")]).unwrap()],
@@ -151,7 +161,7 @@ mod tests {
             Run::new(vec![s(1, "d", "f")]).unwrap(),
             Run::new(vec![s(0, "a", "c")]).unwrap(),
         ];
-        let runs = optimize_runs::<FakeTable>(runs);
+        let runs = optimize_runs::<FakeTable>(runs, default_cmp());
 
         assert_eq!(
             vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")]).unwrap()],
