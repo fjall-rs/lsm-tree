@@ -497,6 +497,12 @@ impl MultiWriter {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::useless_vec,
+    reason = "test code"
+)]
 mod tests {
     use crate::{config::CompressionPolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
     use test_log::test;

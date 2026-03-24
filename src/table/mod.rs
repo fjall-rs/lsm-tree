@@ -18,6 +18,13 @@ pub mod util;
 pub mod writer;
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::useless_vec,
+    clippy::needless_borrows_for_generic_args,
+    reason = "test code"
+)]
 mod tests;
 
 pub use block::{Block, BlockOffset};

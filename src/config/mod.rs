@@ -589,8 +589,11 @@ impl<F: Fs> Config<F> {
     ///
     /// Changing the mapping from levels to paths is allowed as long as
     /// the previously used folders remain covered. If old folders are
-    /// omitted, recovery will fail (`Unrecoverable`) because the missing
-    /// tables cannot be found.
+    /// omitted, recovery may fail with
+    /// [`RouteMismatch`](crate::Error::RouteMismatch) (when all missing
+    /// tables are on uncovered levels) or
+    /// [`Unrecoverable`](crate::Error::Unrecoverable) (when some missing
+    /// tables are on levels that are still covered).
     ///
     /// # Panics
     ///

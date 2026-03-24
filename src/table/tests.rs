@@ -1762,7 +1762,7 @@ fn meta_seqno_kv_max_corruption_returns_invalid_data() -> crate::Result<()> {
     let mut writer = Writer::new(file.clone(), 0, 0, Arc::new(StdFs))?;
     for (i, key) in (b'a'..=b'e').enumerate() {
         writer.write(InternalValue::from_components(
-            &[key],
+            [key],
             b"val",
             (i as u64) + 1,
             crate::ValueType::Value,

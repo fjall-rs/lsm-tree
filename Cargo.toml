@@ -65,12 +65,6 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 denylist = []
 
 [[bench]]
-name = "tli"
-harness = false
-path = "benches/tli.rs"
-required-features = []
-
-[[bench]]
 name = "merge"
 harness = false
 path = "benches/merge.rs"
@@ -89,33 +83,15 @@ path = "benches/bloom.rs"
 required-features = []
 
 [[bench]]
-name = "block"
-harness = false
-path = "benches/block.rs"
-required-features = ["lz4"]
-
-[[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
 required-features = ["lz4"]
 
 [[bench]]
-name = "level_manifest"
-harness = false
-path = "benches/level_manifest.rs"
-required-features = []
-
-[[bench]]
 name = "fd_table"
 harness = false
 path = "benches/fd_table.rs"
-required-features = []
-
-[[bench]]
-name = "partition_point"
-harness = false
-path = "benches/partition_point.rs"
 required-features = []
 
 [[bench]]

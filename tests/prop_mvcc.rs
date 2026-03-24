@@ -44,13 +44,11 @@ impl MvccOracle {
         let start = (key.to_vec(), Reverse(read_seqno - 1));
         let end = (key.to_vec(), Reverse(0));
 
-        for ((k, Reverse(_)), val) in self.data.range(start..=end) {
-            if k != key {
-                break;
-            }
-            return val.clone();
-        }
-        None
+        self.data
+            .range(start..=end)
+            .next()
+            .filter(|((k, _), _)| k == key)
+            .and_then(|(_, val)| val.clone())
     }
 
     // lsm-tree uses exclusive upper bound: entry_seqno < read_seqno.

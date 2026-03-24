@@ -1626,6 +1626,43 @@ impl Tree {
         }
 
         if tables.len() < cnt {
+            // Route configuration is NOT persisted.  This is a best-effort
+            // heuristic: it checks each missing table's level against the
+            // current routes, but cannot detect same-level path changes
+            // (e.g., L0 routed to /hot_old → /hot_new).  Persisting route
+            // provenance per-table in the manifest would enable exact
+            // detection but requires a format change.
+            //
+            // - Level IS covered by a current route → its directory was scanned
+            //   and the file was not found → data corruption / deletion.
+            // - Level is NOT covered → falls back to primary (always scanned).
+            //   If the table isn't there, it was likely in a route that has
+            //   since been removed from the config.
+            //
+            // Return RouteMismatch only when ALL missing tables are on levels
+            // not covered by any current route.  If ANY missing table is on a
+            // covered level, at least one SST was genuinely lost.
+            if let Some(routes) = &config.level_routes {
+                let all_missing_uncovered = table_map
+                    .values()
+                    .all(|(level, _, _)| !routes.iter().any(|r| r.levels.contains(level)));
+
+                if all_missing_uncovered {
+                    let found = tables.len();
+                    let missing_ids: Vec<_> = table_map.keys().collect();
+
+                    log::error!(
+                        "Route mismatch: expected {cnt} tables but found {found} — \
+                         level_routes do not cover all previously used levels. \
+                         Missing table IDs: {missing_ids:?}",
+                    );
+                    return Err(crate::Error::RouteMismatch {
+                        expected: cnt,
+                        found,
+                    });
+                }
+            }
+
             log::error!(
                 "Recovered less tables than expected: {:?}",
                 table_map.keys(),

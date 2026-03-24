@@ -284,6 +284,12 @@ impl Decode for CompressionType {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::useless_vec,
+    reason = "test code"
+)]
 mod tests {
     use super::*;
     use test_log::test;

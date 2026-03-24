@@ -57,9 +57,9 @@ impl RtOracle {
         let start = (key.to_vec(), Reverse(read_seqno - 1));
         let end = (key.to_vec(), Reverse(0));
 
-        for ((k, Reverse(entry_seqno)), val) in self.data.range(start..=end) {
+        if let Some(((k, Reverse(entry_seqno)), val)) = self.data.range(start..=end).next() {
             if k != key {
-                break;
+                return None;
             }
             if self.is_range_deleted(key, *entry_seqno, read_seqno) {
                 return None;

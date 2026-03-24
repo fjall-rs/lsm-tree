@@ -106,6 +106,26 @@ pub enum Error {
         /// (captured before reading bytes for that field).
         offset: u64,
     },
+
+    /// Route-compatibility mismatch on reopen.
+    ///
+    /// Recovery found fewer tables on disk than the manifest expects, and all
+    /// missing tables are on levels not covered by any current
+    /// [`level_routes`](crate::Config::level_routes).  This typically means a
+    /// previously configured route was removed, leaving its directory
+    /// unreachable.
+    ///
+    /// Re-adding the missing route(s) will usually resolve the error.  If
+    /// missing tables are on levels that *are* covered by a current route,
+    /// recovery returns [`Unrecoverable`](Self::Unrecoverable) instead
+    /// (the SST files were genuinely lost).
+    RouteMismatch {
+        /// Number of tables listed in the manifest.
+        expected: usize,
+
+        /// Number of tables actually found across all configured routes.
+        found: usize,
+    },
 }
 
 impl std::fmt::Display for Error {

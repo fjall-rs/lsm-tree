@@ -105,9 +105,7 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
 
     // Verify data stayed in L0 (not pushed to L1)
     assert!(
-        tree.current_version()
-            .level(1)
-            .map_or(true, |l| l.is_empty()),
+        tree.current_version().level(1).is_none_or(|l| l.is_empty()),
         "L1 should remain empty after intra-L0 compaction"
     );
 
@@ -419,9 +417,7 @@ fn multi_level_no_skip_when_l1_has_room() -> crate::Result<()> {
 
     // Verify data went to L1 (not skipped to L2) — L2 should be empty
     assert!(
-        tree.current_version()
-            .level(2)
-            .map_or(true, |l| l.is_empty()),
+        tree.current_version().level(2).is_none_or(|l| l.is_empty()),
         "L2 should remain empty when L1 has room (no multi-level skip)",
     );
 
