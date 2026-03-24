@@ -1,8 +1,10 @@
+mod calibrate;
 mod config;
 mod db;
 mod reporter;
 mod workloads;
 
+use crate::calibrate::CalibrationScore;
 use crate::config::{BenchConfig, Compression};
 use crate::reporter::{JsonConfig, Reporter};
 use crate::workloads::{available_benchmarks, create_workload};
@@ -68,6 +70,15 @@ struct Cli {
     /// will not reuse this path.
     #[arg(long)]
     db: Option<PathBuf>,
+
+    /// Number of iterations per workload.  The median result is reported.
+    /// Default: 3 when --github-json is set, 1 otherwise.
+    #[arg(long)]
+    iterations: Option<u32>,
+
+    /// Skip runner calibration (report raw ops/sec without normalization).
+    #[arg(long)]
+    skip_calibration: bool,
 }
 
 fn parse_benchmark(s: &str) -> Result<String, String> {
@@ -129,6 +140,28 @@ fn main() {
         }
     }
 
+    let iterations = cli
+        .iterations
+        .unwrap_or(if cli.github_json { 3 } else { 1 });
+
+    if iterations == 0 {
+        eprintln!("Error: --iterations must be > 0");
+        std::process::exit(1);
+    }
+
+    // Run calibration unless explicitly skipped.
+    let calibration = if cli.skip_calibration {
+        None
+    } else {
+        match calibrate::run_calibration() {
+            Ok(score) => Some(score),
+            Err(e) => {
+                eprintln!("Warning: calibration failed ({e}), reporting raw results");
+                None
+            }
+        }
+    };
+
     let benchmarks: Vec<&str> = if cli.benchmark == "all" {
         available_benchmarks().to_vec()
     } else {
@@ -140,7 +173,14 @@ fn main() {
     let mut failures = 0u32;
 
     for benchmark_name in &benchmarks {
-        if let Err(e) = run_single(benchmark_name, &bench_config, &cli, &mut github_entries) {
+        if let Err(e) = run_single(
+            benchmark_name,
+            &bench_config,
+            &cli,
+            iterations,
+            calibration.as_ref(),
+            &mut github_entries,
+        ) {
             eprintln!("Error: {benchmark_name} failed: {e}");
             failures += 1;
         }
@@ -163,55 +203,117 @@ fn main() {
     }
 }
 
+/// Result from a single iteration of a workload.
+struct IterationResult {
+    reporter: Reporter,
+    ops_per_sec: f64,
+}
+
 fn run_single(
     benchmark_name: &str,
     bench_config: &BenchConfig,
     cli: &Cli,
+    iterations: u32,
+    calibration: Option<&CalibrationScore>,
     github_entries: &mut Vec<serde_json::Value>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Each benchmark gets a fresh temp directory by default.
-    // With --db, all workloads share the same directory so data persists
-    // across runs (e.g. fill first, then benchmark reads in a second invocation).
-    // Note: within a single run each workload still prefills its own data.
-    let _tmpdir;
-    let db_path = match &cli.db {
-        Some(p) => p.clone(),
-        None => {
-            _tmpdir = tempfile::tempdir()?;
-            _tmpdir.path().to_path_buf()
-        }
-    };
-
     eprintln!("=== db_bench: {benchmark_name} ===");
     eprintln!(
-        "num={} key_size={} value_size={} threads={} cache={}MB",
-        cli.num, cli.key_size, cli.value_size, cli.threads, cli.cache_mb,
+        "num={} key_size={} value_size={} threads={} cache={}MB iterations={}",
+        cli.num, cli.key_size, cli.value_size, cli.threads, cli.cache_mb, iterations,
     );
-
-    let tree = config::create_tree(&db_path, bench_config)?;
-    // When --db reuses a directory, start from existing highest seqno to
-    // avoid duplicate/non-monotonic sequence numbers.
-    let initial_seqno = tree.get_highest_seqno().map_or(1, |s| s.saturating_add(1));
-    let seqno = AtomicU64::new(initial_seqno);
-    let mut reporter = Reporter::new();
-
-    let workload = create_workload(benchmark_name)
-        .ok_or_else(|| format!("unknown benchmark '{benchmark_name}'"))?;
-
-    workload.run(&tree, bench_config, &seqno, &mut reporter)?;
 
     let entry_size = bench_config.entry_size();
 
+    // Run N iterations, keep all results.
+    let mut results: Vec<IterationResult> = Vec::with_capacity(iterations as usize);
+
+    for iter in 0..iterations {
+        // Each iteration gets a fresh database so results are comparable.
+        // With --db, create per-iteration subdirectories to avoid data
+        // accumulation across iterations (fill workloads would append,
+        // read workloads would prefill on top of existing data).
+        let _tmpdir;
+        let db_path = match &cli.db {
+            Some(p) if iterations > 1 => {
+                let sub = p.join(format!("iter-{iter}"));
+                // Clean previous iteration data so each run starts fresh.
+                // Safe: these are `iter-0`, `iter-1`, … subdirs created by
+                // this tool — the naming scheme cannot collide with user data.
+                if let Err(e) = std::fs::remove_dir_all(&sub) {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        return Err(e.into());
+                    }
+                }
+                std::fs::create_dir_all(&sub)?;
+                sub
+            }
+            Some(p) => p.clone(),
+            None => {
+                _tmpdir = tempfile::tempdir()?;
+                _tmpdir.path().to_path_buf()
+            }
+        };
+
+        if iterations > 1 {
+            eprintln!("  iteration {}/{iterations}", iter + 1);
+        }
+
+        let tree = config::create_tree(&db_path, bench_config)?;
+        let initial_seqno = tree.get_highest_seqno().map_or(1, |s| s.saturating_add(1));
+        let seqno = AtomicU64::new(initial_seqno);
+        let mut reporter = Reporter::new();
+
+        let workload = create_workload(benchmark_name)
+            .ok_or_else(|| format!("unknown benchmark '{benchmark_name}'"))?;
+
+        workload.run(&tree, bench_config, &seqno, &mut reporter)?;
+
+        let ops_per_sec = reporter.summary(entry_size).ops_per_sec;
+        results.push(IterationResult {
+            reporter,
+            ops_per_sec,
+        });
+    }
+
+    // Pick the lower median by ops/sec to avoid upward bias for even N:
+    // len=1 → 0, len=2 → 0, len=3 → 1, len=4 → 1, etc.
+    results.sort_by(|a, b| a.ops_per_sec.total_cmp(&b.ops_per_sec));
+    let median_idx = (results.len() - 1) / 2;
+    let median = &results[median_idx];
+
+    let factor = calibration.map_or(1.0, CalibrationScore::factor);
+
     if cli.github_json {
-        let s = reporter.summary(entry_size);
+        let s = median.reporter.summary(entry_size);
+        let normalized_ops = s.ops_per_sec * factor;
+
+        let (unit, extra) = if calibration.is_some() {
+            (
+                "ops/sec (normalized)",
+                format!(
+                    "raw: {:.0} ops/sec | factor: {:.3} | P50: {:.1}us | P99: {:.1}us | P99.9: {:.1}us\n\
+                     threads: {} | elapsed: {:.2}s | num: {} | iterations: {} | runner: {}",
+                    s.ops_per_sec, factor, s.p50, s.p99, s.p999,
+                    cli.threads, s.secs, cli.num, iterations,
+                    calibration.map_or_else(String::new, |c| c.to_string()),
+                ),
+            )
+        } else {
+            (
+                "ops/sec",
+                format!(
+                    "P50: {:.1}us | P99: {:.1}us | P99.9: {:.1}us\nthreads: {} | elapsed: {:.2}s | num: {} | iterations: {}",
+                    s.p50, s.p99, s.p999, cli.threads, s.secs, cli.num, iterations,
+                ),
+            )
+        };
+
         github_entries.push(serde_json::json!({
             "name": benchmark_name,
-            "value": s.ops_per_sec,
-            "unit": "ops/sec",
-            "extra": format!(
-                "P50: {:.1}us | P99: {:.1}us | P99.9: {:.1}us\nthreads: {} | elapsed: {:.2}s | num: {}",
-                s.p50, s.p99, s.p999, cli.threads, s.secs, cli.num,
-            ),
+            "value": normalized_ops,
+            "unit": unit,
+            "extra": extra,
         }));
     } else if cli.json {
         let json_config = JsonConfig {
@@ -222,9 +324,16 @@ fn run_single(
             threads: cli.threads,
             compression: cli.compression.to_string(),
         };
-        println!("{}", reporter.to_json(benchmark_name, &json_config));
+        println!(
+            "{}",
+            median
+                .reporter
+                .to_json(benchmark_name, &json_config, factor)
+        );
     } else {
-        reporter.print_human(benchmark_name, entry_size);
+        median
+            .reporter
+            .print_human(benchmark_name, entry_size, factor);
     }
 
     Ok(())

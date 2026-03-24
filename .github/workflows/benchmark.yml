@@ -44,9 +44,9 @@ jobs:
           # On PRs, comment with comparison against baseline
           comment-on-alert: true
           alert-comment-cc-users: "@polaz"
-          # 15% regression = alert, 25% = fail
-          alert-threshold: "115%"
-          fail-threshold: "125%"
+          # 10% regression = alert, 15% = fail (calibration reduces noise)
+          alert-threshold: "110%"
+          fail-threshold: "115%"
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
           # Store data for PRs without pushing (compare only)
           save-data-file: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

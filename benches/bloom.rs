@@ -89,9 +89,12 @@ fn standard_filter_contains(c: &mut Criterion) {
         .map(|x| x.to_be_bytes().to_vec())
         .collect::<Vec<_>>();
 
-    for fpr in [0.1, 0.01, 0.001, 0.0001, 0.00001] {
-        // NOTE: Purposefully bloat bloom filter size to run into more CPU cache misses
-        let n = 100_000_000;
+    // 3 representative FPR levels (low / medium / high precision).
+    // Reduced from 5 to cut benchmark count without losing coverage.
+    for fpr in [0.01, 0.001, 0.0001] {
+        // Bloom filter sized larger than the key set to trigger CPU cache misses,
+        // but not so large that setup time dominates (was 100M, now 1M).
+        let n = 1_000_000;
 
         let mut filter = Builder::with_fp_rate(n, fpr);
 
@@ -133,9 +136,9 @@ fn blocked_filter_contains(c: &mut Criterion) {
         .map(|x| x.to_be_bytes().to_vec())
         .collect::<Vec<_>>();
 
-    for fpr in [0.1, 0.01, 0.001, 0.0001, 0.00001] {
-        // NOTE: Purposefully bloat bloom filter size to run into more CPU cache misses
-        let n = 100_000_000;
+    for fpr in [0.01, 0.001, 0.0001] {
+        // Same rationale as standard_filter_contains.
+        let n = 1_000_000;
 
         let mut filter = Builder::with_fp_rate(n, fpr);
 

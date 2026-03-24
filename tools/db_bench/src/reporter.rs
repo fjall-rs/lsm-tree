@@ -110,12 +110,30 @@ impl Reporter {
     }
 
     /// Print human-readable results.
-    pub fn print_human(&self, benchmark: &str, entry_size: usize) {
+    ///
+    /// `calibration_factor` normalizes ops/sec against runner hardware.
+    /// Pass `1.0` when calibration is skipped.
+    pub fn print_human(&self, benchmark: &str, entry_size: usize, calibration_factor: f64) {
         let s = self.summary(entry_size);
-        println!(
-            "{benchmark:<20} {:>12} ops in {:.2}s  ({:>12.0} ops/sec, {:.1} MB/sec)",
-            s.ops, s.secs, s.ops_per_sec, s.mb_per_sec,
-        );
+        let normalized_ops = s.ops_per_sec * calibration_factor;
+        let normalized_mb = s.mb_per_sec * calibration_factor;
+
+        const CALIBRATION_TOLERANCE: f64 = 1e-3;
+        if (calibration_factor - 1.0).abs() > CALIBRATION_TOLERANCE {
+            println!(
+                "{benchmark:<20} {:>12} ops in {:.2}s  ({:>12.0} ops/sec normalized, {:.1} MB/sec)",
+                s.ops, s.secs, normalized_ops, normalized_mb,
+            );
+            println!(
+                "{:20} raw: {:.0} ops/sec, {:.1} MB/sec | factor: {:.3}",
+                "", s.ops_per_sec, s.mb_per_sec, calibration_factor,
+            );
+        } else {
+            println!(
+                "{benchmark:<20} {:>12} ops in {:.2}s  ({:>12.0} ops/sec, {:.1} MB/sec)",
+                s.ops, s.secs, s.ops_per_sec, s.mb_per_sec,
+            );
+        }
         println!(
             "{:20} P50: {:.1}us  P99: {:.1}us  P99.9: {:.1}us  P99.99: {:.1}us",
             "", s.p50, s.p99, s.p999, s.p9999,
@@ -123,7 +141,10 @@ impl Reporter {
     }
 
     /// Produce JSON output.
-    pub fn to_json(&self, benchmark: &str, config: &JsonConfig) -> String {
+    ///
+    /// `calibration_factor` normalizes ops/sec against runner hardware.
+    /// Pass `1.0` when calibration is skipped.
+    pub fn to_json(&self, benchmark: &str, config: &JsonConfig, calibration_factor: f64) -> String {
         let s = self.summary(config.entry_size);
 
         let report = JsonReport {
@@ -131,8 +152,10 @@ impl Reporter {
             config: config.clone(),
             elapsed_secs: s.secs,
             ops_total: s.ops,
-            ops_per_sec: s.ops_per_sec,
-            mb_per_sec: s.mb_per_sec,
+            ops_per_sec: s.ops_per_sec * calibration_factor,
+            raw_ops_per_sec: s.ops_per_sec,
+            calibration_factor,
+            mb_per_sec: s.mb_per_sec * calibration_factor,
             latency_us: LatencyUs {
                 p50: s.p50,
                 p99: s.p99,
@@ -168,6 +191,8 @@ struct JsonReport {
     elapsed_secs: f64,
     ops_total: u64,
     ops_per_sec: f64,
+    raw_ops_per_sec: f64,
+    calibration_factor: f64,
     mb_per_sec: f64,
     latency_us: LatencyUs,
 }

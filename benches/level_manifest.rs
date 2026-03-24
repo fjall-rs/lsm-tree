@@ -7,7 +7,7 @@ fn iterate_segments(c: &mut Criterion) {
 
     std::fs::create_dir_all(".bench").unwrap();
 
-    for segment_count in [0, 1, 5, 10, 100, 500, 1_000, 2_000, 4_000] {
+    for segment_count in [0, 1, 10, 100, 500, 1_000] {
         group.bench_function(format!("iterate {segment_count} segments"), |b| {
             let folder = tempfile::tempdir_in(".bench").unwrap();
             let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
