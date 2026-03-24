@@ -32,8 +32,12 @@
 //! Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 //! engine, larger keys and values have a bigger performance impact.
 
-#![doc(html_logo_url = "https://raw.githubusercontent.com/structured-world/coordinode-lsm-tree/main/logo.png")]
-#![doc(html_favicon_url = "https://raw.githubusercontent.com/structured-world/coordinode-lsm-tree/main/logo.png")]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/structured-world/coordinode-lsm-tree/main/logo.png"
+)]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/structured-world/coordinode-lsm-tree/main/logo.png"
+)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::indexing_slicing)]
