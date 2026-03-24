@@ -25,11 +25,21 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run release-plz
+      # Step 1: Create or update release PR (version bump + changelog)
+      - name: Create release PR
         uses: release-plz/action@v0.5
         with:
           command: release-pr
           config: .release-plz.toml
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # Step 2: If version in Cargo.toml > latest tag, create GitHub Release + tag
+      # This triggers release.yml → cargo publish via OIDC
+      - name: Create GitHub Release
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+          config: .release-plz.toml
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
