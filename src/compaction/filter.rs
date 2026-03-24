@@ -11,7 +11,7 @@ use crate::{
     key::InternalKey,
     version::Version,
     vlog::{Accessor, BlobFileWriter, ValueHandle},
-    BlobIndirection, InternalValue, KvSeparationOptions, UserKey, UserValue, ValueType,
+    BlobIndirection, InternalValue, KvSeparationOptions, SeqNo, UserKey, UserValue, ValueType,
 };
 use std::{panic::RefUnwindSafe, path::Path};
 
@@ -125,6 +125,12 @@ impl<'a> ItemAccessor<'a> {
     #[must_use]
     pub fn key(&self) -> &'a UserKey {
         &self.item.key.user_key
+    }
+
+    /// Get the sequence number of this item.
+    #[must_use]
+    pub fn seqno(&self) -> SeqNo {
+        self.item.key.seqno
     }
 
     /// Returns whether this item's value is stored separately.
