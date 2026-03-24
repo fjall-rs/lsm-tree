@@ -18,6 +18,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+io-uring = ["dep:io-uring"]
 lz4 = ["dep:lz4_flex"]
 zstd = ["dep:zstd"]
 encryption = ["dep:aes-gcm", "dep:rand_chacha"]
@@ -42,6 +43,9 @@ varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 aes-gcm = { version = "0.10", optional = true, features = ["aes"] }
 rand_chacha = { version = "0.3", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "0.7", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.0", features = ["html_reports"] }

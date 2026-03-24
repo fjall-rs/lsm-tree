@@ -6,16 +6,32 @@
 //!
 //! The [`Fs`] trait is intended to abstract the filesystem operations
 //! that lsm-tree performs, allowing alternative backends such as
-//! io_uring, in-memory filesystems for deterministic testing, or cloud
+//! `io_uring`, in-memory filesystems for deterministic testing, or cloud
 //! blob storage. Call-site migration is tracked in separate issues.
 //!
 //! The default implementation [`StdFs`] delegates to [`std::fs`] and
 //! is a zero-sized type, so it adds no runtime overhead when used as a
 //! monomorphized generic parameter.
+//!
+//! # Platform-specific backends
+//!
+//! - **Linux 5.6+**: `IoUringFs` — batched SQE submission via `io_uring`
+//!   (feature-gated: `io-uring`)
+//! - **Windows**: IOCP (`IoCompletionPort`) could provide similar batched
+//!   completion semantics — not yet implemented, tracked for when Windows
+//!   becomes a production target
+//! - **macOS / BSD**: no batched I/O API exists (`dispatch_io` and `kqueue`
+//!   do not help for storage I/O patterns); [`StdFs`] is the correct choice
 
 mod std_fs;
 
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+mod io_uring_fs;
+
 pub use std_fs::StdFs;
+
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub use io_uring_fs::{is_io_uring_available, IoUringFs};
 
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
