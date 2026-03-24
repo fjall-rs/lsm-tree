@@ -1,7 +1,7 @@
 use crate::config::BenchConfig;
 use crate::db::make_sequential_key;
 use crate::reporter::Reporter;
-use crate::workloads::Workload;
+use crate::workloads::{run_threaded, Workload};
 use lsm_tree::{
     config::{BlockSizePolicy, CompressionPolicy},
     AbstractTree, AnyTree, Cache, Config, MergeOperator, SequenceNumberCounter, UserValue,
@@ -88,32 +88,41 @@ impl Workload for MergeRandom {
         }
         let tree = builder.open()?;
 
-        reporter.start();
+        // All threads merge on shared hot keys — high contention is intentional.
+        // Each thread processes its partition of the global op range, preserving
+        // the same key distribution as single-threaded (key = global_index % hot_keys).
+        run_threaded(config, reporter, |_t, my_ops, start| {
+            let mut local = Reporter::new();
 
-        for i in 0..config.num {
-            let key_idx = i % hot_keys;
-            let key = make_sequential_key(key_idx, config.key_size);
-            // Each operand adds 1 to the counter for this key.
-            let operand = 1_i64.to_le_bytes();
-            let seq = seqno.fetch_add(1, Ordering::Relaxed);
+            for i in start..(start + my_ops) {
+                let key_idx = i % hot_keys;
+                let key = make_sequential_key(key_idx, config.key_size);
+                // Each operand adds 1 to the counter for this key.
+                let operand = 1_i64.to_le_bytes();
+                let seq = seqno.fetch_add(1, Ordering::Relaxed);
 
-            let t = Instant::now();
-            tree.merge(key, operand.as_slice(), seq);
-            reporter.record_duration(t.elapsed());
+                let t = Instant::now();
+                tree.merge(key, operand.as_slice(), seq);
+                local.record_duration(t.elapsed());
 
-            if (i + 1) % flush_interval == 0 {
-                tree.flush_active_memtable(0)?;
+                if (i + 1) % flush_interval == 0 {
+                    tree.flush_active_memtable(0)?;
+                }
             }
-        }
+
+            Ok(local)
+        })?;
 
         // Final flush + compaction to exercise merge resolution.
+        // Included in wall-clock timing (reporter.stop after compact).
         tree.flush_active_memtable(0)?;
         let compact_seqno = seqno.load(Ordering::Relaxed);
         tree.major_compact(64 * 1024 * 1024, compact_seqno)?;
 
         reporter.stop();
 
-        // Key 0 gets base + 1 if remainder > 0 (since 0 % hot_keys == 0 for all ops).
+        // Verify merged counter: key 0 should have received exactly
+        // (num / hot_keys) + (1 if num % hot_keys > 0) merge operands.
         let base = config.num / hot_keys;
         let remainder = config.num % hot_keys;
         let expected = (base + if remainder > 0 { 1 } else { 0 }) as i64;
@@ -122,10 +131,10 @@ impl Workload for MergeRandom {
         match tree.get(&sample_key, read_seqno)? {
             Some(val) => {
                 if val.len() < 8 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("merge result too short: {} bytes (expected 8)", val.len()),
-                    )
+                    return Err(std::io::Error::other(format!(
+                        "merge result too short: {} bytes (expected 8)",
+                        val.len()
+                    ))
                     .into());
                 }
                 let mut buf = [0_u8; 8];
@@ -133,10 +142,9 @@ impl Workload for MergeRandom {
                 let actual = i64::from_le_bytes(buf);
 
                 if actual != expected {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("merge result mismatch: got {actual}, expected {expected}"),
-                    )
+                    return Err(std::io::Error::other(format!(
+                        "merge result mismatch: got {actual}, expected {expected}"
+                    ))
                     .into());
                 }
 
@@ -146,11 +154,9 @@ impl Workload for MergeRandom {
                 );
             }
             None => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "sample key missing after merge/compaction",
-                )
-                .into());
+                return Err(
+                    std::io::Error::other("sample key missing after merge/compaction").into(),
+                );
             }
         }
 

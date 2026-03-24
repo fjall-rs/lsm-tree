@@ -1,7 +1,7 @@
 use crate::config::BenchConfig;
 use crate::db::{prefill_prefix_keys, read_seqno};
 use crate::reporter::Reporter;
-use crate::workloads::Workload;
+use crate::workloads::{run_threaded, Workload};
 use lsm_tree::{
     config::{BlockSizePolicy, CompressionPolicy},
     AbstractTree, AnyTree, Cache, Config, Guard, PrefixExtractor, SequenceNumberCounter,
@@ -53,7 +53,7 @@ impl Workload for PrefixScan {
             .into());
         }
 
-        // Reject num values that exceed the u16 prefix × u16 suffix space.
+        // Reject num values that exceed the u16 prefix x u16 suffix space.
         let max_keys = u64::from(NUM_PREFIXES) * (u64::from(u16::MAX) + 1);
         if config.num > max_keys {
             return Err(std::io::Error::new(
@@ -91,24 +91,28 @@ impl Workload for PrefixScan {
         // Prefill with structured prefix keys.
         prefill_prefix_keys(&tree, config, seqno, NUM_PREFIXES)?;
 
-        let read_seq = read_seqno(seqno);
-        let mut rng = rand::rng();
+        // All threads scan random prefixes from shared prefilled data.
+        run_threaded(config, reporter, |_t, my_ops, _start| {
+            let mut local = Reporter::new();
+            let read_seq = read_seqno(seqno);
+            let mut rng = rand::rng();
 
-        reporter.start();
+            for _ in 0..my_ops {
+                let prefix_idx: u16 = rng.random_range(0..NUM_PREFIXES);
+                let prefix_bytes = prefix_idx.to_be_bytes();
 
-        for _ in 0..config.num {
-            let prefix_idx: u16 = rng.random_range(0..NUM_PREFIXES);
-            let prefix_bytes = prefix_idx.to_be_bytes();
-
-            let t = Instant::now();
-            let mut iter = tree.prefix(prefix_bytes, read_seq, None);
-            for _ in 0..SCAN_LIMIT {
-                let Some(item) = iter.next() else { break };
-                // Force full value read including blob payload (BlobTree).
-                let _ = item.value()?;
+                let t = Instant::now();
+                let mut iter = tree.prefix(prefix_bytes, read_seq, None);
+                for _ in 0..SCAN_LIMIT {
+                    let Some(item) = iter.next() else { break };
+                    // Force full value read including blob payload (BlobTree).
+                    let _ = item.value()?;
+                }
+                local.record_duration(t.elapsed());
             }
-            reporter.record_duration(t.elapsed());
-        }
+
+            Ok(local)
+        })?;
 
         reporter.stop();
         Ok(())
