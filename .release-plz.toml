@@ -1,4 +1,7 @@
 [workspace]
+# Disable cargo-semver-checks — we control versioning manually for this fork.
+# Without this, adding enum variants or #[non_exhaustive] triggers major bumps.
+semver_check = false
 # Create GitHub releases with changelog
 git_release_enable = true
 # Use conventional commits for changelog
