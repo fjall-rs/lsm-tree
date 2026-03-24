@@ -313,6 +313,7 @@ impl CompactionFlavour for RelocatingCompaction {
             |current| {
                 let mut copy = current.clone();
 
+                let ctx = crate::version::TransformContext::new(opts.config.comparator.as_ref());
                 copy.version = copy.version.with_merge(
                     &payload.table_ids.iter().copied().collect::<Vec<_>>(),
                     &created_tables,
@@ -327,7 +328,7 @@ impl CompactionFlavour for RelocatingCompaction {
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),
-                    opts.config.comparator.as_ref(),
+                    &ctx,
                 );
 
                 Ok(copy)
@@ -454,6 +455,7 @@ impl CompactionFlavour for StandardCompaction {
             |current| {
                 let mut copy = current.clone();
 
+                let ctx = crate::version::TransformContext::new(opts.config.comparator.as_ref());
                 copy.version = copy.version.with_merge(
                     &payload.table_ids.iter().copied().collect::<Vec<_>>(),
                     &created_tables,
@@ -468,7 +470,7 @@ impl CompactionFlavour for StandardCompaction {
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),
-                    opts.config.comparator.as_ref(),
+                    &ctx,
                 );
 
                 Ok(copy)

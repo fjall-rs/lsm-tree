@@ -331,12 +331,11 @@ impl<'a> Ingestion<'a> {
             &self.tree.config.path,
             |current| {
                 let mut copy = current.clone();
-                copy.version = copy.version.with_new_l0_run(
-                    &created_tables,
-                    None,
-                    None,
-                    self.tree.config.comparator.as_ref(),
-                );
+                let ctx =
+                    crate::version::TransformContext::new(self.tree.config.comparator.as_ref());
+                copy.version = copy
+                    .version
+                    .with_new_l0_run(&created_tables, None, None, &ctx);
                 Ok(copy)
             },
             global_seqno,

@@ -216,11 +216,10 @@ fn move_tables(
         |current| {
             let mut copy = current.clone();
 
-            copy.version = copy.version.with_moved(
-                &table_ids,
-                payload.dest_level as usize,
-                opts.config.comparator.as_ref(),
-            );
+            let ctx = crate::version::TransformContext::new(opts.config.comparator.as_ref());
+            copy.version = copy
+                .version
+                .with_moved(&table_ids, payload.dest_level as usize, &ctx);
 
             Ok(copy)
         },
@@ -664,11 +663,10 @@ fn drop_tables(
         |current| {
             let mut copy = current.clone();
 
-            copy.version = copy.version.with_dropped(
-                ids_to_drop,
-                &mut dropped_blob_files,
-                opts.config.comparator.as_ref(),
-            )?;
+            let ctx = crate::version::TransformContext::new(opts.config.comparator.as_ref());
+            copy.version = copy
+                .version
+                .with_dropped(ids_to_drop, &mut dropped_blob_files, &ctx)?;
 
             Ok(copy)
         },
