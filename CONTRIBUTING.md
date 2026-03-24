@@ -2,7 +2,7 @@
 
 ## License
 
-By contributing to this project, you agree that your contributions will be licensed under the project's license (MIT OR Apache-2.0).
+By contributing to this project, you agree that your contributions will be licensed under the project's license (Apache-2.0).
 
 Thank you for your contribution!
 
