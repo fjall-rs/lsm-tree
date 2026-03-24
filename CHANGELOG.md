@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0](https://github.com/structured-world/coordinode-lsm-tree/compare/v4.0.0...v4.1.0) - 2026-03-24
+
+### Added
+
+- *(fs)* io_uring Fs implementation for high-throughput I/O ([#106](https://github.com/structured-world/coordinode-lsm-tree/pull/106))
+- *(compression)* zstd dictionary compression support ([#131](https://github.com/structured-world/coordinode-lsm-tree/pull/131))
+
+### Documentation
+
+- add benchmark dashboard link and update badges ([#151](https://github.com/structured-world/coordinode-lsm-tree/pull/151))
+- add v4.0.0 fork epoch changelog (all changes since upstream v3.1.1)
+
+### Fixed
+
+- *(version)* fsync version file before rewriting CURRENT pointer ([#152](https://github.com/structured-world/coordinode-lsm-tree/pull/152))
+- thread UserComparator through ingestion guards and range overlap ([#139](https://github.com/structured-world/coordinode-lsm-tree/pull/139))
+
+### Performance
+
+- *(bench)* add multi-threaded support to all db_bench workloads ([#155](https://github.com/structured-world/coordinode-lsm-tree/pull/155))
+- *(merge)* replace IntervalHeap with sorted-vec heap + replace_min/replace_max ([#148](https://github.com/structured-world/coordinode-lsm-tree/pull/148))
+- *(compaction)* merge input ranges before L2 overlap query ([#146](https://github.com/structured-world/coordinode-lsm-tree/pull/146))
+
+### Refactored
+
+- *(version)* comparator API cleanup — TransformContext + rename Run::push() ([#153](https://github.com/structured-world/coordinode-lsm-tree/pull/153))
+- add #[non_exhaustive] to CompressionType enum
+
 ## [4.0.0] — Fork Epoch (2026-03-23)
 
 First release of `coordinode-lsm-tree` — maintained fork of [fjall-rs/lsm-tree](https://github.com/fjall-rs/lsm-tree) v3.1.1.
