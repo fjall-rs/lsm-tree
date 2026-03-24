@@ -362,12 +362,12 @@ impl AbstractTree for Tree {
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
         range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
-        use crate::{file::TABLES_FOLDER, table::multi_writer::MultiWriter};
+        use crate::table::multi_writer::MultiWriter;
         use std::time::Instant;
 
         let start = Instant::now();
 
-        let folder = self.config.path.join(TABLES_FOLDER);
+        let (folder, level_fs) = self.config.tables_folder_for_level(0);
 
         let data_block_size = self.config.data_block_size_policy.get(0);
 
@@ -392,7 +392,7 @@ impl AbstractTree for Tree {
             self.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
-            self.config.fs.clone(),
+            level_fs,
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
@@ -1440,7 +1440,7 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, TABLES_FOLDER};
+        use crate::file::fsync_directory;
         use crate::fs::Fs;
 
         let path = config.path.clone();
@@ -1448,11 +1448,22 @@ impl Tree {
 
         (*config.fs).create_dir_all(&path)?;
 
-        let table_folder_path = path.join(TABLES_FOLDER);
-        (*config.fs).create_dir_all(&table_folder_path)?;
+        // Create tables directories for all configured paths (primary + routes).
+        // create_dir_all may create both <route> and <route>/tables.
+        // Fsync the tables dir, its parent (route dir), AND the route's parent
+        // to make all newly-created directory entries durable on POSIX.
+        for (table_folder_path, folder_fs) in config.all_tables_folders() {
+            folder_fs.create_dir_all(&table_folder_path)?;
+            fsync_directory(&table_folder_path, &*folder_fs)?;
+            if let Some(parent) = table_folder_path.parent() {
+                fsync_directory(parent, &*folder_fs)?;
+                if let Some(grandparent) = parent.parent() {
+                    fsync_directory(grandparent, &*folder_fs)?;
+                }
+            }
+        }
 
-        // IMPORTANT: fsync folders on Unix
-        fsync_directory(&table_folder_path, &*config.fs)?;
+        // IMPORTANT: fsync primary folder on Unix
         fsync_directory(&path, &*config.fs)?;
 
         let inner = TreeInner::create_new(config)?;
@@ -1460,6 +1471,10 @@ impl Tree {
     }
 
     /// Recovers the level manifest, loading all tables from disk.
+    ///
+    /// When [`level_routes`](Config::level_routes) is configured, all
+    /// configured table folders are scanned so tables on different storage
+    /// tiers are discovered correctly.
     #[expect(
         clippy::too_many_lines,
         reason = "recovery logic is inherently complex"
@@ -1470,13 +1485,13 @@ impl Tree {
         config: &Config,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
-        use crate::{file::fsync_directory, file::TABLES_FOLDER, fs::Fs, TableId};
+        use crate::{file::fsync_directory, fs::Fs, TableId};
 
         let tree_path = tree_path.as_ref();
 
         let recovery = recover(tree_path)?;
 
-        let table_map = {
+        let mut table_map = {
             let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum, SeqNo)> =
                 crate::HashMap::default();
 
@@ -1515,74 +1530,98 @@ impl Tree {
         };
 
         let mut tables = vec![];
+        // Track recovered table IDs so duplicate sightings (via symlinks,
+        // junctions, or case-insensitive aliases of the same directory) are
+        // skipped rather than orphan-deleted.
+        let mut recovered_table_ids: crate::HashSet<TableId> = crate::HashSet::default();
+        let mut orphaned_tables: Vec<(std::path::PathBuf, Arc<dyn crate::fs::Fs>)> = vec![];
 
-        let table_base_folder = tree_path.join(TABLES_FOLDER);
+        // Scan all configured table folders (primary + level routes).
+        let all_folders = config.all_tables_folders();
 
-        if !config.fs.exists(&table_base_folder)? {
-            (*config.fs).create_dir_all(&table_base_folder)?;
-            fsync_directory(&table_base_folder, &*config.fs)?;
-        }
-
-        let mut orphaned_tables = vec![];
-
-        for (idx, dirent) in config
-            .fs
-            .read_dir(&table_base_folder)?
-            .into_iter()
-            .enumerate()
-        {
-            let crate::fs::FsDirEntry {
-                path: table_file_path,
-                file_name,
-                is_dir,
-            } = dirent;
-
-            // https://en.wikipedia.org/wiki/.DS_Store
-            if file_name == ".DS_Store" {
-                continue;
-            }
-
-            // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
-            if file_name.starts_with("._") {
-                continue;
-            }
-
-            let table_file_name = &file_name;
-            assert!(!is_dir);
-
-            let table_id = table_file_name.parse::<TableId>().map_err(|e| {
-                log::error!("invalid table file name {table_file_name:?}: {e:?}");
-                crate::Error::Unrecoverable
-            })?;
-
-            if let Some(&(level_idx, checksum, global_seqno)) = table_map.get(&table_id) {
-                let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
-                let pin_index = config.index_block_pinning_policy.get(level_idx.into());
-
-                let table = Table::recover(
-                    table_file_path,
-                    checksum,
-                    global_seqno,
-                    tree_id,
-                    config.cache.clone(),
-                    config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
-                    config.encryption.clone(),
-                    #[cfg(feature = "zstd")]
-                    config.zstd_dictionary.clone(),
-                    config.comparator.clone(),
-                    #[cfg(feature = "metrics")]
-                    metrics.clone(),
-                )?;
-
-                tables.push(table);
-
-                if idx % progress_mod == 0 {
-                    log::debug!("Recovered {idx}/{cnt} tables");
+        for (table_base_folder, folder_fs) in &all_folders {
+            if !folder_fs.exists(table_base_folder)? {
+                folder_fs.create_dir_all(table_base_folder)?;
+                fsync_directory(table_base_folder, &**folder_fs)?;
+                if let Some(parent) = table_base_folder.parent() {
+                    fsync_directory(parent, &**folder_fs)?;
+                    if let Some(grandparent) = parent.parent() {
+                        fsync_directory(grandparent, &**folder_fs)?;
+                    }
                 }
-            } else {
-                orphaned_tables.push(table_file_path);
+            }
+
+            for dirent in folder_fs.read_dir(table_base_folder)? {
+                let crate::fs::FsDirEntry {
+                    path: table_file_path,
+                    file_name,
+                    is_dir,
+                } = dirent;
+
+                // https://en.wikipedia.org/wiki/.DS_Store
+                if file_name == ".DS_Store" {
+                    continue;
+                }
+
+                // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
+                if file_name.starts_with("._") {
+                    continue;
+                }
+
+                let table_file_name = &file_name;
+                if is_dir {
+                    log::warn!(
+                        "Skipping unexpected directory in tables folder: {}",
+                        table_file_path.display()
+                    );
+                    continue;
+                }
+
+                let table_id = table_file_name.parse::<TableId>().map_err(|e| {
+                    log::error!("invalid table file name {table_file_name:?}: {e:?}");
+                    crate::Error::Unrecoverable
+                })?;
+
+                // Remove from map to prevent duplicate recovery if the same
+                // table file exists in multiple scanned folders.
+                if let Some((level_idx, checksum, global_seqno)) = table_map.remove(&table_id) {
+                    let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
+                    let pin_index = config.index_block_pinning_policy.get(level_idx.into());
+
+                    let table = Table::recover(
+                        table_file_path,
+                        checksum,
+                        global_seqno,
+                        tree_id,
+                        config.cache.clone(),
+                        config.descriptor_table.clone(),
+                        pin_filter,
+                        pin_index,
+                        config.encryption.clone(),
+                        #[cfg(feature = "zstd")]
+                        config.zstd_dictionary.clone(),
+                        config.comparator.clone(),
+                        #[cfg(feature = "metrics")]
+                        metrics.clone(),
+                    )?;
+
+                    tables.push(table);
+                    recovered_table_ids.insert(table_id);
+
+                    if tables.len() % progress_mod == 0 {
+                        log::debug!("Recovered {}/{cnt} tables", tables.len());
+                    }
+                } else if recovered_table_ids.contains(&table_id) {
+                    // Duplicate sighting of an already-recovered manifest table
+                    // (e.g., via symlink or case-insensitive alias). Skip it —
+                    // do NOT treat as orphan or the live SST will be deleted.
+                    log::warn!(
+                        "Skipping duplicate sighting of manifest table {table_id} in {}",
+                        table_file_path.display(),
+                    );
+                } else {
+                    orphaned_tables.push((table_file_path, folder_fs.clone()));
+                }
             }
         }
 
@@ -1609,14 +1648,14 @@ impl Tree {
         // But only after we definitely recovered the latest version
         Self::cleanup_orphaned_version(tree_path, version.id())?;
 
-        for table_path in orphaned_tables {
+        for (table_path, orphan_fs) in orphaned_tables {
             log::debug!("Deleting orphaned table {}", table_path.display());
-            std::fs::remove_file(&table_path)?;
+            orphan_fs.remove_file(&table_path)?;
         }
 
         for blob_file_path in orphaned_blob_files {
             log::debug!("Deleting orphaned blob file {}", blob_file_path.display());
-            std::fs::remove_file(&blob_file_path)?;
+            (*config.fs).remove_file(&blob_file_path)?;
         }
 
         Ok(version)

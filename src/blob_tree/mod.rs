@@ -392,14 +392,11 @@ impl AbstractTree for BlobTree {
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
         range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
-        use crate::{
-            coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
-            table::multi_writer::MultiWriter,
-        };
+        use crate::{coding::Encode, file::BLOBS_FOLDER, table::multi_writer::MultiWriter};
 
         let start = std::time::Instant::now();
 
-        let table_folder = self.index.config.path.join(TABLES_FOLDER);
+        let (table_folder, level_fs) = self.index.config.tables_folder_for_level(0);
 
         let data_block_size = self.index.config.data_block_size_policy.get(0);
 
@@ -425,7 +422,7 @@ impl AbstractTree for BlobTree {
             self.index.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
-            self.index.config.fs.clone(),
+            level_fs,
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)

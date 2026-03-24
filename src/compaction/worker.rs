@@ -115,6 +115,29 @@ pub fn do_compaction(opts: &Options) -> crate::Result<CompactionResult> {
             merge_tables(compaction_state, version_history_lock, opts, &payload)
         }
         Choice::Move(payload) => {
+            // Cross-folder trivial moves are not possible — the file must be
+            // rewritten to end up in the correct storage tier directory.
+            // This applies even when both folders are on the same filesystem,
+            // because rename() across tiered paths would break the routing
+            // invariant (table path = f(level)).
+            if opts.config.level_routes.is_some() {
+                let (dst_folder, _) = opts.config.tables_folder_for_level(payload.dest_level);
+                let version = &version_history_lock.latest_version().version;
+                // Check actual on-disk table paths (not configured routing) to
+                // handle tables that may have been recovered from a different
+                // tier after route reconfiguration.
+                let cross_folder = version
+                    .iter_levels()
+                    .flat_map(|level| level.iter())
+                    .flat_map(|run| run.iter())
+                    .filter(|t| payload.table_ids.contains(&t.id()))
+                    .any(|t| t.path.parent() != Some(dst_folder.as_path()));
+                if cross_folder {
+                    log::debug!("Converting trivial move to merge: cross-folder level routing");
+                    return merge_tables(compaction_state, version_history_lock, opts, &payload);
+                }
+            }
+
             drop(version_history_lock);
 
             move_tables(&compaction_state, opts, &payload)

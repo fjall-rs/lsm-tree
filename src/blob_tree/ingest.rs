@@ -216,15 +216,12 @@ impl<'a> BlobIngestion<'a> {
         // We intentionally do NOT pin filter/index blocks here. Large ingests
         // are typically placed in level 1, and pinning would increase memory
         // pressure unnecessarily.
+        let table_folder = &self.table.folder;
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
                 Table::recover(
-                    index
-                        .config
-                        .path
-                        .join(crate::file::TABLES_FOLDER)
-                        .join(table_id.to_string()),
+                    table_folder.join(table_id.to_string()),
                     checksum,
                     global_seqno,
                     index.id,

@@ -7,7 +7,6 @@ use crate::blob_tree::FragmentationMap;
 use crate::coding::{Decode, Encode};
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
-use crate::file::TABLES_FOLDER;
 use crate::range_tombstone::RangeTombstone;
 use crate::table::multi_writer::MultiWriter;
 use crate::version::{SuperVersions, Version};
@@ -47,7 +46,7 @@ pub(super) fn prepare_table_writer(
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<MultiWriter> {
-    let table_base_folder = opts.config.path.join(TABLES_FOLDER);
+    let (table_base_folder, level_fs) = opts.config.tables_folder_for_level(payload.dest_level);
 
     let dst_lvl = payload.canonical_level.into();
 
@@ -78,7 +77,7 @@ pub(super) fn prepare_table_writer(
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
-        opts.config.fs.clone(),
+        level_fs,
     )?
     // Compaction consumes input tables, so clip RTs to each output table's key range.
     .use_clip_range_tombstones();

@@ -19,7 +19,7 @@ pub const INITIAL_CANONICAL_LEVEL: usize = 1;
 /// Ingested data bypasses memtables and is written directly into new tables,
 /// using the same table writer configuration that is used for flush and compaction.
 pub struct Ingestion<'a> {
-    folder: PathBuf,
+    pub(crate) folder: PathBuf,
     tree: &'a Tree,
     pub(crate) writer: MultiWriter,
     seqno: SeqNo,
@@ -33,7 +33,9 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn new(tree: &'a Tree) -> crate::Result<Self> {
-        let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
+        // Ingested tables are placed at L0 (via with_new_l0_run), so use
+        // the level-routed folder for level 0.
+        let (folder, level_fs) = tree.config.tables_folder_for_level(0);
         log::debug!("Ingesting into tables in {}", folder.display());
 
         let index_partitioning = tree
@@ -52,7 +54,7 @@ impl<'a> Ingestion<'a> {
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             6,
-            tree.config.fs.clone(),
+            level_fs,
         )?
         .use_bloom_policy({
             if tree.config.expect_point_read_hits {
