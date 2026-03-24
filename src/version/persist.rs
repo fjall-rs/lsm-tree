@@ -1,11 +1,14 @@
 use crate::{
     checksum::ChecksummedWriter,
     file::{fsync_directory, rewrite_atomic, CURRENT_VERSION_FILE},
-    fs::{Fs, FsOpenOptions},
+    fs::{Fs, FsFile, FsOpenOptions},
     version::Version,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use std::{io::BufWriter, path::Path};
+use std::{
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 /// Crate-internal (version module is not exported).
 pub fn persist_version(
@@ -45,10 +48,17 @@ pub fn persist_version(
             sfa::Error::Io(e) => crate::Error::from(e),
             _ => unreachable!(),
         })?;
-
-        // IMPORTANT: fsync folder on Unix
-        fsync_directory(folder, fs)?;
     }
+
+    // Flush BufWriter and fsync the version file before publishing
+    // the CURRENT pointer — ensures the version data is durable so
+    // recovery never follows CURRENT to a truncated/missing file.
+    let buf_writer = writer.inner_mut();
+    buf_writer.flush()?;
+    FsFile::sync_all(&**buf_writer.get_ref())?;
+
+    // IMPORTANT: fsync folder on Unix
+    fsync_directory(folder, fs)?;
 
     let checksum = writer.checksum();
 
