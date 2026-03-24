@@ -751,21 +751,29 @@ impl CompactionStrategy for Strategy {
                         // Include ALL L1 tables (we're emptying L1 into L2)
                         table_ids.extend(target_level.list_ids());
 
-                        // Include overlapping L2 tables — query per input
-                        // table range instead of one coarse aggregate (#72).
+                        // Include overlapping L2 tables — query per merged
+                        // interval instead of one coarse aggregate (#72).
                         // An aggregate across disjoint tables (e.g. [a,d] and
                         // [x,z] → [a,z]) covers gaps and pulls in L2 tables
                         // that don't actually overlap any input table.
                         //
-                        // Per-table queries are O(L2_runs * input_tables *
-                        // log L2_run_size). Merging input ranges into disjoint
-                        // intervals first would reduce queries but adds
-                        // complexity; not worth it for typical input sizes
-                        // (~10–30 tables). See #120.
-                        for run in l2.iter() {
-                            for input_run in target_level.iter().chain(first_level.iter()) {
-                                for t in input_run.iter() {
-                                    for l2t in run.get_overlapping_cmp(t.key_range(), cmp) {
+                        // Merge input key ranges into disjoint intervals first
+                        // to reduce redundant queries when L0 tables overlap
+                        // (#122 Part 2). Sort by comparator-min, then coalesce.
+                        {
+                            let mut input_ranges: Vec<_> = target_level
+                                .iter()
+                                .chain(first_level.iter())
+                                .flat_map(|run| run.iter())
+                                .map(|t| t.key_range().clone())
+                                .collect();
+                            input_ranges.sort_by(|a, b| cmp.compare(a.min(), b.min()));
+
+                            let merged = crate::KeyRange::merge_sorted_cmp(input_ranges, cmp);
+
+                            for run in l2.iter() {
+                                for interval in &merged {
+                                    for l2t in run.get_overlapping_cmp(interval, cmp) {
                                         table_ids.insert(Table::id(l2t));
                                     }
                                 }

@@ -193,6 +193,52 @@ impl KeyRange {
         lo_included && hi_included
     }
 
+    /// Merges sorted key ranges into disjoint intervals using a custom comparator.
+    ///
+    /// Input ranges must be sorted by min key (in comparator order). Overlapping
+    /// or adjacent ranges are coalesced. Returns a `Vec` of non-overlapping
+    /// `KeyRange`s covering exactly the union of the inputs.
+    ///
+    /// Used by multi-level compaction to reduce redundant L2 overlap queries
+    /// when L0 tables overlap (#122 Part 2).
+    #[must_use]
+    pub(crate) fn merge_sorted_cmp(
+        ranges: impl IntoIterator<Item = Self>,
+        cmp: &dyn crate::comparator::UserComparator,
+    ) -> Vec<Self> {
+        let mut out: Vec<Self> = Vec::new();
+
+        #[cfg(debug_assertions)]
+        let mut prev_min: Option<UserKey> = None;
+
+        for r in ranges {
+            #[cfg(debug_assertions)]
+            {
+                debug_assert!(
+                    prev_min
+                        .as_ref()
+                        .is_none_or(|pm| cmp.compare(pm, r.min()) != std::cmp::Ordering::Greater),
+                    "merge_sorted_cmp: input ranges must be sorted by min key in comparator order",
+                );
+                prev_min = Some(r.min().clone());
+            }
+
+            if let Some(last) = out.last_mut() {
+                // Ranges overlap or are adjacent when last.max >= r.min
+                if cmp.compare(last.max(), r.min()) != std::cmp::Ordering::Less {
+                    // Extend the current interval if r.max is beyond last.max
+                    if cmp.compare(r.max(), last.max()) == std::cmp::Ordering::Greater {
+                        last.1 = r.1;
+                    }
+                    continue;
+                }
+            }
+            out.push(r);
+        }
+
+        out
+    }
+
     /// Aggregates a key range.
     pub fn aggregate<'a>(mut iter: impl Iterator<Item = &'a Self>) -> Self {
         let Some(first) = iter.next() else {
@@ -537,5 +583,112 @@ mod tests {
         assert!(key_range.contains_key(b"key5"));
         assert!(!key_range.contains_key(b"key5x"));
         assert!(!key_range.contains_key(b"key6"));
+    }
+
+    mod merge_sorted_cmp {
+        use super::*;
+        use crate::comparator::{DefaultUserComparator, UserComparator};
+        use test_log::test;
+
+        #[test]
+        fn empty_input() {
+            let result = KeyRange::merge_sorted_cmp(vec![], &DefaultUserComparator);
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn single_range() {
+            let input = vec![string_key_range("a", "d")];
+            let result = KeyRange::merge_sorted_cmp(input, &DefaultUserComparator);
+            assert_eq!(result, vec![string_key_range("a", "d")]);
+        }
+
+        #[test]
+        fn disjoint_ranges_stay_separate() {
+            let input = vec![
+                string_key_range("a", "d"),
+                string_key_range("f", "h"),
+                string_key_range("k", "z"),
+            ];
+            let result = KeyRange::merge_sorted_cmp(input, &DefaultUserComparator);
+            assert_eq!(
+                result,
+                vec![
+                    string_key_range("a", "d"),
+                    string_key_range("f", "h"),
+                    string_key_range("k", "z"),
+                ]
+            );
+        }
+
+        #[test]
+        fn overlapping_ranges_merge() {
+            let input = vec![
+                string_key_range("a", "f"),
+                string_key_range("c", "h"),
+                string_key_range("g", "z"),
+            ];
+            let result = KeyRange::merge_sorted_cmp(input, &DefaultUserComparator);
+            assert_eq!(result, vec![string_key_range("a", "z")]);
+        }
+
+        #[test]
+        fn adjacent_ranges_merge() {
+            // [a,d] and [d,f] touch at "d" — should merge
+            let input = vec![string_key_range("a", "d"), string_key_range("d", "f")];
+            let result = KeyRange::merge_sorted_cmp(input, &DefaultUserComparator);
+            assert_eq!(result, vec![string_key_range("a", "f")]);
+        }
+
+        #[test]
+        fn contained_range_absorbed() {
+            // [a,z] fully contains [c,d]
+            let input = vec![string_key_range("a", "z"), string_key_range("c", "d")];
+            let result = KeyRange::merge_sorted_cmp(input, &DefaultUserComparator);
+            assert_eq!(result, vec![string_key_range("a", "z")]);
+        }
+
+        #[test]
+        fn mixed_disjoint_and_overlapping() {
+            // Two clusters: [a,f]+[c,h] merge; [x,z] stays separate
+            let input = vec![
+                string_key_range("a", "f"),
+                string_key_range("c", "h"),
+                string_key_range("x", "z"),
+            ];
+            let result = KeyRange::merge_sorted_cmp(input, &DefaultUserComparator);
+            assert_eq!(
+                result,
+                vec![string_key_range("a", "h"), string_key_range("x", "z")]
+            );
+        }
+
+        #[test]
+        fn reverse_comparator() {
+            struct ReverseCmp;
+            impl UserComparator for ReverseCmp {
+                fn name(&self) -> &'static str {
+                    "reverse"
+                }
+                fn compare(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+                    b.cmp(a)
+                }
+            }
+
+            // In reverse order: z > y > ... > p > o > ... > a
+            // Sorted by comparator-min: [z,o], [o,k], [d,a]
+            // [z,o] and [o,k] touch at "o" → should merge to [z,k]
+            // [d,a] is separate
+            let input = vec![
+                string_key_range("z", "o"),
+                string_key_range("o", "k"),
+                string_key_range("d", "a"),
+            ];
+            let result = KeyRange::merge_sorted_cmp(input, &ReverseCmp);
+            assert_eq!(
+                result,
+                vec![string_key_range("z", "k"), string_key_range("d", "a")]
+            );
+        }
     }
 }
