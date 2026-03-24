@@ -108,6 +108,7 @@ pub mod file;
 pub mod fs;
 
 mod hash;
+mod heap;
 mod ingestion;
 mod iter_guard;
 mod key;
