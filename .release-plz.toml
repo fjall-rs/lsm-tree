@@ -10,15 +10,33 @@ changelog_update = true
 git_tag_name = "v{{ version }}"
 
 [changelog]
-# Keep changelog focused on meaningful changes
+# Keep changelog focused on meaningful changes.
+#
+# What SKIPS changelog (no user-visible impact):
+#   chore:    maintenance, deps, tooling, release machinery
+#   ci:       CI/CD workflows, GitHub Actions
+#   style:    formatting, whitespace, no code change
+#   build:    build system, Cargo.toml tweaks
+#   docs(ci): CI-related documentation
+#   docs(copilot): AI assistant instructions
+#   Merge:    merge commits from upstream sync
+#
+# What ENTERS changelog (user-visible):
+#   feat:     new feature, new API        → "Added"
+#   fix:      bug fix, correctness fix    → "Fixed"
+#   perf:     performance improvement     → "Performance"
+#   refactor: code restructuring          → "Refactored"
+#   test:     new tests, test infra       → "Testing"
+#   docs:     documentation changes       → "Documentation"
+#
 commit_parsers = [
+    { message = "^chore", skip = true },
     { message = "^ci", skip = true },
     { message = "^style", skip = true },
-    { message = "^chore\\(deps\\)", skip = true },
-    { message = "^chore\\(sync\\)", skip = true },
+    { message = "^build", skip = true },
     { message = "^docs\\(ci\\)", skip = true },
     { message = "^docs\\(copilot\\)", skip = true },
-    { message = "^docs\\(memtable\\)", group = "Documentation" },
+    { message = "^Merge", skip = true },
     { message = "^docs", group = "Documentation" },
     { message = "^feat", group = "Added" },
     { message = "^fix", group = "Fixed" },
