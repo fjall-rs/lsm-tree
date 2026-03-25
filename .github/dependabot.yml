@@ -18,5 +18,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
     commit-message:
       prefix: "ci(deps)"
