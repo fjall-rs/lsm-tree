@@ -124,7 +124,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
                 crate::table::block::BlockType::Filter,
                 CompressionType::None,
                 self.encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
         }

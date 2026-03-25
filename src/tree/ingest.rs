@@ -108,7 +108,7 @@ impl<'a> Ingestion<'a> {
         writer = writer.use_prefix_extractor(tree.config.prefix_extractor.clone());
         writer = writer.use_encryption(tree.config.encryption.clone());
 
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         {
             writer = writer.use_zstd_dictionary(tree.config.zstd_dictionary.clone());
         }
@@ -313,7 +313,7 @@ impl<'a> Ingestion<'a> {
                     false,
                     false,
                     self.tree.config.encryption.clone(),
-                    #[cfg(feature = "zstd")]
+                    #[cfg(zstd_any)]
                     self.tree.config.zstd_dictionary.clone(),
                     self.tree.config.comparator.clone(),
                     #[cfg(feature = "metrics")]

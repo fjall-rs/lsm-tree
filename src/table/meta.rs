@@ -108,7 +108,7 @@ impl ParsedMeta {
             *handle,
             CompressionType::None,
             encryption,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             None,
         )?;
 

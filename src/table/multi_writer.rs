@@ -67,7 +67,7 @@ pub struct MultiWriter {
 
     encryption: Option<Arc<dyn EncryptionProvider>>,
 
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 
@@ -121,7 +121,7 @@ impl MultiWriter {
 
             encryption: None,
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dictionary: None,
         })
     }
@@ -368,7 +368,7 @@ impl MultiWriter {
         self
     }
 
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     #[must_use]
     pub fn use_zstd_dictionary(
         mut self,
@@ -405,7 +405,7 @@ impl MultiWriter {
         new_writer = new_writer.use_prefix_extractor(self.prefix_extractor.clone());
         new_writer = new_writer.use_encryption(self.encryption.clone());
 
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         {
             new_writer = new_writer.use_zstd_dictionary(self.zstd_dictionary.clone());
         }
@@ -621,7 +621,7 @@ mod tests {
                 false,
                 false,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 comparator.clone(),
                 #[cfg(feature = "metrics")]
@@ -711,7 +711,7 @@ mod tests {
                 false,
                 false,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 comparator.clone(),
                 #[cfg(feature = "metrics")]

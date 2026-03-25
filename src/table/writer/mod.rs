@@ -113,7 +113,7 @@ pub struct Writer {
     encryption: Option<Arc<dyn EncryptionProvider>>,
 
     /// Pre-trained zstd dictionary for dictionary compression
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 
@@ -180,7 +180,7 @@ impl Writer {
 
             encryption: None,
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dictionary: None,
         })
     }
@@ -268,7 +268,7 @@ impl Writer {
         // ZstdDict is not useful for index/filter blocks (dictionaries are trained
         // on data block content). Downgrade to plain Zstd to avoid ZstdDictMismatch
         // errors on read — index readers never carry a dictionary.
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         let compression = match compression {
             CompressionType::ZstdDict { level, .. } => CompressionType::Zstd(level),
             other => other,
@@ -293,7 +293,7 @@ impl Writer {
     }
 
     /// Sets the zstd dictionary for dictionary compression of data blocks.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     #[must_use]
     pub fn use_zstd_dictionary(
         mut self,
@@ -418,7 +418,7 @@ impl Writer {
             super::block::BlockType::Data,
             self.data_block_compression,
             self.encryption.as_deref(),
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             self.zstd_dictionary.as_deref(),
         )?;
 
@@ -596,7 +596,7 @@ impl Writer {
                 crate::table::block::BlockType::RangeTombstone,
                 CompressionType::None,
                 self.encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
         }
@@ -730,7 +730,7 @@ impl Writer {
                 crate::table::block::BlockType::Meta,
                 CompressionType::None,
                 self.encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
         };

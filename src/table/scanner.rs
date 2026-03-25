@@ -25,7 +25,7 @@ pub struct Scanner {
     encryption: Option<Arc<dyn EncryptionProvider>>,
     comparator: SharedComparator,
 
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 
@@ -36,7 +36,7 @@ impl Scanner {
         compression: CompressionType,
         global_seqno: SeqNo,
         encryption: Option<Arc<dyn EncryptionProvider>>,
-        #[cfg(feature = "zstd")] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+        #[cfg(zstd_any)] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
         comparator: SharedComparator,
     ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
@@ -46,7 +46,7 @@ impl Scanner {
             &mut reader,
             compression,
             encryption.as_deref(),
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dictionary.as_deref(),
         )?;
         let cmp = comparator.clone();
@@ -64,7 +64,7 @@ impl Scanner {
             encryption,
             comparator,
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dictionary,
         })
     }
@@ -73,13 +73,13 @@ impl Scanner {
         reader: &mut BufReader<File>,
         compression: CompressionType,
         encryption: Option<&dyn EncryptionProvider>,
-        #[cfg(feature = "zstd")] zstd_dict: Option<&crate::compression::ZstdDictionary>,
+        #[cfg(zstd_any)] zstd_dict: Option<&crate::compression::ZstdDictionary>,
     ) -> crate::Result<DataBlock> {
         let block = Block::from_reader(
             reader,
             compression,
             encryption,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dict,
         );
 
@@ -118,7 +118,7 @@ impl Iterator for Scanner {
                 &mut self.reader,
                 self.compression,
                 self.encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 self.zstd_dictionary.as_deref(),
             ));
             let cmp = self.comparator.clone();

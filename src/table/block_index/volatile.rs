@@ -117,7 +117,7 @@ impl Iterator for Iter {
                 BlockType::Index,
                 self.compression,
                 self.encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 #[cfg(feature = "metrics")]
                 &self.metrics,
@@ -156,7 +156,7 @@ impl DoubleEndedIterator for Iter {
                 BlockType::Index,
                 self.compression,
                 self.encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 #[cfg(feature = "metrics")]
                 &self.metrics,

@@ -2,6 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(zstd_any)]
+use crate::compression::CompressionProvider as _;
+
 use super::meta::Metadata;
 use crate::{
     checksum::ChecksummedWriter,
@@ -209,15 +212,14 @@ impl Writer {
                 std::borrow::Cow::Owned(compressed)
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             CompressionType::Zstd(level) => {
-                let compressed =
-                    zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?;
+                let compressed = crate::compression::ZstdBackend::compress(value, *level)?;
                 check_size_cap(compressed.len())?;
                 std::borrow::Cow::Owned(compressed)
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             CompressionType::ZstdDict { .. } => {
                 return Err(crate::Error::Io(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
@@ -439,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     fn blob_write_zstd_dict_unsupported() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
         let path = folder.path().join("test.blob");

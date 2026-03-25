@@ -209,7 +209,7 @@ impl Table {
         handle: &BlockHandle,
         block_type: BlockType,
         compression: CompressionType,
-        #[cfg(feature = "zstd")] zstd_dict: Option<&crate::compression::ZstdDictionary>,
+        #[cfg(zstd_any)] zstd_dict: Option<&crate::compression::ZstdDictionary>,
     ) -> crate::Result<Block> {
         load_block(
             self.global_id(),
@@ -220,7 +220,7 @@ impl Table {
             block_type,
             compression,
             self.encryption.as_deref(),
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dict,
             #[cfg(feature = "metrics")]
             &self.metrics,
@@ -232,7 +232,7 @@ impl Table {
             handle,
             BlockType::Data,
             self.metadata.data_block_compression,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             self.zstd_dictionary.as_deref(),
         )
         .map(DataBlock::new)
@@ -272,7 +272,7 @@ impl Table {
                     &filter_block_handle.into_inner(),
                     BlockType::Filter,
                     CompressionType::None, // NOTE: We never write a filter block with compression
-                    #[cfg(feature = "zstd")]
+                    #[cfg(zstd_any)]
                     None,
                 )?;
                 let block = FilterBlock::new(block);
@@ -288,7 +288,7 @@ impl Table {
                 filter_block_handle,
                 BlockType::Filter,
                 CompressionType::None, // NOTE: We never write a filter block with compression
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
             let block = FilterBlock::new(block);
@@ -388,7 +388,7 @@ impl Table {
             self.metadata.data_block_compression,
             self.global_seqno(),
             self.encryption.clone(),
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             self.zstd_dictionary.clone(),
             self.comparator.clone(),
         )
@@ -427,7 +427,7 @@ impl Table {
             self.cache.clone(),
             self.metadata.data_block_compression,
             self.encryption.clone(),
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             self.zstd_dictionary.clone(),
             self.comparator.clone(),
             #[cfg(feature = "metrics")]
@@ -462,7 +462,7 @@ impl Table {
             regions.tli,
             compression,
             encryption,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             None,
         )?;
 
@@ -492,7 +492,7 @@ impl Table {
         pin_filter: bool,
         pin_index: bool,
         encryption: Option<Arc<dyn crate::encryption::EncryptionProvider>>,
-        #[cfg(feature = "zstd")] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+        #[cfg(zstd_any)] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
         comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
@@ -520,7 +520,7 @@ impl Table {
         // verify the caller provided the matching dictionary. Without this
         // check, reopening with the wrong dictionary (or None) would only
         // surface as a decompression error on the first data-block read.
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         if let CompressionType::ZstdDict { dict_id, .. } = metadata.data_block_compression {
             let got = zstd_dictionary.as_ref().map(|d| d.id());
             if got != Some(dict_id) {
@@ -602,7 +602,7 @@ impl Table {
                 filter_tli_handle,
                 metadata.index_block_compression,
                 encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
             Some(IndexBlock::new(block))
@@ -624,7 +624,7 @@ impl Table {
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                         encryption.as_deref(),
-                        #[cfg(feature = "zstd")]
+                        #[cfg(zstd_any)]
                         None,
                     )
                     .and_then(|block| {
@@ -653,7 +653,7 @@ impl Table {
                 rt_handle,
                 crate::CompressionType::None,
                 encryption.as_deref(),
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
 
@@ -716,7 +716,7 @@ impl Table {
             range_tombstones,
             encryption,
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dictionary,
         })))
     }
@@ -914,7 +914,7 @@ impl Table {
                 filter_block_handle,
                 BlockType::Filter,
                 CompressionType::None, // NOTE: Filter blocks are never compressed (crate invariant)
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
             )?;
             let block = FilterBlock::new(block);
@@ -985,7 +985,7 @@ impl Table {
                     &filter_block_handle.into_inner(),
                     BlockType::Filter,
                     CompressionType::None,
-                    #[cfg(feature = "zstd")]
+                    #[cfg(zstd_any)]
                     None,
                 )?;
                 let block = FilterBlock::new(block);

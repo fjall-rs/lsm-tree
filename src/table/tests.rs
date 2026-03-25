@@ -56,7 +56,7 @@ fn test_with_table(
                 false,
                 false,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -90,7 +90,7 @@ fn test_with_table(
                 true,
                 false,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -124,7 +124,7 @@ fn test_with_table(
                 false,
                 true,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -158,7 +158,7 @@ fn test_with_table(
                 true,
                 true,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -192,7 +192,7 @@ fn test_with_table(
                 true,
                 true,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -244,7 +244,7 @@ fn test_with_table(
                 false,
                 false,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -277,7 +277,7 @@ fn test_with_table(
                 true,
                 false,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -310,7 +310,7 @@ fn test_with_table(
                 false,
                 true,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -344,7 +344,7 @@ fn test_with_table(
                 true,
                 true,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -378,7 +378,7 @@ fn test_with_table(
                 true,
                 true,
                 None,
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 None,
                 crate::comparator::default_comparator(),
                 #[cfg(feature = "metrics")]
@@ -1267,7 +1267,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
         true,
         true,
         None,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         None,
         crate::comparator::default_comparator(),
     )
@@ -1345,7 +1345,7 @@ fn table_partitioned_index() -> crate::Result<()> {
         true,
         true,
         None,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         None,
         crate::comparator::default_comparator(),
         #[cfg(feature = "metrics")]
@@ -1459,7 +1459,7 @@ fn table_global_seqno() -> crate::Result<()> {
         true,
         true,
         None,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         None,
         crate::comparator::default_comparator(),
         #[cfg(feature = "metrics")]
@@ -1668,7 +1668,7 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         false,
         false,
         None,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         None,
         crate::comparator::default_comparator(),
         #[cfg(feature = "metrics")]
@@ -1698,7 +1698,7 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         BlockType::RangeTombstone,
         CompressionType::None,
         None,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         None,
         #[cfg(feature = "metrics")]
         &metrics,
@@ -1719,7 +1719,7 @@ fn load_block_range_tombstone_metrics() -> crate::Result<()> {
         BlockType::RangeTombstone,
         CompressionType::None,
         None,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         None,
         #[cfg(feature = "metrics")]
         &metrics,

@@ -113,7 +113,7 @@ impl Metadata {
             crate::table::block::BlockType::Meta,
             CompressionType::None,
             None,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             None,
         )?;
 
@@ -136,7 +136,7 @@ impl Metadata {
             reader,
             CompressionType::None,
             None,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             None,
         )?;
         let block = DataBlock::new(block);
@@ -251,7 +251,7 @@ mod tests {
             BlockType::Meta,
             CompressionType::None,
             None,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             None,
         )
         .unwrap();

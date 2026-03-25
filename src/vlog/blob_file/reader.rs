@@ -2,6 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(zstd_any)]
+use crate::compression::CompressionProvider as _;
+
 use crate::{
     fs::FsFile,
     vlog::{
@@ -215,10 +218,11 @@ impl<'a> Reader<'a> {
                 UserValue::from(buf)
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             CompressionType::Zstd(_) => {
-                let decompressed = zstd::bulk::decompress(&raw_data, real_val_len)
-                    .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
+                let decompressed =
+                    crate::compression::ZstdBackend::decompress(&raw_data, real_val_len)
+                        .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
 
                 if decompressed.len() != real_val_len {
                     return Err(crate::Error::Decompress(self.blob_file.0.meta.compression));
@@ -227,7 +231,7 @@ impl<'a> Reader<'a> {
                 UserValue::from(decompressed)
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             CompressionType::ZstdDict { .. } => {
                 return Err(crate::Error::Io(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
@@ -461,7 +465,7 @@ mod tests {
     /// Tamper real_val_len in zstd blob: V4 header CRC catches the
     /// corruption before decompression is attempted.
     #[test]
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     fn blob_reader_zstd_corrupted_real_val_len_triggers_header_crc_mismatch() -> crate::Result<()> {
         use byteorder::WriteBytesExt;
 
@@ -548,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     fn blob_reader_roundtrip_zstd() -> crate::Result<()> {
         let id_generator = SequenceNumberCounter::default();
 
@@ -794,7 +798,7 @@ mod tests {
     /// Tamper on-disk key bytes in a zstd-compressed blob and verify the
     /// cross-check catches the corruption before decompression runs.
     #[test]
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     fn blob_reader_corrupted_on_disk_key_zstd_returns_invalid_header() -> crate::Result<()> {
         let id_generator = SequenceNumberCounter::default();
 

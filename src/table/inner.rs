@@ -78,7 +78,7 @@ pub struct Inner {
     pub(crate) encryption: Option<Arc<dyn EncryptionProvider>>,
 
     /// Pre-trained zstd dictionary for dictionary decompression.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     pub(crate) zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
 }
 

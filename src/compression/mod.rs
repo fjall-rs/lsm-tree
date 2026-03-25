@@ -2,12 +2,59 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+// Backend modules — only one is compiled based on feature flags.
+// When both `zstd` and `zstd-pure` are enabled, C FFI takes precedence.
+#[cfg(feature = "zstd")]
+mod zstd_ffi;
+
+#[cfg(all(feature = "zstd-pure", not(feature = "zstd")))]
+mod zstd_pure;
+
 use crate::coding::{Decode, Encode};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-#[cfg(feature = "zstd")]
+#[cfg(zstd_any)]
 use std::sync::Arc;
+
+/// Zstd compression backend operations.
+///
+/// This trait abstracts the zstd implementation behind a compile-time
+/// selected backend. The C FFI backend (`zstd` feature) provides full
+/// compression levels 1–22 and dictionary support. The pure Rust backend
+/// (`zstd-pure` feature) provides portable compression with no C
+/// dependencies.
+///
+/// Both backends produce RFC 8878 compliant zstd frames, so data
+/// compressed by one can be decompressed by the other.
+#[cfg(zstd_any)]
+pub trait CompressionProvider {
+    /// Compress `data` at the given zstd level (1–22).
+    fn compress(data: &[u8], level: i32) -> crate::Result<Vec<u8>>;
+
+    /// Decompress a zstd frame, pre-allocating `capacity` bytes.
+    fn decompress(data: &[u8], capacity: usize) -> crate::Result<Vec<u8>>;
+
+    /// Compress `data` using a pre-trained dictionary.
+    fn compress_with_dict(data: &[u8], level: i32, dict_raw: &[u8]) -> crate::Result<Vec<u8>>;
+
+    /// Decompress a zstd frame that was compressed with a dictionary.
+    fn decompress_with_dict(
+        data: &[u8],
+        dict_raw: &[u8],
+        capacity: usize,
+    ) -> crate::Result<Vec<u8>>;
+}
+
+/// The active zstd backend, selected at compile time.
+///
+/// When `zstd` (C FFI) is enabled it takes precedence; otherwise
+/// `zstd-pure` (structured-zstd) is used.
+#[cfg(feature = "zstd")]
+pub type ZstdBackend = zstd_ffi::ZstdFfiProvider;
+
+#[cfg(all(feature = "zstd-pure", not(feature = "zstd")))]
+pub type ZstdBackend = zstd_pure::ZstdPureProvider;
 
 /// Pre-trained zstd dictionary for improved compression of small blocks.
 ///
@@ -28,14 +75,14 @@ use std::sync::Arc;
 /// let samples: &[u8] = &training_data;
 /// let dict = ZstdDictionary::new(samples);
 /// ```
-#[cfg(feature = "zstd")]
+#[cfg(zstd_any)]
 #[derive(Clone)]
 pub struct ZstdDictionary {
     id: u32,
     raw: Arc<[u8]>,
 }
 
-#[cfg(feature = "zstd")]
+#[cfg(zstd_any)]
 impl ZstdDictionary {
     /// Creates a new dictionary from raw bytes.
     ///
@@ -63,7 +110,7 @@ impl ZstdDictionary {
     }
 }
 
-#[cfg(feature = "zstd")]
+#[cfg(zstd_any)]
 impl std::fmt::Debug for ZstdDictionary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ZstdDictionary")
@@ -74,7 +121,7 @@ impl std::fmt::Debug for ZstdDictionary {
 }
 
 /// Compute a 32-bit dictionary ID from raw bytes via truncated xxh3.
-#[cfg(feature = "zstd")]
+#[cfg(zstd_any)]
 #[expect(
     clippy::cast_possible_truncation,
     reason = "intentionally truncated to 32-bit fingerprint"
@@ -115,7 +162,7 @@ pub enum CompressionType {
     // the zstd crate's compress(data, level: i32) signature. Validated levels are
     // produced by CompressionType::zstd() and Decode::decode_from; direct construction
     // via CompressionType::Zstd(level) must uphold the 1..=22 invariant.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     Zstd(i32),
 
     /// Zstd compression with a pre-trained dictionary
@@ -127,7 +174,7 @@ pub enum CompressionType {
     /// `level` is the compression level (1–22), `dict_id` identifies the
     /// dictionary (truncated xxh3 hash of the dictionary bytes). The actual
     /// dictionary must be provided via [`Config`] or the relevant writer/reader.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     ZstdDict {
         /// Compression level (1–22)
         level: i32,
@@ -141,7 +188,7 @@ impl CompressionType {
     /// Validate a zstd compression level.
     ///
     /// Accepts levels in the range 1..=22 and returns an error otherwise.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     fn validate_zstd_level(level: i32) -> crate::Result<()> {
         if !(1..=22).contains(&level) {
             // NOTE: Uses Error::other (not ErrorKind::InvalidInput) to match
@@ -161,7 +208,7 @@ impl CompressionType {
     /// # Errors
     ///
     /// Returns an error if `level` is outside the valid range `1..=22`.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     pub fn zstd(level: i32) -> crate::Result<Self> {
         Self::validate_zstd_level(level)?;
         Ok(Self::Zstd(level))
@@ -176,7 +223,7 @@ impl CompressionType {
     /// # Errors
     ///
     /// Returns an error if `level` is outside the valid range `1..=22`.
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     pub fn zstd_dict(level: i32, dict_id: u32) -> crate::Result<Self> {
         Self::validate_zstd_level(level)?;
         Ok(Self::ZstdDict { level, dict_id })
@@ -194,10 +241,10 @@ impl std::fmt::Display for CompressionType {
                 #[cfg(feature = "lz4")]
                 Self::Lz4 => "lz4",
 
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 Self::Zstd(_) => "zstd",
 
-                #[cfg(feature = "zstd")]
+                #[cfg(zstd_any)]
                 Self::ZstdDict { .. } => "zstd+dict",
             }
         )
@@ -216,7 +263,7 @@ impl Encode for CompressionType {
                 writer.write_u8(1)?;
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             Self::Zstd(level) => {
                 writer.write_u8(3)?;
                 // Catch invalid levels in debug builds (e.g. direct Zstd(999) construction).
@@ -232,7 +279,7 @@ impl Encode for CompressionType {
                 writer.write_i8(*level as i8)?;
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             Self::ZstdDict { level, dict_id } => {
                 writer.write_u8(4)?;
                 debug_assert!(
@@ -262,7 +309,7 @@ impl Decode for CompressionType {
             #[cfg(feature = "lz4")]
             1 => Ok(Self::Lz4),
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             3 => {
                 let level = i32::from(reader.read_i8()?);
                 // Reuse the shared validation logic to ensure consistent checks.
@@ -270,7 +317,7 @@ impl Decode for CompressionType {
                 Ok(Self::Zstd(level))
             }
 
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             4 => {
                 let level = i32::from(reader.read_i8()?);
                 Self::validate_zstd_level(level)?;
@@ -312,7 +359,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     mod zstd {
         use super::*;
         use test_log::test;

@@ -224,7 +224,7 @@ pub use {
     vlog::BlobFile,
 };
 
-#[cfg(feature = "zstd")]
+#[cfg(zstd_any)]
 pub use compression::ZstdDictionary;
 
 #[cfg(feature = "metrics")]

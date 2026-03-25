@@ -451,7 +451,7 @@ impl AbstractTree for BlobTree {
             table_writer.use_prefix_extractor(self.index.config.prefix_extractor.clone());
         table_writer = table_writer.use_encryption(self.index.config.encryption.clone());
 
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         {
             table_writer =
                 table_writer.use_zstd_dictionary(self.index.config.zstd_dictionary.clone());
@@ -544,7 +544,7 @@ impl AbstractTree for BlobTree {
                     pin_filter,
                     pin_index,
                     self.index.config.encryption.clone(),
-                    #[cfg(feature = "zstd")]
+                    #[cfg(zstd_any)]
                     self.index.config.zstd_dictionary.clone(),
                     self.index.config.comparator.clone(),
                     #[cfg(feature = "metrics")]

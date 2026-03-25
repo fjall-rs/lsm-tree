@@ -420,7 +420,7 @@ impl AbstractTree for Tree {
         table_writer = table_writer.use_prefix_extractor(self.config.prefix_extractor.clone());
         table_writer = table_writer.use_encryption(self.config.encryption.clone());
 
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         {
             table_writer = table_writer.use_zstd_dictionary(self.config.zstd_dictionary.clone());
         }
@@ -455,7 +455,7 @@ impl AbstractTree for Tree {
                     pin_filter,
                     pin_index,
                     self.config.encryption.clone(),
-                    #[cfg(feature = "zstd")]
+                    #[cfg(zstd_any)]
                     self.config.zstd_dictionary.clone(),
                     self.config.comparator.clone(),
                     #[cfg(feature = "metrics")]
@@ -1598,7 +1598,7 @@ impl Tree {
                         pin_filter,
                         pin_index,
                         config.encryption.clone(),
-                        #[cfg(feature = "zstd")]
+                        #[cfg(zstd_any)]
                         config.zstd_dictionary.clone(),
                         config.comparator.clone(),
                         #[cfg(feature = "metrics")]

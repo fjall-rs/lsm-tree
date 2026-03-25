@@ -124,7 +124,7 @@ pub(super) fn prepare_table_writer(
             }
         });
 
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     let table_writer = table_writer.use_zstd_dictionary(opts.config.zstd_dictionary.clone());
 
     Ok(table_writer)
@@ -388,7 +388,7 @@ impl StandardCompaction {
                     pin_filter,
                     pin_index,
                     opts.config.encryption.clone(),
-                    #[cfg(feature = "zstd")]
+                    #[cfg(zstd_any)]
                     opts.config.zstd_dictionary.clone(),
                     opts.config.comparator.clone(),
                     #[cfg(feature = "metrics")]

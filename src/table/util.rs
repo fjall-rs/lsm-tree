@@ -46,7 +46,7 @@ pub fn load_block(
     block_type: BlockType,
     compression: CompressionType,
     encryption: Option<&dyn EncryptionProvider>,
-    #[cfg(feature = "zstd")] zstd_dict: Option<&crate::compression::ZstdDictionary>,
+    #[cfg(zstd_any)] zstd_dict: Option<&crate::compression::ZstdDictionary>,
     #[cfg(feature = "metrics")] metrics: &Metrics,
 ) -> crate::Result<Block> {
     #[cfg(feature = "metrics")]
@@ -99,7 +99,7 @@ pub fn load_block(
         *handle,
         compression,
         encryption,
-        #[cfg(feature = "zstd")]
+        #[cfg(zstd_any)]
         zstd_dict,
     )?;
 

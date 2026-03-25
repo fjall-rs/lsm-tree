@@ -59,10 +59,27 @@ Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeit
 
 ### zstd
 
-Allows using `Zstd` compression, powered by [`zstd`](https://github.com/gyscos/zstd-rs).
+Allows using `Zstd` compression via C FFI bindings to libzstd, powered by [`zstd`](https://github.com/gyscos/zstd-rs).
 Supports both regular zstd (`CompressionType::Zstd`) and dictionary compression
 (`CompressionType::ZstdDict`) for improved ratios on small table blocks (4–64 KiB).
 Blob-file dictionary compression is currently not supported.
+
+*Disabled by default.*
+
+### zstd-pure
+
+Allows using `Zstd` compression via a pure Rust implementation, powered by
+[`structured-zstd`](https://github.com/structured-world/structured-zstd) (managed fork of ruzstd).
+Requires no C compiler or system libraries — compiles with `cargo build` alone.
+
+Both backends produce RFC 8878-compliant zstd frames, so data compressed by one
+can be decompressed by the other. When both `zstd` and `zstd-pure` are enabled,
+the C FFI backend takes precedence.
+
+**Current limitations:**
+- Compression uses the `Fastest` level regardless of the requested level
+- Dictionary compression is not yet supported (dictionary decompression works)
+- Decompression throughput is ~2–3.5× slower than the C reference
 
 *Disabled by default.*
 

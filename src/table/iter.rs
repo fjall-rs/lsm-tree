@@ -106,7 +106,7 @@ pub struct Iter {
     cache: Arc<Cache>,
     compression: CompressionType,
     encryption: Option<Arc<dyn EncryptionProvider>>,
-    #[cfg(feature = "zstd")]
+    #[cfg(zstd_any)]
     zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
     comparator: SharedComparator,
 
@@ -138,7 +138,7 @@ impl Iter {
         cache: Arc<Cache>,
         compression: CompressionType,
         encryption: Option<Arc<dyn EncryptionProvider>>,
-        #[cfg(feature = "zstd")] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
+        #[cfg(zstd_any)] zstd_dictionary: Option<Arc<crate::compression::ZstdDictionary>>,
         comparator: SharedComparator,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> Self {
@@ -153,7 +153,7 @@ impl Iter {
             cache,
             compression,
             encryption,
-            #[cfg(feature = "zstd")]
+            #[cfg(zstd_any)]
             zstd_dictionary,
             comparator,
 
@@ -275,7 +275,7 @@ impl Iterator for Iter {
                         crate::table::block::BlockType::Data,
                         self.compression,
                         self.encryption.as_deref(),
-                        #[cfg(feature = "zstd")]
+                        #[cfg(zstd_any)]
                         self.zstd_dictionary.as_deref(),
                         #[cfg(feature = "metrics")]
                         &self.metrics,
@@ -399,7 +399,7 @@ impl DoubleEndedIterator for Iter {
                         crate::table::block::BlockType::Data,
                         self.compression,
                         self.encryption.as_deref(),
-                        #[cfg(feature = "zstd")]
+                        #[cfg(zstd_any)]
                         self.zstd_dictionary.as_deref(),
                         #[cfg(feature = "metrics")]
                         &self.metrics,
