@@ -1,6 +1,8 @@
 mod calibrate;
 mod config;
 mod db;
+#[cfg(feature = "flamegraph")]
+mod flame;
 mod reporter;
 mod workloads;
 
@@ -79,6 +81,12 @@ struct Cli {
     /// Skip runner calibration (report raw ops/sec without normalization).
     #[arg(long)]
     skip_calibration: bool,
+
+    /// Enable flamegraph profiling. Writes folded stacks to target/flamegraphs/.
+    /// Requires building with `--features flamegraph`.
+    #[cfg(feature = "flamegraph")]
+    #[arg(long)]
+    flamegraph: bool,
 }
 
 fn parse_benchmark(s: &str) -> Result<String, String> {
@@ -160,6 +168,26 @@ fn main() {
                 None
             }
         }
+    };
+
+    // Set up flamegraph tracing if requested.
+    #[cfg(feature = "flamegraph")]
+    let _flame_guard = if cli.flamegraph {
+        match flame::setup(std::path::Path::new("target/flamegraphs")) {
+            Ok(guard) => {
+                eprintln!(
+                    "Flamegraph: writing folded stacks to {}",
+                    guard.output_dir().display()
+                );
+                Some(guard)
+            }
+            Err(e) => {
+                eprintln!("Error: flamegraph setup failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
     };
 
     let benchmarks: Vec<&str> = if cli.benchmark == "all" {
@@ -266,6 +294,9 @@ fn run_single(
 
         let workload = create_workload(benchmark_name)
             .ok_or_else(|| format!("unknown benchmark '{benchmark_name}'"))?;
+
+        #[cfg(feature = "flamegraph")]
+        let _span = tracing::info_span!("bench", workload = benchmark_name).entered();
 
         workload.run(&tree, bench_config, &seqno, &mut reporter)?;
 

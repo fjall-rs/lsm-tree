@@ -50,9 +50,8 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Run tests
         # tools/db_bench is a standalone crate, not in workspace — built separately
-        run: cargo nextest run --all-features
-        env:
-          PROPTEST_CASES: "32"
+        # proptest cases: 32 hardcoded in ProptestConfig (no env var override)
+        run: cargo nextest run --profile ci --all-features
       - name: Run doc tests
         run: cargo test --doc --features lz4
       - name: Check db_bench crate
@@ -78,9 +77,8 @@ jobs:
       - name: Install cross
         run: cargo install cross
       - name: Cross test
+        # proptest cases: 32 hardcoded in ProptestConfig
         run: cross test -r --features lz4 --target ${{ matrix.target }}
-        env:
-          PROPTEST_CASES: "32"
 
   codecov:
     needs: lint
@@ -94,9 +92,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
+      # proptest cases: 32 hardcoded in ProptestConfig
       - run: cargo llvm-cov --no-report nextest --all-features
-        env:
-          PROPTEST_CASES: "32"
       - run: cargo llvm-cov --no-report --doc --features lz4
       - run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5

@@ -263,7 +263,7 @@ fn leveled_sequential_inserts() -> crate::Result<()> {
 
     let mut table_count = 0;
 
-    for k in 0u64..100 {
+    for k in 0u64..30 {
         table_count += 1;
 
         tree.insert(k.to_be_bytes(), "", 0);

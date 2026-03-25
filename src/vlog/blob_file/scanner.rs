@@ -381,7 +381,7 @@ mod tests {
                 compression: crate::CompressionType::None,
             };
             metadata.encode_into(&mut sfa_writer)?;
-            let mut inner = sfa_writer.into_inner()?;
+            let inner = sfa_writer.into_inner()?;
             inner.sync_all()?;
         }
 

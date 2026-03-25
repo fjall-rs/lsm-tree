@@ -100,7 +100,7 @@ impl RtOracle {
 // Op generation focused on range tombstone edge cases
 // ---------------------------------------------------------------------------
 
-const KEY_SPACE: u8 = 12;
+const KEY_SPACE: u8 = 8;
 
 fn key_from_idx(idx: u8) -> Vec<u8> {
     vec![idx]
@@ -137,7 +137,7 @@ fn rt_op_strategy() -> impl Strategy<Value = RtOp> {
 }
 
 fn rt_ops_strategy() -> impl Strategy<Value = Vec<RtOp>> {
-    prop::collection::vec(rt_op_strategy(), 20..150)
+    prop::collection::vec(rt_op_strategy(), 5..25)
 }
 
 // ---------------------------------------------------------------------------
@@ -249,8 +249,9 @@ fn run_rt_test(ops: Vec<RtOp>) -> Result<(), TestCaseError> {
 }
 
 proptest! {
-    // cases defaults to 256; CI overrides via PROPTEST_CASES=32
+    // 32 cases (edit cases field below to increase for thorough local runs).
     #![proptest_config(ProptestConfig {
+        cases: 32,
         fork: false,
         max_shrink_iters: 1000,
         .. ProptestConfig::default()

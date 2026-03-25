@@ -79,10 +79,24 @@ Results from `main` are published to the
 [benchmark dashboard](https://structured-world.github.io/coordinode-lsm-tree/dev/bench/).
 PRs that regress performance by >15% trigger an alert; >25% regression fails CI.
 
+Flamegraphs are generated on every merge to `main` using instrumented `db_bench` runs
+and published under `flamegraphs/<commit-sha>/flamegraph.svg` on
+[gh-pages](https://structured-world.github.io/coordinode-lsm-tree/).
+
 To run Criterion microbenchmarks locally:
 
 ```bash
 cargo bench --features lz4
+```
+
+To generate flamegraphs locally (requires the `flamegraph` feature):
+
+```bash
+cd tools/db_bench
+cargo run --release --features flamegraph -- \
+  --benchmark all --num 100000 --flamegraph --skip-calibration
+# Folded stacks written to target/flamegraphs/all.folded
+# Render with: cargo install inferno && inferno-flamegraph target/flamegraphs/all.folded > flame.svg
 ```
 
 ## Support the Project

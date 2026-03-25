@@ -1,3 +1,10 @@
+// Shared helpers for integration/property tests. Each test binary compiles
+// this module independently, so not every binary uses every item.
+#![expect(
+    dead_code,
+    reason = "each test binary compiles this module independently; not every binary uses every helper"
+)]
+
 use lsm_tree::Guard;
 
 /// Default compaction target size for property tests (64 MiB).

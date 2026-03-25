@@ -82,26 +82,3 @@ harness = false
 path = "benches/bloom.rs"
 required-features = []
 
-[[bench]]
-name = "tree"
-harness = false
-path = "benches/tree.rs"
-required-features = ["lz4"]
-
-[[bench]]
-name = "fd_table"
-harness = false
-path = "benches/fd_table.rs"
-required-features = []
-
-[[bench]]
-name = "prefix_bloom"
-harness = false
-path = "benches/prefix_bloom.rs"
-required-features = []
-
-[[bench]]
-name = "merge_point_read"
-harness = false
-path = "benches/merge_point_read.rs"
-required-features = []

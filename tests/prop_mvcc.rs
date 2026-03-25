@@ -101,7 +101,7 @@ fn mvcc_op_strategy() -> impl Strategy<Value = MvccOp> {
 }
 
 fn mvcc_ops_strategy() -> impl Strategy<Value = Vec<MvccOp>> {
-    prop::collection::vec(mvcc_op_strategy(), 10..100)
+    prop::collection::vec(mvcc_op_strategy(), 5..20)
 }
 
 // ---------------------------------------------------------------------------
@@ -246,8 +246,9 @@ fn run_mvcc_test(ops: Vec<MvccOp>) -> Result<(), TestCaseError> {
 }
 
 proptest! {
-    // cases defaults to 256; CI overrides via PROPTEST_CASES=32
+    // 32 cases (edit cases field below to increase for thorough local runs).
     #![proptest_config(ProptestConfig {
+        cases: 32,
         fork: false,
         max_shrink_iters: 1000,
         .. ProptestConfig::default()

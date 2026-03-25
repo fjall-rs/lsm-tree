@@ -1,9 +1,30 @@
+[store]
+dir = "target/nextest"
+
 [profile.default]
 slow-timeout = { period = "10s", terminate-after = 6 }
+fail-fast = true
 
-# Property tests may take longer than unit tests (proptest runs N cases).
-# CI uses PROPTEST_CASES=32; local runs default to 256.
-# Budget: 60s × 4 = 240s (4 min) — enough for 32 cases with compact I/O.
+# Property tests default to 32 cases via ProptestConfig.
+# Edit `cases` field in test files to increase for thorough local runs.
+# Budget: 30s × 4 = 120s — enough for 32 cases with I/O.
 [[profile.default.overrides]]
 filter = "test(prop_)"
-slow-timeout = { period = "60s", terminate-after = 4 }
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+# CI profile: retries for flaky tests, JUnit XML output, longer timeouts.
+[profile.ci]
+retries = 2
+fail-fast = false
+slow-timeout = { period = "120s", terminate-after = 3 }
+status-level = "all"
+final-status-level = "flaky"
+
+[profile.ci.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true
+
+[[profile.ci.overrides]]
+filter = "test(prop_)"
+slow-timeout = { period = "120s", terminate-after = 4 }

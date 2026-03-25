@@ -67,6 +67,9 @@ where
     // single-thread case so --threads 1 stays comparable to the prior
     // non-threaded implementation.
     if threads == 1 {
+        #[cfg(feature = "flamegraph")]
+        let _span = tracing::info_span!("thread", id = 0).entered();
+
         let local = thread_fn(0, config.num, 0)?;
         reporter.merge(&local);
         return Ok(());
@@ -82,6 +85,9 @@ where
                 let barrier = &barrier;
                 let thread_fn = &thread_fn;
                 s.spawn(move || -> lsm_tree::Result<Reporter> {
+                    #[cfg(feature = "flamegraph")]
+                    let _span = tracing::info_span!("thread", id = t).entered();
+
                     barrier.wait();
                     thread_fn(t, my_ops, start)
                 })

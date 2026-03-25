@@ -10,6 +10,9 @@ publish = false
 name = "db_bench"
 path = "src/main.rs"
 
+[features]
+flamegraph = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-flame"]
+
 [dependencies]
 lsm-tree = { package = "coordinode-lsm-tree", path = "../..", features = ["lz4", "zstd"] }
 clap = { version = "4", features = ["derive"] }
@@ -18,3 +21,6 @@ rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+tracing = { version = "0.1", optional = true }
+tracing-flame = { version = "0.2", optional = true }
+tracing-subscriber = { version = "0.3", features = ["registry"], optional = true }

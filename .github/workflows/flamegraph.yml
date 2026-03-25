@@ -1,0 +1,56 @@
+name: Flamegraphs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  flamegraph:
+    name: Generate flamegraphs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: flamegraph
+
+      - name: Install inferno
+        run: |
+          if ! command -v inferno-flamegraph &> /dev/null; then
+            cargo install inferno --locked
+          fi
+
+      - name: Run instrumented benchmarks
+        run: |
+          cargo run --release --manifest-path tools/db_bench/Cargo.toml \
+            --features flamegraph -- \
+            --benchmark all --num 100000 --flamegraph --skip-calibration
+
+      - name: Generate flamegraph SVG
+        run: |
+          cd target/flamegraphs
+          inferno-flamegraph --title "db_bench all workloads" all.folded > flamegraph.svg
+          rm -f all.folded
+
+      - name: Deploy to gh-pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/flamegraphs
+          destination_dir: flamegraphs/${{ github.sha }}
+          keep_files: true

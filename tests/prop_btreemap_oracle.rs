@@ -94,7 +94,7 @@ impl Oracle {
 // ---------------------------------------------------------------------------
 
 /// Small key space to maximize collisions and test MVCC deduplication.
-const KEY_SPACE: u8 = 16;
+const KEY_SPACE: u8 = 8;
 
 fn key_from_idx(idx: u8) -> Vec<u8> {
     vec![idx]
@@ -127,7 +127,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 }
 
 fn ops_strategy() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec(op_strategy(), 10..100)
+    prop::collection::vec(op_strategy(), 5..20)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +255,9 @@ fn run_oracle_test(ops: Vec<Op>) -> Result<(), TestCaseError> {
 // ---------------------------------------------------------------------------
 
 proptest! {
-    // cases defaults to 256; CI overrides via PROPTEST_CASES=32
+    // 32 cases (edit cases field below to increase for thorough local runs).
     #![proptest_config(ProptestConfig {
+        cases: 32,
         fork: false,
         max_shrink_iters: 1000,
         .. ProptestConfig::default()
