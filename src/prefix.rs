@@ -15,22 +15,9 @@ use std::sync::Arc;
 /// ## Simple fixed-length
 ///
 /// ```
-/// use lsm_tree::prefix::PrefixExtractor;
+/// use lsm_tree::prefix::{PrefixExtractor, FixedPrefixExtractor};
 ///
-/// struct FixedPrefixExtractor(usize);
-///
-/// impl PrefixExtractor for FixedPrefixExtractor {
-///     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-///         Box::new(std::iter::once(key.get(0..self.0).unwrap_or(key)))
-///     }
-///     
-///     fn name(&self) -> &str {
-///         "fixed_prefix"
-///     }
-/// }
-///
-/// let ex = FixedPrefixExtractor(3);
-/// assert_eq!(ex.name(), "fixed_prefix");
+/// let ex = FixedPrefixExtractor::new(3);
 /// assert_eq!(ex.extract_first(b"abcdef"), Some(b"abc".as_ref()));
 /// assert_eq!(ex.extract_first(b"ab"), Some(b"ab".as_ref()));
 /// ```
@@ -86,7 +73,7 @@ pub trait PrefixExtractor:
     /// however it can be overridden to skip the Box allocation of `extract` in some cases.
     ///
     /// Implementations that override this method must remain semantically identical to
-    /// `self.extract(key).next()`: return `None` iff `extract` would yield no prefixes,
+    /// `self.extract(key).next()`: return `None` if `extract` would yield no prefixes,
     /// and otherwise return the same first prefix. Violating this invariant can cause
     /// incorrect filter pruning during reads.
     fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
