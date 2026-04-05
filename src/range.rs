@@ -212,7 +212,7 @@ impl TreeIter {
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ),
                             lock.prefix_extractor.clone(),
-                            lock.prefix_hint.clone(),
+                            lock.prefix_hint.as_ref(),
                         ) {
                             iters.push(Box::new(reader.filter(move |item| match item {
                                 Ok(item) => seqno_filter(item.key.seqno, seqno),
