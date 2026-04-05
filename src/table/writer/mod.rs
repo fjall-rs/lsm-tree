@@ -245,6 +245,9 @@ impl Writer {
         mut self,
         extractor: Option<crate::prefix::SharedPrefixExtractor>,
     ) -> Self {
+        if extractor.is_some() {
+            self.filter_writer.enable_dedup();
+        }
         self.prefix_extractor = extractor;
         self
     }

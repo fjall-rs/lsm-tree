@@ -4914,3 +4914,309 @@ fn test_prefix_query_mixed_extractor_run_no_false_negative() -> lsm_tree::Result
 
     Ok(())
 }
+
+// ================================================================
+// Multi-prefix extractor tests
+// ================================================================
+
+/// A multi-prefix extractor that returns both a 3-byte and a 6-byte prefix
+/// for keys >= 6 bytes, only a 3-byte prefix for keys 3-5 bytes, and nothing
+/// for shorter keys. This creates the interleaved hash pattern:
+///   key1: [hash("abc"), hash("abc123")]
+///   key2: [hash("abc"), hash("abc456")]
+/// where hash("abc") is duplicated non-adjacently in the buffer.
+struct HierarchicalPrefixExtractor;
+
+impl PrefixExtractor for HierarchicalPrefixExtractor {
+    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+        if key.len() >= 6 {
+            Box::new(vec![&key[..3], &key[..6]].into_iter())
+        } else if key.len() >= 3 {
+            Box::new(std::iter::once(&key[..3]))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn name(&self) -> &str {
+        "hierarchical_prefix"
+    }
+}
+
+/// Basic correctness: point reads work with a multi-prefix extractor.
+#[test]
+fn test_multi_prefix_point_reads() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    tree.insert(b"abc123_data1", b"v1", 0);
+    tree.insert(b"abc123_data2", b"v2", 0);
+    tree.insert(b"abc456_data1", b"v3", 0);
+    tree.insert(b"def789_data1", b"v4", 0);
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(&*tree.get(b"abc123_data1", SeqNo::MAX)?.unwrap(), b"v1");
+    assert_eq!(&*tree.get(b"abc123_data2", SeqNo::MAX)?.unwrap(), b"v2");
+    assert_eq!(&*tree.get(b"abc456_data1", SeqNo::MAX)?.unwrap(), b"v3");
+    assert_eq!(&*tree.get(b"def789_data1", SeqNo::MAX)?.unwrap(), b"v4");
+    assert!(tree.get(b"abc999_data1", SeqNo::MAX)?.is_none());
+    assert!(tree.get(b"zzz000_data1", SeqNo::MAX)?.is_none());
+
+    Ok(())
+}
+
+/// Range queries with multi-prefix extractor: query a range that shares
+/// the 3-byte prefix "abc" but spans different 6-byte prefixes.
+#[test]
+fn test_multi_prefix_range_queries() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    for i in 0..50u32 {
+        let key = format!("abc{i:03}_data");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    for i in 0..30u32 {
+        let key = format!("def{i:03}_data");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // Range within the "abc" 3-byte prefix
+    let count = tree
+        .range("abc000".as_bytes()..="abc999".as_bytes(), SeqNo::MAX, None)
+        .count();
+    assert_eq!(count, 50, "should find all 50 abc keys");
+
+    // Range within the "def" 3-byte prefix
+    let count = tree
+        .range("def000".as_bytes()..="def999".as_bytes(), SeqNo::MAX, None)
+        .count();
+    assert_eq!(count, 30, "should find all 30 def keys");
+
+    // Full range
+    let count = tree.range::<&[u8], _>(.., SeqNo::MAX, None).count();
+    assert_eq!(count, 80, "should find all 80 keys");
+
+    Ok(())
+}
+
+/// Prefix scan with a multi-prefix extractor. The prefix_hint guard
+/// should correctly determine whether the hint is usable for probing.
+#[test]
+fn test_multi_prefix_prefix_scan() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    tree.insert(b"abc123_x", b"v1", 0);
+    tree.insert(b"abc123_y", b"v2", 0);
+    tree.insert(b"abc456_x", b"v3", 0);
+    tree.insert(b"def789_x", b"v4", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Prefix "abc123" (6 bytes) — extract_first gives "abc", extract_first("abc123\0")
+    // gives "abc". Equal → hint is usable. Probe for hash("abc") should match.
+    assert_eq!(
+        tree.prefix(b"abc123", SeqNo::MAX, None).count(),
+        2,
+        "should find 2 keys with prefix abc123"
+    );
+
+    // Prefix "abc" (3 bytes) — extract_first gives "abc", extract_first("abc\0")
+    // gives "abc". Equal → hint usable. Probe for hash("abc") should match.
+    assert_eq!(
+        tree.prefix(b"abc", SeqNo::MAX, None).count(),
+        3,
+        "should find 3 keys with 3-byte prefix abc"
+    );
+
+    // Prefix "def" — should find 1 key
+    assert_eq!(
+        tree.prefix(b"def", SeqNo::MAX, None).count(),
+        1,
+        "should find 1 key with prefix def"
+    );
+
+    // Prefix "zzz" — no keys, should find 0
+    assert_eq!(
+        tree.prefix(b"zzz", SeqNo::MAX, None).count(),
+        0,
+        "should find 0 keys with prefix zzz"
+    );
+
+    Ok(())
+}
+
+/// The dedup optimization must correctly handle the interleaved hash pattern
+/// from multi-prefix extractors. With keys sharing the same 3-byte prefix,
+/// the hash buffer before dedup looks like:
+///   [hash("abc"), hash("abc123"), hash("abc"), hash("abc456"), ...]
+/// The sort+dedup at flush time must collapse these to unique hashes so the
+/// filter is correctly sized.
+#[test]
+fn test_multi_prefix_dedup_correctness() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    // 100 keys all sharing 3-byte prefix "abc" but with different 6-byte prefixes.
+    // Without dedup: 200 hashes in buffer (100 × "abc" + 100 × "abc{NNN}").
+    // With dedup: 101 unique hashes (1 × "abc" + 100 × "abc{NNN}").
+    for i in 0..100u32 {
+        let key = format!("abc{i:03}_data_value");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // All keys should be findable via point reads
+    for i in 0..100u32 {
+        let key = format!("abc{i:03}_data_value");
+        assert!(
+            tree.get(key.as_bytes(), SeqNo::MAX)?.is_some(),
+            "key {key} should exist"
+        );
+    }
+
+    // Prefix scan for "abc" should find all 100
+    assert_eq!(
+        tree.prefix(b"abc", SeqNo::MAX, None).count(),
+        100,
+        "should find all 100 keys with prefix abc"
+    );
+
+    // A nonexistent prefix should find 0
+    assert_eq!(
+        tree.prefix(b"zzz", SeqNo::MAX, None).count(),
+        0,
+        "should find 0 keys with prefix zzz"
+    );
+
+    Ok(())
+}
+
+/// Recovery with a multi-prefix extractor: write, flush, reopen, verify.
+#[test]
+fn test_multi_prefix_recovery() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+    let version = SequenceNumberCounter::default();
+
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+            .open()?;
+
+        tree.insert(b"abc123_data", b"v1", seqno.next());
+        tree.insert(b"abc456_data", b"v2", seqno.next());
+        tree.insert(b"def789_data", b"v3", seqno.next());
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with the same extractor
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+            .open()?;
+
+        assert_eq!(&*tree.get(b"abc123_data", SeqNo::MAX)?.unwrap(), b"v1");
+        assert_eq!(&*tree.get(b"abc456_data", SeqNo::MAX)?.unwrap(), b"v2");
+        assert_eq!(&*tree.get(b"def789_data", SeqNo::MAX)?.unwrap(), b"v3");
+
+        assert_eq!(
+            tree.prefix(b"abc", SeqNo::MAX, None).count(),
+            2,
+            "should find 2 keys with prefix abc after recovery"
+        );
+    }
+
+    // Reopen without extractor — filter should be bypassed, all data accessible
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone()).open()?;
+
+        assert_eq!(&*tree.get(b"abc123_data", SeqNo::MAX)?.unwrap(), b"v1");
+        assert_eq!(&*tree.get(b"abc456_data", SeqNo::MAX)?.unwrap(), b"v2");
+        assert_eq!(&*tree.get(b"def789_data", SeqNo::MAX)?.unwrap(), b"v3");
+    }
+
+    Ok(())
+}
+
+/// Multi-prefix extractor after compaction: verify filters are correctly
+/// rebuilt with deduped prefix hashes.
+#[test]
+fn test_multi_prefix_after_compaction() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    for i in 0..200u32 {
+        let key = format!("abc{i:03}_data_value");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    for i in 0..100u32 {
+        let key = format!("def{i:03}_data_value");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+
+    // All data accessible after compaction
+    for i in 0..200u32 {
+        let key = format!("abc{i:03}_data_value");
+        assert!(
+            tree.get(key.as_bytes(), SeqNo::MAX)?.is_some(),
+            "key {key} should exist after compaction"
+        );
+    }
+
+    assert_eq!(
+        tree.prefix(b"abc", SeqNo::MAX, None).count(),
+        200,
+        "should find all 200 abc keys after compaction"
+    );
+    assert_eq!(
+        tree.prefix(b"def", SeqNo::MAX, None).count(),
+        100,
+        "should find all 100 def keys after compaction"
+    );
+    assert_eq!(
+        tree.prefix(b"zzz", SeqNo::MAX, None).count(),
+        0,
+        "should find 0 zzz keys after compaction"
+    );
+
+    Ok(())
+}

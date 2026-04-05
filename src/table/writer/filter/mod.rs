@@ -23,6 +23,12 @@ pub trait FilterWriter<W: std::io::Write> {
     /// Implementations should hash the bytes identically to full keys.
     fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()>;
 
+    /// Enables hash deduplication at flush time. Should be called when a prefix
+    /// extractor is configured, since multiple keys can produce the same prefix
+    /// hash. Without a prefix extractor, each key produces a unique hash and
+    /// dedup is unnecessary.
+    fn enable_dedup(&mut self) {}
+
     /// Informs the filter writer about the current user key for partition boundary
     /// tracking without adding its hash to the filter. This is needed when a prefix
     /// extractor is configured: only extracted prefixes are hashed (via `register_bytes`),
