@@ -1784,7 +1784,7 @@ fn table_should_skip_range_multi_prefix_start_match_min_key() -> crate::Result<(
         std::ops::Bound::Included(b"ccc0000".to_vec()),
     );
     assert!(
-        !table.should_skip_range_by_prefix_filter(&range, ex.as_ref()),
+        !table.should_skip_range_by_prefix_filter(&range, ex.as_ref(), None),
         "must NOT skip: table contains 'bbb' keys within the multi-prefix range"
     );
 

@@ -4502,3 +4502,415 @@ fn test_short_keys_with_prefix_extractor() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// tree.prefix() converts the prefix to a range via prefix_to_range, which
+/// increments the last byte: prefix "h" becomes Included("h")..Excluded("i").
+/// With FixedPrefixExtractor::new(1), extract_first("h") = "h" and
+/// extract_first("i") = "i", so the start and end prefixes differ. The filter
+/// layer must still recognize this as a single-prefix query and consult the
+/// filter. This test uses a single-table run.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_prefix_query_filter_used_single_table_exact_len() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(1)))
+    .open()?;
+
+    // Insert keys with prefixes "a" and "z"
+    tree.insert(b"abc", b"1", 0);
+    tree.insert(b"abd", b"2", 0);
+    tree.insert(b"zde", b"3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query for prefix "h" — no keys with this prefix exist.
+    // The filter should be consulted and should skip the table.
+    let before = tree.metrics().filter_queries();
+
+    let keys: Vec<_> = tree
+        .prefix(b"h", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 0, "no keys with prefix 'h' should be found");
+
+    let after = tree.metrics().filter_queries();
+    assert!(
+        after > before,
+        "filter should be consulted for prefix query 'h' (single table, extractor len=1)"
+    );
+
+    Ok(())
+}
+
+/// Same scenario as above but with FixedPrefixExtractor::new(3) and prefix
+/// query "abc". The range becomes Included("abc")..Excluded("abd"), and
+/// extract_first("abc") = "abc", extract_first("abd") = "abd" — they differ.
+/// The filter must still be used. Keys span from "aaa" to "zzz" so that the
+/// query range overlaps the table's key range.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_prefix_query_filter_used_single_table_3byte_prefix() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+    .open()?;
+
+    // Insert keys with prefixes "aaa" and "zzz" so the table's key range
+    // covers "aaa".."zzz", making the query for "abc" overlap the range.
+    tree.insert(b"aaa_001", b"1", 0);
+    tree.insert(b"aaa_002", b"2", 0);
+    tree.insert(b"zzz_001", b"3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query for prefix "abc" — between "aaa" and "zzz" but not in the filter.
+    let before = tree.metrics().filter_queries();
+
+    let keys: Vec<_> = tree
+        .prefix(b"abc", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 0, "no keys with prefix 'abc' should be found");
+
+    let after = tree.metrics().filter_queries();
+    assert!(
+        after > before,
+        "filter should be consulted for prefix query 'abc' (single table, extractor len=3)"
+    );
+
+    Ok(())
+}
+
+/// FixedLengthExtractor has the same issue: prefix "h" with extractor
+/// length 1 causes extract_first("h") != extract_first("i"). Keys span
+/// from "a" to "z" so the query range overlaps the table.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_prefix_query_filter_used_fixed_length_extractor() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedLengthExtractor::new(1)))
+    .open()?;
+
+    // Keys span "a" to "z" so the table's key range covers the query for "h"
+    tree.insert(b"a_one", b"1", 0);
+    tree.insert(b"a_two", b"2", 0);
+    tree.insert(b"z_one", b"3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query for prefix "h" — between "a" and "z" but not in the filter
+    let before = tree.metrics().filter_queries();
+
+    let keys: Vec<_> = tree
+        .prefix(b"h", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 0);
+
+    let after = tree.metrics().filter_queries();
+    assert!(
+        after > before,
+        "filter should be consulted for prefix query 'h' (FixedLengthExtractor len=1)"
+    );
+
+    Ok(())
+}
+
+/// Multi-table run: with enough data flushed and compacted into a single level
+/// with multiple tables, RunReader's upfront pruning and lazy per-table skip
+/// should both use the filter for a prefix query whose length equals the
+/// extractor length.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_prefix_query_filter_used_multi_table_run() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(1)))
+    .open()?;
+
+    // Insert many keys across two prefixes to produce multiple tables after compaction
+    for i in 0..500u32 {
+        let key = format!("a{i:04}");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    for i in 0..500u32 {
+        let key = format!("z{i:04}");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+
+    // Query for prefix "m" — between "a" and "z", not in any table
+    let before = tree.metrics().filter_queries();
+
+    let keys: Vec<_> = tree
+        .prefix(b"m", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 0, "no keys with prefix 'm' should be found");
+
+    let after = tree.metrics().filter_queries();
+    assert!(
+        after > before,
+        "filter should be consulted for prefix query 'm' (multi-table run, extractor len=1)"
+    );
+
+    Ok(())
+}
+
+/// Ensure that existing prefixes still return correct results — no false
+/// negatives from the optimization.
+#[test]
+fn test_prefix_query_existing_prefix_still_found() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(1)))
+    .open()?;
+
+    tree.insert(b"abc", b"1", 0);
+    tree.insert(b"abd", b"2", 0);
+    tree.insert(b"zde", b"3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query for prefix "a" — should find 2 keys
+    let keys: Vec<_> = tree
+        .prefix(b"a", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 2, "should find 2 keys with prefix 'a'");
+
+    // Query for prefix "z" — should find 1 key
+    let keys: Vec<_> = tree
+        .prefix(b"z", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 1, "should find 1 key with prefix 'z'");
+
+    Ok(())
+}
+
+/// Prefix query where the prefix is longer than the extractor length should
+/// already work (both bounds extract to the same prefix). Verify this still
+/// holds after the fix.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_prefix_query_longer_than_extractor_still_uses_filter() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+    .open()?;
+
+    tree.insert(b"abc_001", b"1", 0);
+    tree.insert(b"abc_002", b"2", 0);
+    tree.insert(b"xyz_001", b"3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query for prefix "def_" — 4 bytes, extractor is 3. Both "def_" and
+    // "def`" (or similar successor) extract to "def". Filter should be used.
+    let before = tree.metrics().filter_queries();
+
+    let keys: Vec<_> = tree
+        .prefix(b"def_", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 0);
+
+    let after = tree.metrics().filter_queries();
+    assert!(
+        after > before,
+        "filter should be used for prefix 'def_' (longer than extractor len=3)"
+    );
+
+    Ok(())
+}
+
+/// The all-0xFF edge case: prefix_upper_range returns Unbounded for a prefix
+/// of all 0xFF bytes. The table's max key is below 0xFF, so the filter
+/// partition for 0xFF may not exist. The filter cannot be consulted in this
+/// case, but correctness is preserved — no keys are returned.
+#[test]
+fn test_prefix_query_all_0xff_prefix_correctness() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(1)))
+    .open()?;
+
+    tree.insert(&[0x00, 0x01], b"v1", 0);
+    tree.insert(&[0xFE, 0x01], b"v2", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query for prefix [0xFF] — no keys should be found
+    let keys: Vec<_> = tree
+        .prefix(&[0xFF], SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(keys.len(), 0, "no keys with prefix 0xFF should be found");
+
+    Ok(())
+}
+
+/// FixedPrefixExtractor with a prefix query SHORTER than the extractor length.
+/// The filter was built with 4-byte prefixes, but the query uses a 3-byte prefix.
+/// The filter must not skip the table — the shorter prefix is a prefix of keys
+/// that exist in the table.
+#[test]
+fn test_prefix_query_shorter_than_extractor_no_false_negative() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+    .open()?;
+
+    // Insert keys with 4-byte prefix "user"
+    tree.insert(b"user_alice", b"v1", 0);
+    tree.insert(b"user_bob", b"v2", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Query with 3-byte prefix "use" — shorter than extractor length 4.
+    // Both keys start with "use" and MUST be returned.
+    let results: Vec<_> = tree
+        .prefix(b"use", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(
+        results.len(),
+        2,
+        "both user_alice and user_bob start with 'use' and must be found"
+    );
+
+    Ok(())
+}
+
+/// FullKeyExtractor with tree.prefix() — the hint is the prefix, not a full key.
+/// The filter was built with full-key hashes, but the probe uses the prefix.
+/// The table must NOT be skipped.
+#[test]
+fn test_prefix_query_full_key_extractor_no_false_negative() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(lsm_tree::prefix::FullKeyExtractor))
+    .open()?;
+
+    tree.insert(b"abc_001", b"v1", 0);
+    tree.insert(b"abc_002", b"v2", 0);
+    tree.flush_active_memtable(0)?;
+
+    let results: Vec<_> = tree
+        .prefix(b"abc", SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+    assert_eq!(
+        results.len(),
+        2,
+        "both abc_001 and abc_002 start with 'abc' and must be found"
+    );
+
+    Ok(())
+}
+
+/// After reopening with a different prefix extractor length, old tables retain
+/// their original extractor name. The RunReader lazy loop calls
+/// `probe_prefix_filter` directly (bypassing `should_skip_range_by_prefix_filter`)
+/// when a validated_prefix_hint is available, so it must check
+/// `prefix_filter_allowed` per-table. Otherwise, probing an old table's filter
+/// with the wrong extractor can yield a false negative.
+///
+/// This test writes enough data with extractor length 3 to produce multiple
+/// L1 tables, then reopens with extractor length 4 and issues a prefix query
+/// whose range spans 3+ tables to exercise the lazy loop.
+#[test]
+fn test_prefix_query_mixed_extractor_run_no_false_negative() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+    let version = SequenceNumberCounter::default();
+
+    // Phase 1: extractor length 3. Write many "abcd*" keys and compact to L1
+    // with a small target size to produce multiple tables.
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+            .open()?;
+
+        for i in 0..2000u32 {
+            let key = format!("abcd{i:06}");
+            tree.insert(key.as_bytes(), b"v1", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+        // Small target size → many small tables in the last level
+        tree.major_compact(512, SeqNo::MAX)?;
+
+        // Verify we got multiple tables
+        assert!(
+            tree.table_count() >= 3,
+            "need 3+ tables to exercise the lazy loop, got {}",
+            tree.table_count()
+        );
+    }
+
+    // Phase 2: reopen with extractor length 4 (different name). Don't write
+    // anything — just query. All existing tables have extractor "fixed_prefix:3".
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+            .open()?;
+
+        // Prefix query "abcd" (4 bytes) with current extractor length 4.
+        // validated_prefix_hint = Some("abcd") (guard passes: extract_first("abcd")
+        // = Some("abcd"), extract_first("abcd\0") = Some("abcd")).
+        //
+        // The lazy loop hits tables with extractor "fixed_prefix:3". Without
+        // prefix_filter_allowed check: probe_prefix_filter("abcd", ext4)
+        // → extract("abcd") = Some("abcd") → hash("abcd") ≠ hash("abc")
+        // → Some(false) → table skipped → data lost.
+        assert_eq!(
+            tree.prefix(b"abcd", SeqNo::MAX, None).count(),
+            2000,
+            "all 2000 'abcd*' keys must be found after reopen with different extractor"
+        );
+    }
+
+    Ok(())
+}

@@ -70,6 +70,12 @@ pub struct IterState {
     pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     pub(crate) prefix_extractor: Option<SharedPrefixExtractor>,
+
+    /// When set, this is the original prefix from a `tree.prefix()` call.
+    /// It allows the filter layer to consult the prefix filter even when the
+    /// range bounds (produced by `prefix_to_range`) have different extracted
+    /// prefixes.
+    pub(crate) prefix_hint: Option<UserKey>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -169,12 +175,16 @@ impl TreeIter {
                         )) {
                             let mut skip = false;
                             if let Some(ex) = lock.prefix_extractor.as_ref() {
-                                let tmp_range = (
+                                let ref_range = (
                                     range.start_bound().map(|x| &x.user_key).cloned(),
                                     range.end_bound().map(|x| &x.user_key).cloned(),
                                 );
-                                if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref())
-                                {
+                                let hint = lock.prefix_hint.as_deref();
+                                if table.should_skip_range_by_prefix_filter(
+                                    &ref_range,
+                                    ex.as_ref(),
+                                    hint,
+                                ) {
                                     skip = true;
                                 }
                             }
@@ -202,6 +212,7 @@ impl TreeIter {
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ),
                             lock.prefix_extractor.clone(),
+                            lock.prefix_hint.clone(),
                         ) {
                             iters.push(Box::new(reader.filter(move |item| match item {
                                 Ok(item) => seqno_filter(item.key.seqno, seqno),

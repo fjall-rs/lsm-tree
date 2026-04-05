@@ -25,6 +25,13 @@ pub struct RunReader {
 
     // Optional extractor for prefix-aware pruning during lazy advancement
     extractor: Option<SharedPrefixExtractor>,
+
+    // Pre-validated prefix hint for direct filter probing during lazy iteration.
+    // Set only when the prefix_hint passes the stability guard
+    // (extract_first(hint) == extract_first(hint + "\0")), meaning the hint IS
+    // a valid extracted prefix and probe_prefix_filter can be called directly
+    // without the per-table guard check or Vec allocation.
+    validated_prefix_hint: Option<UserKey>,
 }
 
 impl RunReader {
@@ -36,43 +43,65 @@ impl RunReader {
         run: Arc<Run<Table>>,
         range: R,
         extractor: Option<SharedPrefixExtractor>,
+        prefix_hint: Option<UserKey>,
     ) -> Option<Self> {
         assert!(!run.is_empty(), "level reader cannot read empty level");
 
         let (lo, hi) = run.range_overlap_indexes(&range)?;
 
-        // Compute pruning prefix: only when both bounds' first extracted prefixes exist and are equal.
-        let common_prefix = if let Some(ex) = extractor.as_ref() {
-            let start_first = match range.start_bound() {
-                Bound::Included(uk) | Bound::Excluded(uk) => {
-                    ex.extract_first(uk.as_ref()).map(<[u8]>::to_vec)
+        // Validate the prefix hint: the hint is usable for filter probing only when
+        // the extractor produces the same prefix for the hint and for keys matching
+        // the query range. We verify by checking extract_first(hint) == extract_first(hint + "\0").
+        // This is computed once here and reused in every lazy per-table skip check.
+        let validated_prefix_hint =
+            if let (Some(hint), Some(ex)) = (prefix_hint.as_ref(), extractor.as_ref()) {
+                let hint_bytes: &[u8] = hint.as_ref();
+                let hint_prefix = ex.extract_first(hint_bytes);
+                let mut extended = Vec::with_capacity(hint_bytes.len() + 1);
+                extended.extend_from_slice(hint_bytes);
+                extended.push(0u8);
+                let extended_prefix = ex.extract_first(&extended);
+                match (hint_prefix, extended_prefix) {
+                    (Some(hp), Some(ep)) if hp == ep => Some(hint.clone()),
+                    _ => None,
                 }
+            } else {
+                None
+            };
+
+        // Determine whether upfront pruning is possible: we need a common extracted
+        // prefix that applies to all keys in the range. Either from the validated
+        // hint (single allocation above) or by comparing both range bounds.
+        let can_prune_upfront = if validated_prefix_hint.is_some() {
+            true
+        } else if let Some(ex) = extractor.as_ref() {
+            let start_first = match range.start_bound() {
+                Bound::Included(uk) | Bound::Excluded(uk) => ex.extract_first(uk.as_ref()),
                 Bound::Unbounded => None,
             };
             let end_first = match range.end_bound() {
-                Bound::Included(uk) | Bound::Excluded(uk) => {
-                    ex.extract_first(uk.as_ref()).map(<[u8]>::to_vec)
-                }
+                Bound::Included(uk) | Bound::Excluded(uk) => ex.extract_first(uk.as_ref()),
                 Bound::Unbounded => None,
             };
-            match (start_first, end_first) {
-                (Some(s), Some(e)) if s == e => Some(s),
-                _ => None,
-            }
+            matches!((start_first, end_first), (Some(s), Some(e)) if s == e)
         } else {
-            None
+            false
         };
 
-        // Early optimization
-        if let Some(ex) = extractor.clone() {
-            // Compute start bound key once
-            let start_key = match range.start_bound() {
-                std::ops::Bound::Included(k) | std::ops::Bound::Excluded(k) => Some(k.as_ref()),
-                std::ops::Bound::Unbounded => None,
-            };
+        // Early optimization: upfront pruning
+        if let Some(ex) = extractor.as_ref() {
+            if can_prune_upfront {
+                // Compute probe key once: use validated hint or start bound
+                let start_key = match range.start_bound() {
+                    std::ops::Bound::Included(k) | std::ops::Bound::Excluded(k) => Some(k.as_ref()),
+                    std::ops::Bound::Unbounded => None,
+                };
+                let probe = if let Some(ref hint) = validated_prefix_hint {
+                    hint.as_ref()
+                } else {
+                    start_key.expect("can_prune_upfront requires both bounds to be concrete")
+                };
 
-            // Common-prefix pruning when bounds share the same extracted prefix
-            if common_prefix.is_some() {
                 const MAX_UPFRONT_CHECKS: usize = 10;
                 let mut checks = 0usize;
                 let mut has_potential_match = false;
@@ -93,10 +122,6 @@ impl RunReader {
                         "range_overlap_indexes returned a non-overlapping table in upfront pruning"
                     );
 
-                    // common_prefix.is_some() guarantees both bounds are
-                    // Included/Excluded (not Unbounded), so start_key is always Some.
-                    let probe =
-                        start_key.expect("common_prefix requires both bounds to be concrete");
                     if !matches!(
                         table.maybe_contains_prefix(probe, ex.as_ref()),
                         Ok(Some(false))
@@ -118,7 +143,13 @@ impl RunReader {
             }
         }
 
-        Some(Self::culled(run, range, (Some(lo), Some(hi)), extractor))
+        Some(Self::culled(
+            run,
+            range,
+            (Some(lo), Some(hi)),
+            extractor,
+            validated_prefix_hint,
+        ))
     }
 
     /// Creates a run reader with precomputed overlap indices.
@@ -132,6 +163,7 @@ impl RunReader {
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
         extractor: Option<SharedPrefixExtractor>,
+        validated_prefix_hint: Option<UserKey>,
     ) -> Self {
         use std::ops::Bound::{Excluded, Included, Unbounded};
 
@@ -178,6 +210,7 @@ impl RunReader {
             range_start: owned_start,
             range_end: owned_end,
             extractor,
+            validated_prefix_hint,
         }
     }
 }
@@ -224,8 +257,28 @@ impl Iterator for RunReader {
                         );
 
                         if let Some(ex) = &self.extractor {
-                            let tmp_range = (self.range_start.clone(), self.range_end.clone());
-                            if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref()) {
+                            // Use the pre-validated hint for a direct probe (no guard
+                            // re-check, no Vec allocation). Falls back to the range-based
+                            // path when no validated hint is available.
+                            //
+                            // prefix_filter_allowed must be checked per-table because
+                            // optimize_runs can merge tables from different runs that
+                            // were built with different extractor configs.
+                            let skip = if let Some(ref hint) = self.validated_prefix_hint {
+                                table.prefix_filter_allowed(Some(ex.name()))
+                                    && matches!(
+                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref()),
+                                        Ok(Some(false))
+                                    )
+                            } else {
+                                let tmp_range = (self.range_start.clone(), self.range_end.clone());
+                                table.should_skip_range_by_prefix_filter(
+                                    &tmp_range,
+                                    ex.as_ref(),
+                                    None,
+                                )
+                            };
+                            if skip {
                                 self.lo += 1;
                                 continue;
                             }
@@ -289,8 +342,21 @@ impl DoubleEndedIterator for RunReader {
                         );
 
                         if let Some(ex) = &self.extractor {
-                            let tmp_range = (self.range_start.clone(), self.range_end.clone());
-                            if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref()) {
+                            let skip = if let Some(ref hint) = self.validated_prefix_hint {
+                                table.prefix_filter_allowed(Some(ex.name()))
+                                    && matches!(
+                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref()),
+                                        Ok(Some(false))
+                                    )
+                            } else {
+                                let tmp_range = (self.range_start.clone(), self.range_end.clone());
+                                table.should_skip_range_by_prefix_filter(
+                                    &tmp_range,
+                                    ex.as_ref(),
+                                    None,
+                                )
+                            };
+                            if skip {
                                 self.hi -= 1;
                                 continue;
                             }
@@ -354,11 +420,15 @@ mod tests {
 
         let level = Arc::new(Run::new(tables).unwrap());
 
-        assert!(
-            RunReader::new(level.clone(), UserKey::from("y")..=UserKey::from("z"), None).is_none()
-        );
+        assert!(RunReader::new(
+            level.clone(),
+            UserKey::from("y")..=UserKey::from("z"),
+            None,
+            None
+        )
+        .is_none());
 
-        assert!(RunReader::new(level, UserKey::from("y").., None).is_none());
+        assert!(RunReader::new(level, UserKey::from("y").., None, None).is_none());
 
         Ok(())
     }
@@ -397,7 +467,7 @@ mod tests {
         let level = Arc::new(Run::new(tables).unwrap());
 
         {
-            let multi_reader = RunReader::culled(level.clone(), .., (Some(1), None), None);
+            let multi_reader = RunReader::culled(level.clone(), .., (Some(1), None), None, None);
             let mut iter = multi_reader.flatten();
 
             assert_eq!(Slice::from(*b"d"), iter.next().unwrap().key.user_key);
@@ -413,7 +483,7 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level.clone(), .., None).unwrap();
+            let multi_reader = RunReader::new(level.clone(), .., None, None).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -433,7 +503,7 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level.clone(), .., None).unwrap();
+            let multi_reader = RunReader::new(level.clone(), .., None, None).unwrap();
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -453,7 +523,7 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level.clone(), .., None).unwrap();
+            let multi_reader = RunReader::new(level.clone(), .., None, None).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -473,7 +543,8 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level.clone(), UserKey::from("g").., None).unwrap();
+            let multi_reader =
+                RunReader::new(level.clone(), UserKey::from("g").., None, None).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -487,7 +558,7 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level, UserKey::from("g").., None).unwrap();
+            let multi_reader = RunReader::new(level, UserKey::from("g").., None, None).unwrap();
 
             let mut iter = multi_reader.flatten().rev();
 
@@ -544,7 +615,7 @@ mod tests {
             let ex = Some(ex);
 
             // All overlapped tables report Some(false) -> should prune (None)
-            let reader = RunReader::new(level, (start, end), ex);
+            let reader = RunReader::new(level, (start, end), ex, None);
             assert!(reader.is_none());
 
             Ok(())
@@ -583,7 +654,7 @@ mod tests {
             let end = prefix_upper_range(&prefix);
             let ex = Some(ex);
 
-            let reader = RunReader::new(level, (start, end), ex);
+            let reader = RunReader::new(level, (start, end), ex, None);
             assert!(reader.is_some());
 
             Ok(())
@@ -684,7 +755,7 @@ mod tests {
             let start = Bound::Included(UserKey::from(prefix.clone()));
             let end = prefix_upper_range(&prefix);
 
-            let reader = RunReader::new(level, (start, end), Some(ex));
+            let reader = RunReader::new(level, (start, end), Some(ex), None);
             assert!(
                 reader.is_none(),
                 "should prune: no table contains prefix mmm"
@@ -708,7 +779,7 @@ mod tests {
             let start = Bound::Included(UserKey::from(prefix.clone()));
             let end = prefix_upper_range(&prefix);
 
-            let reader = RunReader::new(level, (start, end), Some(ex));
+            let reader = RunReader::new(level, (start, end), Some(ex), None);
             assert!(
                 reader.is_some(),
                 "should NOT prune: table 2 contains prefix mmm"
@@ -758,7 +829,7 @@ mod tests {
             let start = Bound::Included(UserKey::from(prefix.clone()));
             let end = prefix_upper_range(&prefix);
 
-            let reader = RunReader::new(level, (start, end), Some(ex));
+            let reader = RunReader::new(level, (start, end), Some(ex), None);
             assert!(
                 reader.is_some(),
                 "should NOT prune: exceeded max upfront checks"
@@ -775,7 +846,7 @@ mod tests {
                 create_wide_range_run_with_prefixes(&[&[b"aaa", b"zzz"], &[b"bbb", b"yyy"]])?;
 
             // Unbounded start: common_prefix = None, no upfront pruning
-            let reader = RunReader::new(level, ..UserKey::from("mmm99"), Some(ex));
+            let reader = RunReader::new(level, ..UserKey::from("mmm99"), Some(ex), None);
             assert!(reader.is_some());
 
             Ok(())
@@ -789,7 +860,7 @@ mod tests {
                 create_wide_range_run_with_prefixes(&[&[b"aaa", b"zzz"], &[b"bbb", b"yyy"]])?;
 
             // Unbounded end: common_prefix = None, no upfront pruning
-            let reader = RunReader::new(level, UserKey::from("mmm00").., Some(ex));
+            let reader = RunReader::new(level, UserKey::from("mmm00").., Some(ex), None);
             assert!(reader.is_some());
 
             Ok(())
@@ -807,6 +878,7 @@ mod tests {
                 level,
                 UserKey::from("aaa00")..UserKey::from("bbb99"),
                 Some(ex),
+                None,
             );
             assert!(reader.is_some());
 
@@ -897,7 +969,7 @@ mod tests {
             let start = Bound::Included(UserKey::from("mmm00"));
             let end = Bound::Included(UserKey::from("mmm99"));
 
-            let reader = RunReader::new(level, (start, end), Some(ex));
+            let reader = RunReader::new(level, (start, end), Some(ex), None);
             assert!(reader.is_some());
 
             let results: Vec<_> = reader.unwrap().flatten().collect();
@@ -932,7 +1004,7 @@ mod tests {
             let start = Bound::Included(UserKey::from("mmm00"));
             let end = Bound::Included(UserKey::from("mmm99"));
 
-            let reader = RunReader::new(level, (start, end), Some(ex));
+            let reader = RunReader::new(level, (start, end), Some(ex), None);
             assert!(reader.is_some());
 
             let results: Vec<_> = reader.unwrap().rev().flatten().collect();
@@ -1024,7 +1096,7 @@ mod tests {
             let start = Bound::Included(UserKey::from("mmm00"));
             let end = Bound::Included(UserKey::from("mmm99"));
 
-            let reader = RunReader::new(level, (start, end), Some(ex));
+            let reader = RunReader::new(level, (start, end), Some(ex), None);
             assert!(reader.is_some());
 
             let results: Vec<_> = reader.unwrap().rev().flatten().collect();
@@ -1060,6 +1132,7 @@ mod tests {
                     Bound::Included(UserKey::from("zzz99")),
                 ),
                 Some(ex),
+                None,
             );
             assert!(reader.is_some());
 
@@ -1095,7 +1168,7 @@ mod tests {
             // Create reader over a narrow range that only overlaps one table
             // hi == lo → no hi_reader created
             let mut reader =
-                RunReader::new(level, UserKey::from("a")..=UserKey::from("a"), None).unwrap();
+                RunReader::new(level, UserKey::from("a")..=UserKey::from("a"), None, None).unwrap();
 
             // Forward-exhaust the lo_reader
             assert!(reader.next().is_some()); // "a"

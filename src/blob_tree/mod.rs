@@ -216,7 +216,8 @@ impl AbstractTree for BlobTree {
         let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
-        let range = prefix_to_range(prefix.as_ref());
+        let prefix_bytes = prefix.as_ref();
+        let range = prefix_to_range(prefix_bytes);
 
         Box::new(
             crate::Tree::create_internal_range(
@@ -225,6 +226,7 @@ impl AbstractTree for BlobTree {
                 seqno,
                 index,
                 self.index.config.prefix_extractor.clone(),
+                Some(prefix_bytes),
             )
             .map(move |kv| {
                 IterGuardImpl::Blob(Guard {
@@ -252,6 +254,7 @@ impl AbstractTree for BlobTree {
                 seqno,
                 index,
                 self.index.config.prefix_extractor.clone(),
+                None,
             )
             .map(move |kv| {
                 IterGuardImpl::Blob(Guard {
