@@ -4,7 +4,8 @@ extern crate afl;
 use arbitrary::{Arbitrary, Unstructured};
 use lsm_tree::config::{BloomConstructionPolicy, FilterPolicy, FilterPolicyEntry, PinningPolicy};
 use lsm_tree::prefix::{
-    FixedLengthExtractor, FixedPrefixExtractor, FullKeyExtractor, SharedPrefixExtractor,
+    FixedLengthExtractor, FixedPrefixExtractor, FullKeyExtractor, PrefixExtractor,
+    SharedPrefixExtractor,
 };
 use lsm_tree::{AbstractTree, AnyTree, Guard, IterGuardImpl, SequenceNumberCounter};
 use std::sync::Arc;
@@ -12,6 +13,28 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 // Structured input derived from AFL's raw bytes via Arbitrary
 // ---------------------------------------------------------------------------
+
+/// Multi-prefix extractor that returns both a 2-byte and a 4-byte prefix
+/// for keys >= 4 bytes, only a 2-byte prefix for keys 2-3 bytes, and nothing
+/// for shorter keys. This exercises the interleaved hash dedup path where
+/// consecutive keys produce [hash(2-byte), hash(4-byte), hash(2-byte), ...].
+struct HierarchicalExtractor;
+
+impl PrefixExtractor for HierarchicalExtractor {
+    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+        if key.len() >= 4 {
+            Box::new(vec![&key[..2], &key[..4]].into_iter())
+        } else if key.len() >= 2 {
+            Box::new(std::iter::once(&key[..2]))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    fn name(&self) -> &str {
+        "hierarchical:2:4"
+    }
+}
 
 #[derive(Arbitrary, Debug, Clone)]
 enum ExtractorChoice {
@@ -24,6 +47,7 @@ enum ExtractorChoice {
     FixedPrefix3,
     FixedPrefix4,
     FullKey,
+    Hierarchical,
 }
 
 impl ExtractorChoice {
@@ -38,6 +62,7 @@ impl ExtractorChoice {
             Self::FixedPrefix3 => Arc::new(FixedPrefixExtractor::new(3)),
             Self::FixedPrefix4 => Arc::new(FixedPrefixExtractor::new(4)),
             Self::FullKey => Arc::new(FullKeyExtractor),
+            Self::Hierarchical => Arc::new(HierarchicalExtractor),
         }
     }
 }

@@ -34,6 +34,11 @@ pub struct PartitionedFilterWriter {
 
     last_key: Option<UserKey>,
 
+    /// When true, sort+dedup per-partition hash buffer to eliminate duplicate
+    /// prefix hashes. Enabled by `enable_dedup()` when a prefix extractor is
+    /// configured.
+    needs_dedup: bool,
+
     compression: CompressionType,
 }
 
@@ -52,12 +57,18 @@ impl PartitionedFilterWriter {
             relative_file_pos: 0,
 
             last_key: None,
+            needs_dedup: false,
 
             compression: CompressionType::None,
         }
     }
 
     fn spill_filter_partition(&mut self, key: &UserKey) -> crate::Result<()> {
+        if self.needs_dedup {
+            self.bloom_hash_buffer.sort_unstable();
+            self.bloom_hash_buffer.dedup();
+        }
+
         let filter_bytes = {
             let mut builder = self.bloom_policy.init(self.bloom_hash_buffer.len());
 
@@ -162,6 +173,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
 
     fn notify_key(&mut self, key: &UserKey) {
         self.last_key = Some(key.clone());
+    }
+
+    fn enable_dedup(&mut self) {
+        self.needs_dedup = true;
     }
 
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
