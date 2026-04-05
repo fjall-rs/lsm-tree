@@ -768,10 +768,9 @@ impl Table {
             let extended_prefix = extractor.extract_first(&extended);
 
             if let (Some(hp), Some(ep)) = (hint_prefix, extended_prefix) {
-                if hp == ep {
-                    if matches!(self.probe_prefix_filter(hint, extractor), Ok(Some(false))) {
-                        return true;
-                    }
+                if hp == ep && matches!(self.probe_prefix_filter(hint, extractor), Ok(Some(false)))
+                {
+                    return true;
                 }
             }
             return false;

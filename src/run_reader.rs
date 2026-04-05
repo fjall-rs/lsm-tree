@@ -43,8 +43,10 @@ impl RunReader {
         run: Arc<Run<Table>>,
         range: R,
         extractor: Option<SharedPrefixExtractor>,
-        prefix_hint: Option<UserKey>,
+        prefix_hint: Option<&UserKey>,
     ) -> Option<Self> {
+        const MAX_UPFRONT_CHECKS: usize = 10;
+
         assert!(!run.is_empty(), "level reader cannot read empty level");
 
         let (lo, hi) = run.range_overlap_indexes(&range)?;
@@ -62,7 +64,7 @@ impl RunReader {
                 extended.push(0u8);
                 let extended_prefix = ex.extract_first(&extended);
                 match (hint_prefix, extended_prefix) {
-                    (Some(hp), Some(ep)) if hp == ep => Some(hint.clone()),
+                    (Some(hp), Some(ep)) if hp == ep => Some((*hint).clone()),
                     _ => None,
                 }
             } else {
@@ -102,7 +104,6 @@ impl RunReader {
                     start_key.expect("can_prune_upfront requires both bounds to be concrete")
                 };
 
-                const MAX_UPFRONT_CHECKS: usize = 10;
                 let mut checks = 0usize;
                 let mut has_potential_match = false;
 
