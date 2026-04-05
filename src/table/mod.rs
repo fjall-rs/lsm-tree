@@ -394,7 +394,7 @@ impl Table {
     }
 
     /// Core prefix filter probe — assumes the caller already validated extractor compatibility.
-    fn probe_prefix_filter(
+    pub(crate) fn probe_prefix_filter(
         &self,
         key: &[u8],
         extractor: &dyn crate::prefix::PrefixExtractor,
@@ -746,8 +746,34 @@ impl Table {
         &self,
         range: &R,
         extractor: &dyn crate::prefix::PrefixExtractor,
+        prefix_hint: Option<&[u8]>,
     ) -> bool {
         if !self.prefix_filter_allowed(Some(extractor.name())) {
+            return false;
+        }
+
+        // If a prefix hint is available (from tree.prefix()), try to use it
+        // for a direct probe. This handles the case where prefix_to_range produces
+        // bounds with different extracted prefixes (e.g. prefix "h" → range "h".."i"
+        // with extractor length 1).
+        //
+        // We can only trust the probe when the extractor produces the same prefix
+        // for both the hint AND for keys that would match the prefix query. We
+        // verify this by checking that extract_first(hint) == extract_first(hint + "\0"):
+        // if appending a byte changes the extracted prefix, the hint is not a stable
+        // prefix for the keys in the range and the probe could yield a false negative.
+        if let Some(hint) = prefix_hint {
+            let hint_prefix = extractor.extract_first(hint);
+            let extended: Vec<u8> = hint.iter().copied().chain(std::iter::once(0u8)).collect();
+            let extended_prefix = extractor.extract_first(&extended);
+
+            if let (Some(hp), Some(ep)) = (hint_prefix, extended_prefix) {
+                if hp == ep {
+                    if matches!(self.probe_prefix_filter(hint, extractor), Ok(Some(false))) {
+                        return true;
+                    }
+                }
+            }
             return false;
         }
 

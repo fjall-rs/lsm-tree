@@ -678,6 +678,7 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
         prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
+        prefix_hint: Option<&[u8]>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
@@ -701,6 +702,7 @@ impl Tree {
                 version,
                 ephemeral,
                 prefix_extractor,
+                prefix_hint: prefix_hint.map(Into::into),
             }
         };
 
@@ -933,6 +935,7 @@ impl Tree {
             seqno,
             ephemeral,
             self.config.prefix_extractor.clone(),
+            None,
         )
         .map(|item| match item {
             Ok(kv) => Ok((kv.key.user_key, kv.value)),
@@ -949,8 +952,28 @@ impl Tree {
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use crate::range::prefix_to_range;
 
-        let range = prefix_to_range(prefix.as_ref());
-        self.create_range(&range, seqno, ephemeral)
+        let prefix_bytes = prefix.as_ref();
+        let range = prefix_to_range(prefix_bytes);
+
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        Self::create_internal_range(
+            super_version,
+            &range,
+            seqno,
+            ephemeral,
+            self.config.prefix_extractor.clone(),
+            Some(prefix_bytes),
+        )
+        .map(|item| match item {
+            Ok(kv) => Ok((kv.key.user_key, kv.value)),
+            Err(e) => Err(e),
+        })
     }
 
     /// Adds an item to the active memtable.

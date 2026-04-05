@@ -19,7 +19,7 @@ use std::sync::Arc;
 ///
 /// let ex = FixedPrefixExtractor::new(3);
 /// assert_eq!(ex.extract_first(b"abcdef"), Some(b"abc".as_ref()));
-/// assert_eq!(ex.extract_first(b"ab"), Some(b"ab".as_ref()));
+/// assert_eq!(ex.extract_first(b"ab"), None); // shorter than prefix length
 /// ```
 ///
 /// ## Segmented prefixes (e.g., `account_id#user_id)`
@@ -111,7 +111,9 @@ impl PrefixExtractor for FullKeyExtractor {
 
 /// A prefix extractor that returns a fixed-length prefix.
 ///
-/// If the key is shorter than the prefix length, returns the full key.
+/// Keys shorter than the prefix length are considered "out of domain" and
+/// return `None`. This prevents the prefix filter from producing false
+/// negatives when a prefix query key is shorter than the configured length.
 pub struct FixedPrefixExtractor {
     length: usize,
     name: String,
@@ -134,8 +136,8 @@ impl PrefixExtractor for FixedPrefixExtractor {
     }
 
     fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        if key.len() <= self.length {
-            Some(key)
+        if key.len() < self.length {
+            None
         } else {
             key.get(..self.length)
         }
@@ -289,11 +291,10 @@ mod tests {
         assert_eq!(prefixes.len(), 1);
         assert_eq!(prefixes.first(), Some(&b"longe".as_ref()));
 
-        // Key shorter than prefix
+        // Key shorter than prefix — out of domain
         let key = b"key";
         let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"key".as_ref()));
+        assert_eq!(prefixes.len(), 0);
 
         // Key exactly prefix length
         let key = b"exact";
@@ -314,8 +315,7 @@ mod tests {
         assert_eq!(prefixes.first(), Some(&b"".as_ref()));
 
         let prefixes: Vec<_> = fixed.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"".as_ref()));
+        assert_eq!(prefixes.len(), 0); // empty key is shorter than prefix length
     }
 
     #[test]
