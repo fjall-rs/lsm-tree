@@ -98,18 +98,20 @@ impl<'a> Arbitrary<'a> for ClusteredKey {
     }
 }
 
-/// A prefix with length 0..=3, each byte from the same small alphabet (0..8).
-/// Likely to match actual key prefixes since keys share the same first-byte space.
-/// Length 0 = empty prefix, which maps to an unbounded full scan.
+/// A prefix with length 0..=5, covering shorter-than, equal-to, and
+/// longer-than all extractor lengths (extractors go up to 4).
+/// Each byte is drawn from a slightly wider alphabet (0..=9) so that
+/// values 8 and 9 produce prefixes that don't match any key's first byte
+/// (keys use 0..=7), exercising the "absent prefix" filter path.
 #[derive(Debug, Clone)]
 struct ClusteredPrefix(Vec<u8>);
 
 impl<'a> Arbitrary<'a> for ClusteredPrefix {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let len: usize = u.int_in_range(0..=3)?;
+        let len: usize = u.int_in_range(0..=5)?;
         let mut prefix = Vec::with_capacity(len);
         for _ in 0..len {
-            prefix.push(u.int_in_range(0..=7)?);
+            prefix.push(u.int_in_range(0..=9)?);
         }
         Ok(ClusteredPrefix(prefix))
     }
@@ -141,7 +143,12 @@ enum Op {
     // --- Structure ops ---
     Flush,
     Compact,
-    MajorCompact,
+    MajorCompact {
+        /// Target table size for major compaction. Small values produce many
+        /// tables per run, increasing the chance of exercising RunReader's
+        /// lazy per-table filter skip (which requires 3+ tables).
+        small_tables: bool,
+    },
     /// Clean close + reopen with the same extractor.
     Reopen,
     /// Close + reopen with a DIFFERENT extractor. Tests the
@@ -185,6 +192,22 @@ enum Op {
     /// with unbounded scans.
     FirstKV,
     LastKV,
+
+    /// Prefix scan using the first N bytes of a previously inserted key.
+    /// This guarantees the prefix overlaps real data, forcing the filter
+    /// to make a meaningful decision rather than trivially matching nothing.
+    PrefixScanExistingKey {
+        prefix_len: u8,
+    },
+
+    /// Composite operation: flush + compact with a small target size to
+    /// produce many small tables, then reopen with a different extractor
+    /// and compact again. This creates the specific structural condition
+    /// (mixed-extractor multi-table run) needed to exercise the lazy
+    /// per-table filter skip in RunReader.
+    FlushCompactReopenCompact {
+        new_extractor: ExtractorChoice,
+    },
 
     // --- MVCC ---
     /// Capture the current visibility seqno as a snapshot. Subsequent
@@ -307,6 +330,10 @@ fn run_oracle_test(
     let mut snapshot_seqno_with: Option<u64> = None;
     let mut snapshot_seqno_without: Option<u64> = None;
 
+    // Track inserted keys so PrefixScanExistingKey can derive prefixes
+    // from real data.
+    let mut inserted_keys: Vec<Vec<u8>> = Vec::new();
+
     for (i, op) in ops.iter().enumerate() {
         match op {
             // ----- Writes -----
@@ -323,6 +350,9 @@ fn run_oracle_test(
                 tree_without.insert(key.clone(), value.clone(), s2);
                 vis_with.fetch_max(s1 + 1);
                 vis_without.fetch_max(s2 + 1);
+                if inserted_keys.len() < 100 {
+                    inserted_keys.push(key.clone());
+                }
             }
 
             Op::Delete { key } => {
@@ -363,11 +393,12 @@ fn run_oracle_test(
                 snapshot_seqno_without = None;
             }
 
-            Op::MajorCompact => {
+            Op::MajorCompact { small_tables } => {
+                let target = if *small_tables { 128 } else { 4_096 };
                 let s1 = vis_with.get();
                 let s2 = vis_without.get();
-                let _ = tree_with.major_compact(4_096, s1);
-                let _ = tree_without.major_compact(4_096, s2);
+                let _ = tree_with.major_compact(target, s1);
+                let _ = tree_without.major_compact(target, s2);
                 snapshot_seqno_with = None;
                 snapshot_seqno_without = None;
             }
@@ -579,6 +610,59 @@ fn run_oracle_test(
                         "op {i}: last_key_value presence mismatch: with={r1:?}, without={r2:?}"
                     ),
                 }
+            }
+
+            Op::PrefixScanExistingKey { prefix_len } => {
+                if inserted_keys.is_empty() {
+                    continue;
+                }
+                // Pick a key deterministically from the inserted set
+                let key = &inserted_keys[i % inserted_keys.len()];
+                let plen = (*prefix_len as usize).min(key.len());
+                let prefix = &key[..plen];
+
+                let s1 = vis_with.get();
+                let s2 = vis_without.get();
+                let a = collect_kv(tree_with.prefix(prefix.to_vec(), s1, None));
+                let b = collect_kv(tree_without.prefix(prefix.to_vec(), s2, None));
+                assert_eq!(
+                    a, b,
+                    "op {i}: existing-key prefix scan mismatch for prefix {prefix:?} (from key {key:?})"
+                );
+            }
+
+            Op::FlushCompactReopenCompact { new_extractor } => {
+                // Phase 1: flush and compact current data with small target
+                // to produce many tables
+                tree_with.flush_active_memtable(0).unwrap();
+                tree_without.flush_active_memtable(0).unwrap();
+                let s1 = vis_with.get();
+                let s2 = vis_without.get();
+                let _ = tree_with.major_compact(128, s1);
+                let _ = tree_without.major_compact(128, s2);
+
+                // Phase 2: reopen with different extractor
+                current_extractor = new_extractor.into_extractor();
+                drop(tree_with);
+                drop(tree_without);
+                tree_with = open_tree(
+                    &dir_with,
+                    &seqno_with,
+                    &vis_with,
+                    Some(current_extractor.clone()),
+                    bloom_bpk,
+                    filter_partitioning,
+                );
+                tree_without = open_tree(
+                    &dir_without,
+                    &seqno_without,
+                    &vis_without,
+                    None,
+                    bloom_bpk,
+                    filter_partitioning,
+                );
+                snapshot_seqno_with = None;
+                snapshot_seqno_without = None;
             }
 
             // ----- MVCC -----
