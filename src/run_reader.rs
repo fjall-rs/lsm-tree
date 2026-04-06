@@ -32,6 +32,10 @@ pub struct RunReader {
     // a valid extracted prefix and probe_prefix_filter can be called directly
     // without the per-table guard check or Vec allocation.
     validated_prefix_hint: Option<UserKey>,
+
+    // Precomputed hash of the validated prefix, avoiding per-table extract()
+    // Box allocation and hash computation in the lazy loop hot path.
+    validated_prefix_hash: Option<u64>,
 }
 
 impl RunReader {
@@ -55,7 +59,7 @@ impl RunReader {
         // the extractor produces the same prefix for the hint and for keys matching
         // the query range. We verify by checking extract_first(hint) == extract_first(hint + "\0").
         // This is computed once here and reused in every lazy per-table skip check.
-        let validated_prefix_hint =
+        let (validated_prefix_hint, validated_prefix_hash) =
             if let (Some(hint), Some(ex)) = (prefix_hint.as_ref(), extractor.as_ref()) {
                 let hint_bytes: &[u8] = hint.as_ref();
                 let hint_prefix = ex.extract_first(hint_bytes);
@@ -64,11 +68,14 @@ impl RunReader {
                 extended.push(0u8);
                 let extended_prefix = ex.extract_first(&extended);
                 match (hint_prefix, extended_prefix) {
-                    (Some(hp), Some(ep)) if hp == ep => Some((*hint).clone()),
-                    _ => None,
+                    (Some(hp), Some(ep)) if hp == ep => {
+                        let hash = crate::table::filter::standard_bloom::Builder::get_hash(hp);
+                        (Some((*hint).clone()), Some(hash))
+                    }
+                    _ => (None, None),
                 }
             } else {
-                None
+                (None, None)
             };
 
         // Determine whether upfront pruning is possible: we need a common extracted
@@ -150,6 +157,7 @@ impl RunReader {
             (Some(lo), Some(hi)),
             extractor,
             validated_prefix_hint,
+            validated_prefix_hash,
         ))
     }
 
@@ -165,6 +173,7 @@ impl RunReader {
         (lo, hi): (Option<usize>, Option<usize>),
         extractor: Option<SharedPrefixExtractor>,
         validated_prefix_hint: Option<UserKey>,
+        validated_prefix_hash: Option<u64>,
     ) -> Self {
         use std::ops::Bound::{Excluded, Included, Unbounded};
 
@@ -212,6 +221,7 @@ impl RunReader {
             range_end: owned_end,
             extractor,
             validated_prefix_hint,
+            validated_prefix_hash,
         }
     }
 }
@@ -265,12 +275,16 @@ impl Iterator for RunReader {
                             // prefix_filter_allowed must be checked per-table because
                             // optimize_runs can merge tables from different runs that
                             // were built with different extractor configs.
-                            let skip = if let Some(ref hint) = self.validated_prefix_hint {
+                            let skip = if let (Some(ref hint), Some(hash)) =
+                                (&self.validated_prefix_hint, self.validated_prefix_hash)
+                            {
                                 if !table.prefix_filter_allowed(Some(ex.name())) {
                                     false
                                 } else {
+                                    // Fast path: use precomputed hash to avoid
+                                    // per-table extract() Box allocation and hashing.
                                     let probe =
-                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref());
+                                        table.probe_prefix_filter_with_hash(hint.as_ref(), hash);
 
                                     #[cfg(feature = "metrics")]
                                     if matches!(&probe, Ok(Some(_))) {
@@ -362,12 +376,14 @@ impl DoubleEndedIterator for RunReader {
                         );
 
                         if let Some(ex) = &self.extractor {
-                            let skip = if let Some(ref hint) = self.validated_prefix_hint {
+                            let skip = if let (Some(ref hint), Some(hash)) =
+                                (&self.validated_prefix_hint, self.validated_prefix_hash)
+                            {
                                 if !table.prefix_filter_allowed(Some(ex.name())) {
                                     false
                                 } else {
                                     let probe =
-                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref());
+                                        table.probe_prefix_filter_with_hash(hint.as_ref(), hash);
 
                                     #[cfg(feature = "metrics")]
                                     if matches!(&probe, Ok(Some(_))) {
@@ -504,7 +520,8 @@ mod tests {
         let level = Arc::new(Run::new(tables).unwrap());
 
         {
-            let multi_reader = RunReader::culled(level.clone(), .., (Some(1), None), None, None);
+            let multi_reader =
+                RunReader::culled(level.clone(), .., (Some(1), None), None, None, None);
             let mut iter = multi_reader.flatten();
 
             assert_eq!(Slice::from(*b"d"), iter.next().unwrap().key.user_key);
