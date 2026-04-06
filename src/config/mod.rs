@@ -235,6 +235,14 @@ pub struct Config {
     /// to filters and persist the extractor name in table metadata for compatibility checks.
     pub prefix_extractor: Option<SharedPrefixExtractor>,
 
+    /// When true (the default), full-key hashes are added to the filter alongside
+    /// prefix hashes. This allows point reads to use the full-key Bloom for precise
+    /// filtering, while prefix scans use the coarser prefix filter.
+    ///
+    /// Set to false for workloads that only perform prefix scans and never point
+    /// lookups, saving filter space by omitting full-key hashes.
+    pub whole_key_filtering: bool,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -297,6 +305,7 @@ impl Default for Config {
 
             compaction_filter_factory: None,
             prefix_extractor: None,
+            whole_key_filtering: true,
 
             expect_point_read_hits: false,
 
@@ -325,6 +334,22 @@ impl Config {
     #[must_use]
     pub fn prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
         self.prefix_extractor = Some(extractor);
+        self
+    }
+
+    /// Controls whether full-key hashes are added to the filter alongside
+    /// prefix hashes when a prefix extractor is configured.
+    ///
+    /// Defaults to `true`. When enabled, point reads benefit from precise
+    /// full-key Bloom filtering in addition to coarse prefix filtering.
+    ///
+    /// Set to `false` for seek-only workloads that never perform point lookups,
+    /// reducing filter size by omitting full-key hashes.
+    ///
+    /// Has no effect when no prefix extractor is configured.
+    #[must_use]
+    pub fn whole_key_filtering(mut self, enabled: bool) -> Self {
+        self.whole_key_filtering = enabled;
         self
     }
 

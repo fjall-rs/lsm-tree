@@ -97,6 +97,7 @@ impl<'a> Ingestion<'a> {
         // Propagate the configured prefix extractor so writers can register extracted
         // prefixes and persist the extractor name in table metadata.
         writer = writer.use_prefix_extractor(tree.config.prefix_extractor.clone());
+        writer = writer.use_whole_key_filtering(tree.config.whole_key_filtering);
 
         if index_partitioning {
             writer = writer.use_partitioned_index();

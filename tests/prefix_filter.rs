@@ -417,6 +417,8 @@ fn test_prefix_filter_with_deletions() -> lsm_tree::Result<()> {
         let key = format!("deltest_{:04}", i);
         tree.insert(key.as_bytes(), b"value", 0);
     }
+    // Sentinel with a different 7-byte prefix to widen the key range
+    tree.insert(b"zzzzzzz_sentinel", b"value", 0);
 
     tree.flush_active_memtable(0)?;
 
@@ -445,19 +447,25 @@ fn test_prefix_filter_with_deletions() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
-        let final_hits = tree.metrics().io_skipped_by_filter();
+        // Look up a key with a prefix absent from the filter to verify
+        // the filter is functional after deletions.
+        let before_q = tree.metrics().filter_queries();
+        let before_s = tree.metrics().io_skipped_by_filter();
 
-        // Should have filter queries for all lookups after deletions
+        // "delzzz_0000" has prefix "delzz..." absent from filter,
+        // and falls within the table's key range.
+        assert!(!tree.contains_key(b"delzzzz_0000", u64::MAX)?);
+
+        let after_q = tree.metrics().filter_queries();
+        let after_s = tree.metrics().io_skipped_by_filter();
+
         assert!(
-            final_queries > initial_queries,
-            "filter queries should have increased for deletion checks"
+            after_q > before_q,
+            "filter should be consulted for absent-prefix key after deletions"
         );
-
-        // Deleted keys still pass filter (tombstones), so hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase (deleted keys still in filter)"
+        assert!(
+            after_s > before_s,
+            "filter should skip absent-prefix key after deletions"
         );
     }
 
@@ -715,6 +723,8 @@ fn test_prefix_filter_sequence_consistency() -> lsm_tree::Result<()> {
         let key = format!("seqtest1_{:04}", i);
         tree.insert(key.as_bytes(), b"v1", i as u64);
     }
+    // Sentinel with a different 9-byte prefix to widen the key range
+    tree.insert(b"zzzzzzzzz_sentinel", b"v1", 0);
 
     tree.flush_active_memtable(0)?;
 
@@ -725,9 +735,6 @@ fn test_prefix_filter_sequence_consistency() -> lsm_tree::Result<()> {
     }
 
     tree.flush_active_memtable(0)?;
-
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
 
     // Verify that at sequence number 50, only the first 50 keys are visible
     // (keys inserted at seqno 0-49 are visible at seqno >= their insert seqno)
@@ -749,11 +756,14 @@ fn test_prefix_filter_sequence_consistency() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
+        // Look up a key with an absent prefix to verify filter is functional
+        let before = tree.metrics().filter_queries();
 
-        // filter should be used for all lookups
+        assert!(!tree.contains_key(b"seqzzzzz_0000", u64::MAX)?);
+
+        let after = tree.metrics().filter_queries();
         assert!(
-            final_queries > initial_queries,
+            after > before,
             "filter queries should have increased for sequence consistency checks"
         );
     }
@@ -1510,17 +1520,15 @@ fn test_prefix_filter_false_positive_rate() -> lsm_tree::Result<()> {
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
 
-        // Should have queries for all lookups
+        // The full-key Bloom should catch most nonexistent keys, incrementing
+        // both filter_queries and io_skipped_by_filter.
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for false-positive rate test"
         );
-
-        // False positives will cause hits to increase, but most should be filtered
-        // The number of hits should be approximately equal to the false positive count
         assert!(
-            final_hits <= initial_hits + (false_positives as usize) + 10,
-            "filter hits should only increase for false positives, not true negatives"
+            final_hits > initial_hits,
+            "filter should skip nonexistent keys via full-key Bloom"
         );
     }
 
@@ -4711,10 +4719,13 @@ fn test_prefix_query_filter_used_single_table_exact_len() -> lsm_tree::Result<()
 /// query "abc". The range becomes Included("abc")..Excluded("abd"), and
 /// extract_first("abc") = "abc", extract_first("abd") = "abd" — they differ.
 /// The filter must still be used. Keys span from "aaa" to "zzz" so that the
-/// query range overlaps the table's key range.
+/// query range overlaps the table's key range. High BPK to avoid false
+/// positives in the small filter.
 #[test]
 #[cfg(feature = "metrics")]
 fn test_prefix_query_filter_used_single_table_3byte_prefix() -> lsm_tree::Result<()> {
+    use lsm_tree::config::{BloomConstructionPolicy, FilterPolicy, FilterPolicyEntry};
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(
@@ -4723,6 +4734,9 @@ fn test_prefix_query_filter_used_single_table_3byte_prefix() -> lsm_tree::Result
         SequenceNumberCounter::default(),
     )
     .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+    .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
+        BloomConstructionPolicy::BitsPerKey(50.0),
+    )))
     .open()?;
 
     // Insert keys with prefixes "aaa" and "zzz" so the table's key range
