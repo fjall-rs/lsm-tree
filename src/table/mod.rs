@@ -394,6 +394,26 @@ impl Table {
         self.probe_prefix_filter(key, extractor)
     }
 
+    /// Fast prefix filter probe using a precomputed hash. Uses `key` only to
+    /// locate the correct filter partition (TLI seek); the Bloom check uses the
+    /// precomputed `hash` directly, avoiding the `extract()` Box allocation and
+    /// hash computation.
+    ///
+    /// Does NOT update filter metrics.
+    pub(crate) fn probe_prefix_filter_with_hash(
+        &self,
+        key: &[u8],
+        hash: u64,
+    ) -> crate::Result<Option<bool>> {
+        let filter_block = self.load_filter_block_for_key(key)?;
+
+        if let Some(filter_block) = filter_block {
+            return Ok(Some(filter_block.maybe_contains_hash(hash)?));
+        }
+
+        Ok(None)
+    }
+
     /// Core prefix filter probe — assumes the caller already validated extractor
     /// compatibility. Returns `Ok(Some(false))` if the prefix is definitively absent,
     /// `Ok(Some(true))` if maybe present, or `Ok(None)` if the key is out-of-domain.
