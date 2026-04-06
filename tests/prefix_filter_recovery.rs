@@ -25,6 +25,8 @@ fn test_prefix_filter_recovery() -> lsm_tree::Result<()> {
             let key = format!("persistent_{:04}", i);
             tree.insert(key.as_bytes(), b"value", 0);
         }
+        // Sentinel with a different 10-byte prefix to widen the key range
+        tree.insert(b"zzzzzzzzzz_sentinel", b"value", 0);
 
         tree.flush_active_memtable(0)?;
     }
@@ -39,26 +41,31 @@ fn test_prefix_filter_recovery() -> lsm_tree::Result<()> {
         .prefix_extractor(Arc::new(FixedPrefixExtractor::new(prefix_len)))
         .open()?;
 
-        #[cfg(feature = "metrics")]
-        let initial_queries = tree.metrics().filter_queries();
-
         for i in 0..100 {
             let key = format!("persistent_{:04}", i);
             assert!(tree.contains_key(key.as_bytes(), u64::MAX)?);
         }
 
-        // Non-existent keys should still be filtered
-        let non_existent = b"persistent_9999";
-        assert!(!tree.contains_key(non_existent, u64::MAX)?);
-
+        // Look up a key with a prefix absent from the filter but within the
+        // table's key range (between "persistent_*" and "zzzzzzzzzz_*").
         #[cfg(feature = "metrics")]
         {
-            let final_queries = tree.metrics().filter_queries();
+            let initial_queries = tree.metrics().filter_queries();
+            let initial_skips = tree.metrics().io_skipped_by_filter();
 
-            // After recovery, filters should still be working
+            let non_existent = b"qqqqqqqqqq_0000";
+            assert!(!tree.contains_key(non_existent, u64::MAX)?);
+
+            let final_queries = tree.metrics().filter_queries();
+            let final_skips = tree.metrics().io_skipped_by_filter();
+
             assert!(
                 final_queries > initial_queries,
-                "filter queries should work after recovery"
+                "filter should be consulted after recovery"
+            );
+            assert!(
+                final_skips > initial_skips,
+                "filter should skip absent prefix after recovery"
             );
         }
     }
@@ -98,7 +105,6 @@ fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
 
         assert_eq!(&*tree.get(b"aaaa_001", SeqNo::MAX)?.unwrap(), b"v1");
         assert_eq!(&*tree.get(b"bbbb_001", SeqNo::MAX)?.unwrap(), b"v2");
-        assert!(tree.get(b"cccc_001", SeqNo::MAX)?.is_none());
 
         let keys: Vec<_> = tree
             .prefix(b"aaaa", SeqNo::MAX, None)
@@ -109,10 +115,14 @@ fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
 
         #[cfg(feature = "metrics")]
         {
-            let final_queries = tree.metrics().filter_queries();
+            let initial_queries = tree.metrics().filter_queries();
 
-            // After recovery with matching extractor, filter should still be used
-            assert!(final_queries > 0, "filter should be used");
+            // Look up a key within the table's range whose prefix is absent
+            // from the filter ("abcd" is between "aaaa" and "bbbb").
+            assert!(tree.get(b"abcd_001", SeqNo::MAX)?.is_none());
+
+            let final_queries = tree.metrics().filter_queries();
+            assert!(final_queries > initial_queries, "filter should be used");
         }
     }
 

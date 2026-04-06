@@ -873,18 +873,47 @@ impl Tree {
             if let Some(ex) = config.prefix_extractor.as_ref() {
                 // If prefix filtering is allowed and an extractor is configured, consult the
                 // prefix-aware filter first and skip on a definite negative.
-                if table.maybe_contains_prefix(key, ex.as_ref())? == Some(false) {
+                let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
+
+                if probe == Some(false) {
+                    #[cfg(feature = "metrics")]
+                    {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        table.metrics.filter_queries.fetch_add(1, Relaxed);
+                        table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                    }
+
                     return Ok(None);
                 }
-            } else {
-                // No extractor configured: rely on full-key Bloom as usual.
-                return table.get(key, seqno, key_hash);
+
+                // Prefix filter allowed the key through — read the data.
+                let item = table.get_without_filter(key, seqno);
+
+                // Match Table::get() pattern (issue #246): only count a
+                // filter query when the filter allowed the key but the key
+                // was not found (wasted I/O / false positive).
+                #[cfg(feature = "metrics")]
+                {
+                    return item.inspect(|maybe_kv| {
+                        if maybe_kv.is_none() && probe.is_some() {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            table.metrics.filter_queries.fetch_add(1, Relaxed);
+                        }
+                    });
+                }
+
+                #[cfg(not(feature = "metrics"))]
+                {
+                    return item;
+                }
             }
+
+            // No extractor configured: rely on full-key Bloom as usual.
+            return table.get(key, seqno, key_hash);
         }
 
-        // Either the prefix filter was already consulted (compatible extractor path),
-        // or the filter is not trustworthy (incompatible/missing extractor): skip
-        // full-key Bloom in both cases.
+        // Filter is not trustworthy (incompatible/missing extractor): skip
+        // full-key Bloom.
         table.get_without_filter(key, seqno)
     }
 

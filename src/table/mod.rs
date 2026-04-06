@@ -393,7 +393,12 @@ impl Table {
         self.probe_prefix_filter(key, extractor)
     }
 
-    /// Core prefix filter probe — assumes the caller already validated extractor compatibility.
+    /// Core prefix filter probe — assumes the caller already validated extractor
+    /// compatibility. Returns `Ok(Some(false))` if the prefix is definitively absent,
+    /// `Ok(Some(true))` if maybe present, or `Ok(None)` if the key is out-of-domain.
+    ///
+    /// Does NOT update filter metrics — callers are responsible for tracking
+    /// `filter_queries` and `io_skipped_by_filter` in a context-appropriate way.
     pub(crate) fn probe_prefix_filter(
         &self,
         key: &[u8],
@@ -402,14 +407,7 @@ impl Table {
         let filter_block = self.load_filter_block_for_key(key)?;
 
         if let Some(filter_block) = filter_block {
-            #[cfg(feature = "metrics")]
-            {
-                use std::sync::atomic::Ordering::Relaxed;
-                self.metrics.filter_queries.fetch_add(1, Relaxed);
-            }
-
-            let res = filter_block.maybe_contains_prefix(key, extractor)?;
-            return Ok(res);
+            return filter_block.maybe_contains_prefix(key, extractor);
         }
 
         // No filter available => cannot exclude
@@ -770,6 +768,13 @@ impl Table {
             if let (Some(hp), Some(ep)) = (hint_prefix, extended_prefix) {
                 if hp == ep && matches!(self.probe_prefix_filter(hint, extractor), Ok(Some(false)))
                 {
+                    #[cfg(feature = "metrics")]
+                    {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        self.metrics.filter_queries.fetch_add(1, Relaxed);
+                        self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                    }
+
                     return true;
                 }
             }
@@ -792,6 +797,13 @@ impl Table {
             if sp == ep {
                 if let Some(sk) = start_key {
                     if matches!(self.probe_prefix_filter(sk, extractor), Ok(Some(false))) {
+                        #[cfg(feature = "metrics")]
+                        {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            self.metrics.filter_queries.fetch_add(1, Relaxed);
+                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                        }
+
                         return true;
                     }
                 }
