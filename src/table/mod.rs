@@ -324,7 +324,8 @@ impl Table {
 
             let block = self.load_data_block(block_handle.as_ref())?;
 
-            if let Some(item) = block.point_read(key, seqno) {
+            if let Some(mut item) = block.point_read(key, seqno) {
+                item.key.seqno += self.global_seqno();
                 return Ok(Some(item));
             }
 

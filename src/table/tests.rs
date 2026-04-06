@@ -1388,17 +1388,16 @@ fn table_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
-        .unwrap()
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)?
         .use_partitioned_filter()
         .use_data_block_size(1)
         .use_meta_partition_size(1);
 
-    for item in items.iter().cloned() {
-        writer.write(item).unwrap();
+    for item in items {
+        writer.write(item)?;
     }
 
-    let _trailer = writer.finish().unwrap();
+    let _trailer = writer.finish()?;
 
     let table = crate::Table::recover(
         file,
@@ -1411,8 +1410,7 @@ fn table_global_seqno() -> crate::Result<()> {
         true,
         #[cfg(feature = "metrics")]
         Default::default(),
-    )
-    .unwrap();
+    )?;
 
     // global seqno is 7, so a1 is = 8 -> can not be read by snapshot=8
     assert!(table
@@ -1425,6 +1423,49 @@ fn table_global_seqno() -> crate::Result<()> {
             .get(b"a0", 8, BloomBuilder::get_hash(b"a0"))?
             .unwrap()
             .value,
+    );
+
+    Ok(())
+}
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_return_global_seqno() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    const SEQNO: SeqNo = 15;
+
+    let items = [InternalValue::from_components("abc", "abc", 0, Value)];
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table_fuzz");
+
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)?;
+
+    for item in items {
+        writer.write(item)?;
+    }
+
+    let _trailer = writer.finish()?;
+
+    let table = crate::Table::recover(
+        file,
+        crate::Checksum::from_raw(0),
+        SEQNO,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(0)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        Default::default(),
+    )?;
+
+    assert_eq!(
+        InternalValue::from_components("abc", "abc", SEQNO, Value),
+        table
+            .get(b"abc", 2 * SEQNO, BloomBuilder::get_hash(b"abc"))?
+            .unwrap(),
     );
 
     Ok(())
