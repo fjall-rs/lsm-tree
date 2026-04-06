@@ -5394,3 +5394,397 @@ fn test_multi_prefix_after_compaction() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+// ================================================================
+// whole_key_filtering tests
+// ================================================================
+
+/// Helper: open a tree with given prefix extractor length and whole_key_filtering flag.
+fn open_tree_wkf(
+    folder: &std::path::Path,
+    prefix_len: usize,
+    whole_key_filtering: bool,
+) -> lsm_tree::Result<lsm_tree::AnyTree> {
+    Config::new(
+        folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(prefix_len)))
+    .whole_key_filtering(whole_key_filtering)
+    .filter_policy(lsm_tree::config::FilterPolicy::all(
+        lsm_tree::config::FilterPolicyEntry::Bloom(
+            lsm_tree::config::BloomConstructionPolicy::BitsPerKey(50.0),
+        ),
+    ))
+    .open()
+}
+
+/// With whole_key_filtering=true (default), point reads of nonexistent keys
+/// whose prefix IS in the table should be caught by the full-key Bloom.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_wkf_enabled_point_read_uses_full_key_bloom() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = open_tree_wkf(folder.path(), 4, true)?;
+
+    // All keys share prefix "aaaa"
+    for i in 0..100u32 {
+        let key = format!("aaaa_{i:04}");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    let before_q = tree.metrics().filter_queries();
+    let before_s = tree.metrics().io_skipped_by_filter();
+
+    // Look up a key that doesn't exist but shares the prefix "aaaa"
+    // and falls within the table's key range.
+    // With whole_key_filtering=true, the full-key Bloom should catch it.
+    assert!(tree.get(b"aaaa_0050x", SeqNo::MAX)?.is_none());
+
+    let after_q = tree.metrics().filter_queries();
+    let after_s = tree.metrics().io_skipped_by_filter();
+
+    // The full-key Bloom should have caught the nonexistent key and
+    // incremented both counters (the key hash is not in the filter).
+    assert!(
+        after_s > before_s,
+        "full-key Bloom should skip the nonexistent key (whole_key_filtering=true)"
+    );
+    assert!(after_q > before_q);
+
+    Ok(())
+}
+
+/// With whole_key_filtering=false, point reads of nonexistent keys whose prefix
+/// IS in the table will NOT be caught by the Bloom (no full-key hashes in filter).
+/// The read falls through to the data blocks.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_wkf_disabled_point_read_no_full_key_bloom() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = open_tree_wkf(folder.path(), 4, false)?;
+
+    for i in 0..100u32 {
+        let key = format!("aaaa_{i:04}");
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    let before_s = tree.metrics().io_skipped_by_filter();
+
+    // Look up a nonexistent key with the same prefix.
+    // Without whole_key_filtering, the filter only has prefix hashes.
+    // The prefix "aaaa" IS in the filter → prefix check passes → data
+    // blocks are read → key not found. No Bloom skip.
+    assert!(tree.get(b"aaaa_9999", SeqNo::MAX)?.is_none());
+
+    let after_s = tree.metrics().io_skipped_by_filter();
+
+    // io_skipped_by_filter should NOT have increased — the prefix filter
+    // let the key through, and there's no full-key Bloom to catch it.
+    assert_eq!(
+        after_s, before_s,
+        "no Bloom skip expected (whole_key_filtering=false, prefix exists)"
+    );
+
+    Ok(())
+}
+
+/// Both modes correctly skip tables via prefix filter when the prefix
+/// is absent (regardless of whole_key_filtering).
+#[test]
+#[cfg(feature = "metrics")]
+fn test_wkf_both_modes_prefix_absent_skips() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let tree = open_tree_wkf(folder.path(), 4, wkf)?;
+
+        tree.insert(b"aaaa_001", b"v", 0);
+        tree.insert(b"zzzz_001", b"v", 0);
+        tree.flush_active_memtable(0)?;
+
+        let before_s = tree.metrics().io_skipped_by_filter();
+
+        // Prefix "mmmm" is absent from the filter in both modes.
+        assert!(tree.get(b"mmmm_001", SeqNo::MAX)?.is_none());
+
+        let after_s = tree.metrics().io_skipped_by_filter();
+
+        assert!(
+            after_s > before_s,
+            "prefix filter should skip absent prefix (whole_key_filtering={wkf})"
+        );
+    }
+
+    Ok(())
+}
+
+/// Prefix scans work correctly with both modes.
+#[test]
+fn test_wkf_prefix_scan_correctness() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let tree = open_tree_wkf(folder.path(), 4, wkf)?;
+
+        for i in 0..50u32 {
+            tree.insert(format!("aaaa_{i:04}").as_bytes(), b"v", 0);
+        }
+        for i in 0..30u32 {
+            tree.insert(format!("bbbb_{i:04}").as_bytes(), b"v", 0);
+        }
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            tree.prefix(b"aaaa", SeqNo::MAX, None).count(),
+            50,
+            "should find 50 aaaa keys (whole_key_filtering={wkf})"
+        );
+        assert_eq!(
+            tree.prefix(b"bbbb", SeqNo::MAX, None).count(),
+            30,
+            "should find 30 bbbb keys (whole_key_filtering={wkf})"
+        );
+        assert_eq!(
+            tree.prefix(b"cccc", SeqNo::MAX, None).count(),
+            0,
+            "should find 0 cccc keys (whole_key_filtering={wkf})"
+        );
+    }
+
+    Ok(())
+}
+
+/// Point reads of existing keys work correctly with both modes.
+#[test]
+fn test_wkf_point_read_existing_keys() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let tree = open_tree_wkf(folder.path(), 4, wkf)?;
+
+        tree.insert(b"aaaa_001", b"v1", 0);
+        tree.insert(b"bbbb_001", b"v2", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            &*tree.get(b"aaaa_001", SeqNo::MAX)?.unwrap(),
+            b"v1",
+            "existing key should be found (whole_key_filtering={wkf})"
+        );
+        assert_eq!(
+            &*tree.get(b"bbbb_001", SeqNo::MAX)?.unwrap(),
+            b"v2",
+            "existing key should be found (whole_key_filtering={wkf})"
+        );
+    }
+
+    Ok(())
+}
+
+/// Range queries work correctly with both modes.
+#[test]
+fn test_wkf_range_query_correctness() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let tree = open_tree_wkf(folder.path(), 4, wkf)?;
+
+        for i in 0..100u32 {
+            tree.insert(format!("aaaa_{i:04}").as_bytes(), b"v", 0);
+        }
+        tree.flush_active_memtable(0)?;
+
+        let count = tree
+            .range(
+                "aaaa_0010".as_bytes()..="aaaa_0020".as_bytes(),
+                SeqNo::MAX,
+                None,
+            )
+            .count();
+        assert_eq!(
+            count, 11,
+            "range should return 11 keys (whole_key_filtering={wkf})"
+        );
+
+        let count = tree.range::<&[u8], _>(.., SeqNo::MAX, None).count();
+        assert_eq!(
+            count, 100,
+            "full range should return 100 keys (whole_key_filtering={wkf})"
+        );
+    }
+
+    Ok(())
+}
+
+/// whole_key_filtering has no effect when no prefix extractor is configured
+/// (the full-key Bloom is always used).
+#[test]
+#[cfg(feature = "metrics")]
+fn test_wkf_no_effect_without_extractor() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .whole_key_filtering(wkf)
+        .filter_policy(lsm_tree::config::FilterPolicy::all(
+            lsm_tree::config::FilterPolicyEntry::Bloom(
+                lsm_tree::config::BloomConstructionPolicy::BitsPerKey(50.0),
+            ),
+        ))
+        .open()?;
+
+        tree.insert(b"key_001", b"v1", 0);
+        tree.insert(b"key_002", b"v2", 0);
+        tree.insert(b"key_999", b"v3", 0);
+        tree.flush_active_memtable(0)?;
+
+        // Existing key found
+        assert!(tree.get(b"key_001", SeqNo::MAX)?.is_some());
+
+        // Nonexistent key within the table's key range, caught by full-key Bloom
+        let before_s = tree.metrics().io_skipped_by_filter();
+
+        assert!(tree.get(b"key_500", SeqNo::MAX)?.is_none());
+
+        let after_s = tree.metrics().io_skipped_by_filter();
+        assert!(
+            after_s > before_s,
+            "full-key Bloom should work regardless of whole_key_filtering={wkf} without extractor"
+        );
+    }
+
+    Ok(())
+}
+
+/// After recovery, the whole_key_filtering behavior is preserved because
+/// the filter on disk already has (or doesn't have) full-key hashes.
+#[test]
+fn test_wkf_recovery() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let seqno = SequenceNumberCounter::default();
+        let version = SequenceNumberCounter::default();
+
+        {
+            let tree = Config::new(&folder, seqno.clone(), version.clone())
+                .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+                .whole_key_filtering(wkf)
+                .open()?;
+
+            for i in 0..50u32 {
+                tree.insert(format!("aaaa_{i:04}").as_bytes(), b"v", seqno.next());
+            }
+            tree.flush_active_memtable(0)?;
+        }
+
+        // Reopen with same settings
+        {
+            let tree = Config::new(&folder, seqno.clone(), version.clone())
+                .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+                .whole_key_filtering(wkf)
+                .open()?;
+
+            // All keys should be found
+            for i in 0..50u32 {
+                let key = format!("aaaa_{i:04}");
+                assert!(
+                    tree.get(key.as_bytes(), SeqNo::MAX)?.is_some(),
+                    "key {key} should exist after recovery (whole_key_filtering={wkf})"
+                );
+            }
+
+            // Prefix scan works
+            assert_eq!(
+                tree.prefix(b"aaaa", SeqNo::MAX, None).count(),
+                50,
+                "prefix scan should find 50 keys after recovery (whole_key_filtering={wkf})"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// After compaction, the filter is rebuilt with the current whole_key_filtering
+/// setting. Both modes produce correct results.
+#[test]
+fn test_wkf_after_compaction() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let tree = open_tree_wkf(folder.path(), 4, wkf)?;
+
+        for i in 0..200u32 {
+            tree.insert(format!("aaaa_{i:04}").as_bytes(), b"v", 0);
+        }
+        tree.flush_active_memtable(0)?;
+        tree.major_compact(u64::MAX, SeqNo::MAX)?;
+
+        // All keys found
+        for i in 0..200u32 {
+            let key = format!("aaaa_{i:04}");
+            assert!(
+                tree.get(key.as_bytes(), SeqNo::MAX)?.is_some(),
+                "key {key} should exist after compaction (whole_key_filtering={wkf})"
+            );
+        }
+
+        // Prefix scan works
+        assert_eq!(
+            tree.prefix(b"aaaa", SeqNo::MAX, None).count(),
+            200,
+            "prefix scan after compaction (whole_key_filtering={wkf})"
+        );
+    }
+
+    Ok(())
+}
+
+/// With whole_key_filtering=true, the filter is larger (has both prefix and
+/// full-key hashes) but point reads of nonexistent same-prefix keys are
+/// more efficient. With false, the filter is smaller but those reads hit
+/// data blocks. Both modes are correct — only performance differs.
+#[test]
+fn test_wkf_correctness_large_dataset() -> lsm_tree::Result<()> {
+    for wkf in [true, false] {
+        let folder = tempfile::tempdir()?;
+        let tree = open_tree_wkf(folder.path(), 3, wkf)?;
+
+        // Multiple prefixes
+        for prefix in [b"aaa", b"bbb", b"ccc", b"ddd"] {
+            for i in 0..100u32 {
+                let mut key = prefix.to_vec();
+                key.extend_from_slice(format!("_{i:04}").as_bytes());
+                tree.insert(&key, b"v", 0);
+            }
+        }
+        tree.flush_active_memtable(0)?;
+
+        // All existing keys found
+        for prefix in [b"aaa", b"bbb", b"ccc", b"ddd"] {
+            for i in 0..100u32 {
+                let mut key = prefix.to_vec();
+                key.extend_from_slice(format!("_{i:04}").as_bytes());
+                assert!(
+                    tree.get(&key, SeqNo::MAX)?.is_some(),
+                    "key should exist (whole_key_filtering={wkf})"
+                );
+            }
+        }
+
+        // Nonexistent keys not found
+        assert!(tree.get(b"aaa_9999", SeqNo::MAX)?.is_none());
+        assert!(tree.get(b"eee_0001", SeqNo::MAX)?.is_none());
+        assert!(tree.get(b"zzz_0001", SeqNo::MAX)?.is_none());
+
+        // Prefix scans correct
+        assert_eq!(tree.prefix(b"aaa", SeqNo::MAX, None).count(), 100);
+        assert_eq!(tree.prefix(b"bbb", SeqNo::MAX, None).count(), 100);
+        assert_eq!(tree.prefix(b"eee", SeqNo::MAX, None).count(), 0);
+    }
+
+    Ok(())
+}

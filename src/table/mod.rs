@@ -385,9 +385,10 @@ impl Table {
         extractor: &dyn crate::prefix::PrefixExtractor,
     ) -> crate::Result<Option<bool>> {
         // Only consult the prefix-aware filter if the table's stored extractor
-        // configuration is compatible with the current one.
+        // configuration is compatible with the current one. Incompatible
+        // extractors or missing filters return None (cannot determine).
         if !self.prefix_filter_allowed(Some(extractor.name())) {
-            return Ok(Some(true));
+            return Ok(None);
         }
 
         self.probe_prefix_filter(key, extractor)
@@ -410,8 +411,8 @@ impl Table {
             return filter_block.maybe_contains_prefix(key, extractor);
         }
 
-        // No filter available => cannot exclude
-        Ok(Some(true))
+        // No filter available => cannot determine membership
+        Ok(None)
     }
 
     // TODO: maybe we can skip Fuse costs of the user key
@@ -766,16 +767,24 @@ impl Table {
             let extended_prefix = extractor.extract_first(&extended);
 
             if let (Some(hp), Some(ep)) = (hint_prefix, extended_prefix) {
-                if hp == ep && matches!(self.probe_prefix_filter(hint, extractor), Ok(Some(false)))
-                {
+                if hp == ep {
+                    let probe = self.probe_prefix_filter(hint, extractor);
+
                     #[cfg(feature = "metrics")]
-                    {
+                    if matches!(&probe, Ok(Some(_))) {
                         use std::sync::atomic::Ordering::Relaxed;
                         self.metrics.filter_queries.fetch_add(1, Relaxed);
-                        self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
                     }
 
-                    return true;
+                    if matches!(probe, Ok(Some(false))) {
+                        #[cfg(feature = "metrics")]
+                        {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                        }
+
+                        return true;
+                    }
                 }
             }
             return false;
@@ -796,11 +805,18 @@ impl Table {
         if let (Some(sp), Some(ep)) = (start_pref, end_pref) {
             if sp == ep {
                 if let Some(sk) = start_key {
-                    if matches!(self.probe_prefix_filter(sk, extractor), Ok(Some(false))) {
+                    let probe = self.probe_prefix_filter(sk, extractor);
+
+                    #[cfg(feature = "metrics")]
+                    if matches!(&probe, Ok(Some(_))) {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        self.metrics.filter_queries.fetch_add(1, Relaxed);
+                    }
+
+                    if matches!(probe, Ok(Some(false))) {
                         #[cfg(feature = "metrics")]
                         {
                             use std::sync::atomic::Ordering::Relaxed;
-                            self.metrics.filter_queries.fetch_add(1, Relaxed);
                             self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
                         }
 

@@ -874,11 +874,18 @@ impl Tree {
             if let Some(ex) = config.prefix_extractor.as_ref() {
                 // If prefix filtering is allowed and an extractor is configured,
                 // consult the prefix filter first for a coarse table-level check.
-                if table.maybe_contains_prefix(key, ex.as_ref())? == Some(false) {
+                let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
+
+                #[cfg(feature = "metrics")]
+                if probe.is_some() {
+                    use std::sync::atomic::Ordering::Relaxed;
+                    table.metrics.filter_queries.fetch_add(1, Relaxed);
+                }
+
+                if probe == Some(false) {
                     #[cfg(feature = "metrics")]
                     {
                         use std::sync::atomic::Ordering::Relaxed;
-                        table.metrics.filter_queries.fetch_add(1, Relaxed);
                         table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
                     }
 
