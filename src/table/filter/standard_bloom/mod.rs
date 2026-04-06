@@ -137,18 +137,8 @@ impl<'a> StandardBloomFilterReader<'a> {
         key: &[u8],
         extractor: &dyn crate::prefix::PrefixExtractor,
     ) -> Option<bool> {
-        let mut prefixes = extractor.extract(key);
-
-        // Check if iterator is empty (out of domain)
-        let first = prefixes.next()?;
-
-        // Check first prefix
-        if self.contains_hash(Self::get_hash(first)) {
-            return Some(true);
-        }
-
-        // Check remaining prefixes
-        Some(prefixes.any(|prefix| self.contains_hash(Self::get_hash(prefix))))
+        let prefix = extractor.extract_first(key)?;
+        Some(self.contains_hash(Self::get_hash(prefix)))
     }
 
     /// Returns `true` if the bit at `idx` is `1`.
