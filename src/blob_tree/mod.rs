@@ -401,7 +401,8 @@ impl AbstractTree for BlobTree {
         // Ensure tables built during blob tree flush carry the configured extractor.
         // This lets writers register prefixes and persist the extractor name in metadata
         // for compatibility checks at read time.
-        .use_prefix_extractor(self.index.config.prefix_extractor.clone());
+        .use_prefix_extractor(self.index.config.prefix_extractor.clone())
+        .use_whole_key_filtering(self.index.config.whole_key_filtering);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();

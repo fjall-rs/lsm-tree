@@ -391,7 +391,8 @@ impl AbstractTree for Tree {
         // Ensure tables built during flush carry the configured extractor.
         // This lets writers register prefixes and persist the extractor name in metadata
         // for compatibility checks at read time.
-        .use_prefix_extractor(self.config.prefix_extractor.clone());
+        .use_prefix_extractor(self.config.prefix_extractor.clone())
+        .use_whole_key_filtering(self.config.whole_key_filtering);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -871,11 +872,9 @@ impl Tree {
 
         if allow_filter {
             if let Some(ex) = config.prefix_extractor.as_ref() {
-                // If prefix filtering is allowed and an extractor is configured, consult the
-                // prefix-aware filter first and skip on a definite negative.
-                let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
-
-                if probe == Some(false) {
+                // If prefix filtering is allowed and an extractor is configured,
+                // consult the prefix filter first for a coarse table-level check.
+                if table.maybe_contains_prefix(key, ex.as_ref())? == Some(false) {
                     #[cfg(feature = "metrics")]
                     {
                         use std::sync::atomic::Ordering::Relaxed;
@@ -886,29 +885,16 @@ impl Tree {
                     return Ok(None);
                 }
 
-                // Prefix filter allowed the key through — read the data.
-                let item = table.get_without_filter(key, seqno);
-
-                // Match Table::get() pattern (issue #246): only count a
-                // filter query when the filter allowed the key but the key
-                // was not found (wasted I/O / false positive).
-                #[cfg(feature = "metrics")]
-                {
-                    return item.inspect(|maybe_kv| {
-                        if maybe_kv.is_none() && probe.is_some() {
-                            use std::sync::atomic::Ordering::Relaxed;
-                            table.metrics.filter_queries.fetch_add(1, Relaxed);
-                        }
-                    });
-                }
-
-                #[cfg(not(feature = "metrics"))]
-                {
-                    return item;
+                // Prefix is maybe present. When whole_key_filtering is enabled,
+                // fall through to the full-key Bloom for a precise per-key check
+                // (the filter contains both prefix and full-key hashes).
+                // When disabled, the filter only has prefix hashes, so go
+                // directly to the data blocks.
+                if !config.whole_key_filtering {
+                    return table.get_without_filter(key, seqno);
                 }
             }
 
-            // No extractor configured: rely on full-key Bloom as usual.
             return table.get(key, seqno, key_hash);
         }
 

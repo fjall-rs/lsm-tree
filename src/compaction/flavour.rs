@@ -114,7 +114,8 @@ pub(super) fn prepare_table_writer(
                 }
             }
         })
-        .use_prefix_extractor(opts.config.prefix_extractor.clone()))
+        .use_prefix_extractor(opts.config.prefix_extractor.clone())
+        .use_whole_key_filtering(opts.config.whole_key_filtering))
 }
 
 // TODO: find a better name

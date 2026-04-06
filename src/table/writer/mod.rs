@@ -96,6 +96,10 @@ pub struct Writer {
     /// Optional prefix extractor used to register extracted prefixes into the filter.
     /// When present, extracted prefixes are registered instead of the full key.
     prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
+
+    /// When true, full-key hashes are always added to the filter (even with a
+    /// prefix extractor), enabling precise point-read filtering.
+    whole_key_filtering: bool,
 }
 
 impl Writer {
@@ -146,6 +150,7 @@ impl Writer {
             linked_blob_files: Vec::new(),
 
             prefix_extractor: None,
+            whole_key_filtering: true,
         })
     }
 
@@ -252,6 +257,11 @@ impl Writer {
         self
     }
 
+    pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
+        self.whole_key_filtering = enabled;
+        self
+    }
+
     /// Writes an item.
     ///
     /// # Note
@@ -292,18 +302,28 @@ impl Writer {
             // of the same key
 
             if self.bloom_policy.is_active() {
-                // With a configured prefix extractor, register extracted prefixes only.
-                // Point reads perform a prefix-aware pre-check and bypass the full-key filter.
+                // When a prefix extractor is configured, register extracted
+                // prefix hashes. When whole_key_filtering is also enabled
+                // (the default), register the full key hash too. This allows:
+                // - Prefix scans to use the prefix filter (coarse, table-level)
+                // - Point reads to use the full-key Bloom (precise, when enabled)
+                // This matches RocksDB's whole_key_filtering + prefix_extractor
+                // approach.
+                //
+                // Prefixes are registered first so that the full key registration
+                // (which may trigger a partition spill for partitioned filters)
+                // keeps all hashes for the same user key in the same partition.
                 if let Some(ref extractor) = self.prefix_extractor {
-                    // Inform the filter writer about the actual user key for partition
-                    // boundary tracking (needed by partitioned filters for TLI entries).
                     self.filter_writer.notify_key(&user_key);
 
                     for prefix in extractor.extract(user_key.as_ref()) {
                         self.filter_writer.register_bytes(prefix)?;
                     }
+
+                    if self.whole_key_filtering {
+                        self.filter_writer.register_key(&user_key)?;
+                    }
                 } else {
-                    // Without an extractor, fall back to classic full-key Bloom.
                     self.filter_writer.register_key(&user_key)?;
                 }
             }
