@@ -108,9 +108,6 @@ fn test_prefix_filter_with_fixed_prefix() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Test that keys with matching prefixes are found
     for i in 0..100 {
         let key1 = generate_test_key(prefix1, &format!("_{:04}", i));
@@ -126,12 +123,25 @@ fn test_prefix_filter_with_fixed_prefix() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert(b"aaaaaaaa_0000", b"lo", 0);
+        tree.insert(b"zzzzzzzz_0000", b"hi", 0);
+        tree.flush_active_memtable(0)?;
 
-        // We should have at least 201 filter queries (200 existing keys + 1 non-existent)
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // "prefix05" has 8-byte prefix "prefix05" which is absent from this new segment's
+        // filter (which only has "aaaaaaaa" and "zzzzzzzz") and falls within range.
+        let _ = tree.contains_key(b"prefix05_0000", u64::MAX)?;
+        let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -165,9 +175,6 @@ fn test_prefix_filter_with_fixed_length() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Verify keys with matching length are found
     for i in 0..50 {
         let key = format!("exactlen{:02}_suffix_{}", i, i);
@@ -187,11 +194,19 @@ fn test_prefix_filter_with_fixed_length() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key whose 10-byte prefix ("exactlenZZ") is absent but within range
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"exactlenZZ_suffix_X", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-        // Should have filter queries for all lookups
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -226,9 +241,6 @@ fn test_prefix_filter_full_key() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // All keys should be found
     for key in &keys {
         assert!(tree.contains_key(key, u64::MAX)?);
@@ -239,24 +251,20 @@ fn test_prefix_filter_full_key() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key within range [apple..elderberry] whose full-key prefix is absent.
+        // "blueberry" is between "banana" and "cherry" lexicographically.
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"blueberry", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-
-        // Should have filter queries for in-domain keys
-        assert!(
-            final_queries > initial_queries,
-            "filter queries should increase for in-domain keys"
-        );
-    }
-    assert!(!tree.contains_key(b"kiwi", u64::MAX)?);
-
-    #[cfg(feature = "metrics")]
-    {
-        let final_queries = tree.metrics().filter_queries();
-
-        // Should have queries for all lookups (5 existing + 2 non-existent)
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -288,9 +296,6 @@ fn test_prefix_filter_range_queries() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Test prefix iteration
     for prefix in &prefixes {
         let start_key = prefix.to_string();
@@ -310,10 +315,19 @@ fn test_prefix_filter_range_queries() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 5-byte prefix "none_" that is within range [comm_..user~]
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"none_0000", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -353,11 +367,6 @@ fn test_prefix_filter_after_compaction() -> lsm_tree::Result<()> {
     use lsm_tree::compaction::Leveled;
     tree.compact(Arc::new(Leveled::default()), 0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
-
     // All keys should still be found after compaction
     for i in 0..75 {
         let key = format!("batch1_{:04}", i);
@@ -366,19 +375,24 @@ fn test_prefix_filter_after_compaction() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert(b"aaaaaa_0000", b"lo", 0);
+        tree.insert(b"zzzzzz_0000", b"hi", 0);
+        tree.flush_active_memtable(0)?;
+
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // "batchM" is between "aaaaaa" and "zzzzzz" and not in the filter
+        let _ = tree.contains_key(b"batchM_0000", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
-
-        // Should have filter queries for post-compaction lookups
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased after compaction"
         );
-
-        // All keys exist, so hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase for existing keys"
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -467,11 +481,9 @@ fn test_prefix_filter_edge_cases() -> lsm_tree::Result<()> {
     tree.insert(b"b", b"value", 0);
     tree.insert(b"ab", b"value", 0);
     tree.insert(b"ba", b"value", 0);
+    tree.insert(b"d", b"value", 0); // widen range so "c" prefix is within [a..d]
 
     tree.flush_active_memtable(0)?;
-
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
 
     assert!(tree.contains_key(b"a", u64::MAX)?);
     assert!(tree.contains_key(b"b", u64::MAX)?);
@@ -480,12 +492,19 @@ fn test_prefix_filter_edge_cases() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 1-byte prefix "c" within range [a..d]
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"c", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-
-        // Should have queries for both existing and non-existing keys
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased for point lookups"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -503,18 +522,24 @@ fn test_prefix_filter_edge_cases() -> lsm_tree::Result<()> {
 
     tree2.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries2 = tree2.metrics().filter_queries();
-
     assert!(tree2.contains_key(b"test", u64::MAX)?);
     assert!(tree2.contains_key(b"longer_key", u64::MAX)?);
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 5-byte prefix "mzzzz" within range [longer_key..test]
+        let initial_queries2 = tree2.metrics().filter_queries();
+        let initial_hits2 = tree2.metrics().io_skipped_by_filter();
+        let _ = tree2.contains_key(b"mzzzz_key", u64::MAX)?;
         let final_queries2 = tree2.metrics().filter_queries();
+        let final_hits2 = tree2.metrics().io_skipped_by_filter();
         assert!(
             final_queries2 > initial_queries2,
             "filter queries should have increased for short/long key lookups"
+        );
+        assert!(
+            final_hits2 > initial_hits2,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -558,9 +583,6 @@ fn test_prefix_filter_large_dataset() -> lsm_tree::Result<()> {
     // Final flush
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Verify all keys are found
     for prefix in &prefixes {
         for i in 0..1000 {
@@ -581,12 +603,25 @@ fn test_prefix_filter_large_dataset() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert(b"aaaaaaaaaaaa00000000", b"lo", 0);
+        tree.insert(b"zzzzzzzzzzzz00000000", b"hi", 0);
+        tree.flush_active_memtable(0)?;
 
-        // With multiple segments, we should have many filter queries
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // "mmmmmmmmmmmm00000000" has 12-byte prefix "mmmmmmmmmmmm" which is
+        // absent from the new segment's filter and within its range.
+        let _ = tree.contains_key(b"mmmmmmmmmmmm00000000", u64::MAX)?;
+        let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased for large dataset"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -628,12 +663,10 @@ fn test_prefix_filter_concurrent_access() -> lsm_tree::Result<()> {
         handle.join().unwrap();
     }
 
-    tree.flush_active_memtable(0)?;
+    // Add a key with prefix "thread99" to widen the range for filter testing
+    tree.insert(b"thread99_0000", b"value", 0);
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
+    tree.flush_active_memtable(0)?;
 
     // Verify all keys from all threads
     for thread_id in 0..4 {
@@ -645,19 +678,19 @@ fn test_prefix_filter_concurrent_access() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 8-byte prefix "thread50" within range [thread00..thread99]
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"thread50_0000", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
-
-        // Should have filter queries for all concurrent lookups
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased for concurrent access"
         );
-
-        // All keys exist, so hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase for existing keys"
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -754,9 +787,6 @@ fn test_prefix_filter_seek_optimization() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Seek with existing prefix should find keys
     let range_a = tree.range("prefix_a_0000".."prefix_a_9999", u64::MAX, None);
     assert_eq!(range_a.count(), 100);
@@ -767,12 +797,25 @@ fn test_prefix_filter_seek_optimization() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert(b"aaaaaaaa_0000", b"lo", 0);
+        tree.insert(b"zzzzzzzz_0000", b"hi", 0);
+        tree.flush_active_memtable(0)?;
 
-        // Range queries should trigger filter checks
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // "prefix_m" has 8-byte prefix "prefix_m" which is absent from the new
+        // segment's filter and falls within its range [aaaaaaaa..zzzzzzzz].
+        let _ = tree.contains_key(b"prefix_m_0000", u64::MAX)?;
+        let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should have increased for range operations"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -990,9 +1033,6 @@ fn test_prefix_filter_single_byte_keys() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // All keys should be found
     for i in 0u8..10 {
         assert!(tree.contains_key(&[i], u64::MAX)?);
@@ -1004,12 +1044,20 @@ fn test_prefix_filter_single_byte_keys() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 2-byte prefix [0x05, 0xAA] within range [0x00..0x09,0x09]
+        // Using 0xAA to make collision with existing prefixes extremely unlikely.
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(&[0x05, 0xAA, 0xBB], u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-
-        // Should have queries for all lookups
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for single/two-byte key lookups"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -1134,9 +1182,6 @@ fn test_prefix_filter_keys_as_prefixes() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // All keys should be found regardless of prefix relationships
     assert!(tree.contains_key(b"a", u64::MAX)?);
     assert!(tree.contains_key(b"ab", u64::MAX)?);
@@ -1151,11 +1196,21 @@ fn test_prefix_filter_keys_as_prefixes() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 4-byte prefix "abcc" within range [a..abcdef]
+        // "abcc" is not among existing prefixes (a, ab, abc, abcd) and
+        // "abcc_test" < "abcdef", so it falls within the table's key range.
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"abcc_test", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for prefix-related key lookups"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -1186,9 +1241,6 @@ fn test_prefix_filter_very_long_keys() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // All long keys should be found
     assert!(tree.contains_key(&long_key1, u64::MAX)?);
     assert!(tree.contains_key(&long_key2, u64::MAX)?);
@@ -1200,11 +1252,29 @@ fn test_prefix_filter_very_long_keys() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Create a new wide-range segment so an absent prefix falls within it
+        let lo_key = vec![b'A'; 10000]; // 'A' < 'a'
+        let hi_key = vec![b'z'; 10000];
+        tree.insert(&lo_key, b"lo", 0);
+        tree.insert(&hi_key, b"hi", 0);
+        tree.flush_active_memtable(0)?;
+
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // 10-byte prefix "eeeeeeeeee" is between "AAAAAAAAAA" and "zzzzzzzzzz"
+        // and not in the new segment's filter
+        let absent_key = vec![b'e'; 10000];
+        let _ = tree.contains_key(&absent_key, u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
 
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for very long key lookups"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -1231,9 +1301,6 @@ fn test_prefix_filter_all_same_byte() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // All keys should be found
     for len in 1..=10 {
         let key = vec![b'x'; len];
@@ -1246,11 +1313,25 @@ fn test_prefix_filter_all_same_byte() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert(&vec![b'a'; 5], b"lo", 0);
+        tree.insert(&vec![b'z'; 5], b"hi", 0);
+        tree.flush_active_memtable(0)?;
+
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // 5-byte prefix "mmmmm" is between "aaaaa" and "zzzzz" and not in the filter
+        let _ = tree.contains_key(&vec![b'm'; 5], u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
 
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for same-byte key lookups"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -1670,9 +1751,6 @@ fn test_prefix_filter_range_across_different_prefixes() -> lsm_tree::Result<()> 
     tree.insert("user2_b", "v4", 1);
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Query with common prefix "user1" - should find entries
     let count = tree.range("user1_a"..="user1_z", u64::MAX, None).count();
     assert_eq!(count, 2, "Should find user1 entries");
@@ -1687,12 +1765,25 @@ fn test_prefix_filter_range_across_different_prefixes() -> lsm_tree::Result<()> 
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert("aaaa_z", "lo", 0);
+        tree.insert("zzzz_z", "hi", 0);
+        tree.flush_active_memtable(0)?;
 
-        // Range queries with common prefix should trigger filter
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // "user5" (5-byte prefix) is between "aaaa_" and "zzzz_" and not in the filter
+        let _ = tree.contains_key(b"user5_a", u64::MAX)?;
+        let final_queries = tree.metrics().filter_queries();
+        let final_hits = tree.metrics().io_skipped_by_filter();
+
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for range operations"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -1765,11 +1856,6 @@ fn test_prefix_filter_range_same_key_different_bounds() -> lsm_tree::Result<()> 
     tree.insert("key2", "value2", 0);
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
-
     // Included..Excluded with same key (empty range)
     let count = tree
         .range::<&str, _>(
@@ -1802,19 +1888,21 @@ fn test_prefix_filter_range_same_key_different_bounds() -> lsm_tree::Result<()> 
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent full-key prefix within range [key..key2]
+        // "key1" is between "key" and "key2" lexicographically and not in the filter.
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"key1", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
 
-        // Range queries should use filter even with same key bounds
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for same-key range operations"
         );
-
-        // Keys exist, hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase for existing keys"
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -1841,11 +1929,6 @@ fn test_prefix_filter_range_non_consecutive_keys() -> lsm_tree::Result<()> {
     tree.insert("app_7", "v7", 0);
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
-
     // Query for range that includes missing keys
     let count = tree.range("app_2"..="app_6", u64::MAX, None).count();
     assert_eq!(count, 2, "Should find app_3 and app_5");
@@ -1856,19 +1939,25 @@ fn test_prefix_filter_range_non_consecutive_keys() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert("aaa_1", "lo", 0);
+        tree.insert("zzz_1", "hi", 0);
+        tree.flush_active_memtable(0)?;
+
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // 3-byte prefix "mmm" is between "aaa" and "zzz" and not in the filter
+        let _ = tree.contains_key(b"mmm_1", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
 
-        // Concurrent access should still use filters
         assert!(
             final_queries > initial_queries,
-            "filter queries should work with sequence consistency"
+            "filter queries should work with non-consecutive keys"
         );
-
-        // Keys exist at various sequence numbers, hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase (keys exist or filtered by seqno)"
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -2108,9 +2197,6 @@ fn test_prefix_filter_range_after_compaction() -> lsm_tree::Result<()> {
     // Skip compaction test since it's not implemented
     // tree.major_compact(u64::MAX)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Verify range queries still work after compaction
     let count = tree.range("user_0"..="user_2", u64::MAX, None).count();
     assert_eq!(count, 3, "Should find all user keys after compaction");
@@ -2124,11 +2210,24 @@ fn test_prefix_filter_range_after_compaction() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert("aaaa_0", "lo", 0);
+        tree.insert("zzzz_0", "hi", 0);
+        tree.flush_active_memtable(0)?;
+
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        // "nnnn" is between "aaaa" and "zzzz" and not in the filter
+        let _ = tree.contains_key(b"nnnn_0", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-        // Range queries with common prefix should use filter
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for range operations after compaction"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -2155,9 +2254,6 @@ fn test_prefix_filter_range_utf8_boundaries() -> lsm_tree::Result<()> {
     tree.insert("🎉🎉_002", "v4", 0);
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-
     // Query within same emoji prefix
     let count = tree.range("🎈🎈_001"..="🎈🎈_002", u64::MAX, None).count();
     assert_eq!(count, 2, "Should find keys with balloon prefix");
@@ -2168,11 +2264,24 @@ fn test_prefix_filter_range_utf8_boundaries() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 6-byte prefix within range.
+        // 🎈 = F0 9F 8E 88 (4 bytes), 🎉 = F0 9F 8E 89 (4 bytes)
+        // 6-byte prefix of "🎈🎈_001" is F0 9F 8E 88 F0 9F
+        // Use bytes that form a distinct 6-byte prefix between the two emoji prefixes.
+        // F0 9F 8E 88 F0 A0 is between F0 9F 8E 88 F0 9F and F0 9F 8E 89 F0 9F
+        let absent_key: &[u8] = &[0xF0, 0x9F, 0x8E, 0x88, 0xF0, 0xA0, b'_', b'0', b'0', b'1'];
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(absent_key, u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
-        // Emoji prefixes should trigger filter checks
+        let final_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for UTF-8 boundary range queries"
+        );
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -2215,30 +2324,28 @@ fn test_prefix_filter_range_multi_prefix_extractor() -> lsm_tree::Result<()> {
     tree.insert("def123_data", "v3", 0);
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
-
     // Query should work with common 3-byte prefix
     let count = tree.range("abc000"..="abc999", u64::MAX, None).count();
     assert_eq!(count, 2, "Should find keys with abc prefix");
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent prefix within range [abc123_data..def123_data].
+        // "bcd000_data" has 3-byte prefix "bcd" and 6-byte prefix "bcd000",
+        // neither of which is in the filter (existing: abc, abc123, abc456, def, def123).
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(b"bcd000_data", u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
 
-        // Segmented extractor should use filters for prefix matching
         assert!(
             final_queries > initial_queries,
             "filter queries should work with segmented extractor"
         );
-
-        // All keys exist, so hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase for existing keys"
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -2265,11 +2372,6 @@ fn test_prefix_filter_range_utf8_split() -> lsm_tree::Result<()> {
     tree.insert("日本_1", "v3", 0);
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
-
     // The prefix will be the first 2 bytes, which splits the UTF-8 character
     // This tests that the implementation handles partial UTF-8 correctly
     let count = tree.range("中文_1"..="中文_2", u64::MAX, None).count();
@@ -2277,19 +2379,23 @@ fn test_prefix_filter_range_utf8_split() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Look up a key with absent 2-byte prefix within range.
+        // 中 = E4 B8 AD, 日 = E6 97 A5. 2-byte prefixes: E4 B8 and E6 97.
+        // A key with 2-byte prefix E5 00 is between E4 B8 and E6 97.
+        let absent_key: &[u8] = &[0xE5, 0x00, b'_', b'1'];
+        let initial_queries = tree.metrics().filter_queries();
+        let initial_hits = tree.metrics().io_skipped_by_filter();
+        let _ = tree.contains_key(absent_key, u64::MAX)?;
         let final_queries = tree.metrics().filter_queries();
         let final_hits = tree.metrics().io_skipped_by_filter();
 
-        // Range query should use filter even with UTF-8 split
         assert!(
             final_queries > initial_queries,
             "filter queries should increase for UTF-8 split range"
         );
-
-        // Keys exist, hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase for existing keys"
+        assert!(
+            final_hits > initial_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -2407,23 +2513,28 @@ fn test_same_extractor_compatibility() -> lsm_tree::Result<()> {
         .prefix_extractor(extractor)
         .open()?;
 
-        // Should be able to use prefix filtering
-        #[cfg(feature = "metrics")]
-        let initial_queries = tree.metrics().filter_queries();
-
         assert_eq!(&*tree.get("user_key1", u64::MAX)?.unwrap(), b"value1");
         assert_eq!(&*tree.get("user_key2", u64::MAX)?.unwrap(), b"value2");
         assert_eq!(&*tree.get("data_key1", u64::MAX)?.unwrap(), b"value3");
 
         #[cfg(feature = "metrics")]
         {
+            // Look up a key with absent 4-byte prefix within range [data_key1..user_key2].
+            // "nnnn_key1" has prefix "nnnn" which is between "data" and "user".
+            let initial_queries = tree.metrics().filter_queries();
+            let initial_hits = tree.metrics().io_skipped_by_filter();
+            let _ = tree.get("nnnn_key1", u64::MAX)?;
             let final_queries = tree.metrics().filter_queries();
-            // Should have incremented filter queries since extractor is compatible
+            let final_hits = tree.metrics().io_skipped_by_filter();
             assert!(
                 final_queries > initial_queries,
                 "Compatible extractor should increment filter queries: {} -> {}",
                 initial_queries,
                 final_queries
+            );
+            assert!(
+                final_hits > initial_hits,
+                "io_skipped_by_filter should have increased"
             );
         }
 
@@ -2680,9 +2791,12 @@ fn test_new_segments_use_new_extractor() -> lsm_tree::Result<()> {
         .prefix_extractor(extractor2)
         .open()?;
 
-        // Add data to create a new segment with the new extractor
-        tree.insert("new_key1", "value3", 1);
-        tree.insert("new_key2", "value4", 1);
+        // Add data to create a new segment with the new extractor.
+        // Use keys whose range does NOT overlap old keys (old_key1..old_key2)
+        // so that old-key lookups don't hit the new segment's filter.
+        tree.insert("aaa_key1", "value3", 1);
+        tree.insert("aaa_key2", "value4", 1);
+        tree.insert("hhh_key1", "sentinel", 1);
         tree.flush_active_memtable(0)?;
 
         // Test that old segment uses no filtering (extractor incompatible)
@@ -2690,15 +2804,17 @@ fn test_new_segments_use_new_extractor() -> lsm_tree::Result<()> {
         let initial_queries = tree.metrics().filter_queries();
 
         // Query old keys - should NOT increment filter queries (incompatible extractor)
+        // old_key1/old_key2 are outside the new segment's range [aaa_key1..hhh_key1]
+        // since 'o' > 'h'.
         assert_eq!(&*tree.get("old_key1", u64::MAX)?.unwrap(), b"value1");
         assert_eq!(&*tree.get("old_key2", u64::MAX)?.unwrap(), b"value2");
 
         #[cfg(feature = "metrics")]
         let after_old_queries = tree.metrics().filter_queries();
 
-        // Query new keys - SHOULD increment filter queries (compatible extractor)
-        assert_eq!(&*tree.get("new_key1", u64::MAX)?.unwrap(), b"value3");
-        assert_eq!(&*tree.get("new_key2", u64::MAX)?.unwrap(), b"value4");
+        // Query a nonexistent key with absent 4-byte prefix "cccc" within range
+        // [aaa_key1..hhh_key1] on the new segment (compatible extractor).
+        let _ = tree.get("cccc_key1", u64::MAX)?;
 
         #[cfg(feature = "metrics")]
         {
@@ -2710,7 +2826,7 @@ fn test_new_segments_use_new_extractor() -> lsm_tree::Result<()> {
                 "Old keys should not increment filter queries due to incompatible extractor"
             );
 
-            // New keys should have incremented filter queries
+            // Absent prefix on new segment should have incremented filter queries
             assert!(
                 final_queries > after_old_queries,
                 "New keys should increment filter queries with compatible extractor: {} -> {}",
@@ -2718,6 +2834,10 @@ fn test_new_segments_use_new_extractor() -> lsm_tree::Result<()> {
                 final_queries
             );
         }
+
+        // Verify new keys are still readable
+        assert_eq!(&*tree.get("aaa_key1", u64::MAX)?.unwrap(), b"value3");
+        assert_eq!(&*tree.get("aaa_key2", u64::MAX)?.unwrap(), b"value4");
     }
 
     Ok(())
@@ -2766,6 +2886,7 @@ fn test_multiple_extractor_changes() -> lsm_tree::Result<()> {
         .prefix_extractor(extractor3)
         .open()?;
         tree.insert("cc_data3", "value3", 0);
+        tree.insert("zz_sent1", "sentinel", 0); // widen range
         tree.flush_active_memtable(0)?;
 
         // Only the last segment should use filtering
@@ -2779,8 +2900,8 @@ fn test_multiple_extractor_changes() -> lsm_tree::Result<()> {
         #[cfg(feature = "metrics")]
         let middle_queries = tree.metrics().filter_queries();
 
-        // This should increment filter queries (compatible)
-        assert_eq!(&*tree.get("cc_data3", u64::MAX)?.unwrap(), b"value3");
+        // Look up absent prefix "mm" within range [cc_data3..zz_sent1] on new segment
+        let _ = tree.get("mm_data3", u64::MAX)?;
 
         #[cfg(feature = "metrics")]
         {
@@ -2794,6 +2915,9 @@ fn test_multiple_extractor_changes() -> lsm_tree::Result<()> {
                 "New segment should increment metrics"
             );
         }
+
+        // Verify all data is still readable
+        assert_eq!(&*tree.get("cc_data3", u64::MAX)?.unwrap(), b"value3");
     }
 
     Ok(())
@@ -2969,14 +3093,26 @@ fn test_prefix_filter_blob_tree_flush() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
+        // Create a new wide-range segment so an absent prefix falls within it
+        tree.insert(b"AAA_0000", &big_value, 0);
+        tree.insert(b"zzz_0000", &big_value, 0);
+        tree.flush_active_memtable(0)?;
+
         let before = tree.metrics().filter_queries();
-        let _ = tree.contains_key(b"aaa_0001", u64::MAX)?;
-        let _ = tree.contains_key(b"zzz_0000", u64::MAX)?;
+        let before_hits = tree.metrics().io_skipped_by_filter();
+        // "mmm_0000" has 4-byte prefix "mmm_" which is between "AAA_" and "zzz_"
+        // and absent from the filter
+        let _ = tree.contains_key(b"mmm_0000", u64::MAX)?;
         let after = tree.metrics().filter_queries();
+        let after_hits = tree.metrics().io_skipped_by_filter();
         assert!(
             after > before,
             "prefix filter should be consulted on blob tree tables \
              (before={before}, after={after})"
+        );
+        assert!(
+            after_hits > before_hits,
+            "io_skipped_by_filter should have increased"
         );
     }
 
@@ -3147,10 +3283,22 @@ fn test_prefix_filter_blob_tree_recovery() -> lsm_tree::Result<()> {
 
         #[cfg(feature = "metrics")]
         {
+            // Create a new wide-range segment so an absent prefix falls within it
+            tree.insert(b"AAA_0000", &big_value, 0);
+            tree.insert(b"zzz_0000", &big_value, 0);
+            tree.flush_active_memtable(0)?;
+
             let before = tree.metrics().filter_queries();
-            let _ = tree.contains_key(b"aaa_0001", u64::MAX)?;
+            let before_hits = tree.metrics().io_skipped_by_filter();
+            // "mmm_0001" has absent prefix "mmm_" within [AAA_..zzz_]
+            let _ = tree.contains_key(b"mmm_0001", u64::MAX)?;
             let after = tree.metrics().filter_queries();
-            assert!(after > before);
+            let after_hits = tree.metrics().io_skipped_by_filter();
+            assert!(after > before, "filter queries should have increased");
+            assert!(
+                after_hits > before_hits,
+                "io_skipped_by_filter should have increased"
+            );
         }
     }
 
@@ -3370,10 +3518,16 @@ fn test_prefix_filter_ingestion() -> lsm_tree::Result<()> {
     #[cfg(feature = "metrics")]
     {
         let before = tree.metrics().filter_queries();
-        let _ = tree.contains_key(b"aaa_0001", u64::MAX)?;
-        let _ = tree.contains_key(b"zzz_0000", u64::MAX)?;
+        let before_hits = tree.metrics().io_skipped_by_filter();
+        // "abc_0000" has absent prefix "abc_" within [aaa_0000..bbb_0049]
+        let _ = tree.contains_key(b"abc_0000", u64::MAX)?;
         let after = tree.metrics().filter_queries();
-        assert!(after > before);
+        let after_hits = tree.metrics().io_skipped_by_filter();
+        assert!(after > before, "filter queries should have increased");
+        assert!(
+            after_hits > before_hits,
+            "io_skipped_by_filter should have increased"
+        );
     }
 
     Ok(())
@@ -3415,10 +3569,16 @@ fn test_prefix_filter_blob_tree_ingestion() -> lsm_tree::Result<()> {
     #[cfg(feature = "metrics")]
     {
         let before = tree.metrics().filter_queries();
-        let _ = tree.contains_key(b"aaa_0001", u64::MAX)?;
-        let _ = tree.contains_key(b"zzz_0000", u64::MAX)?;
+        let before_hits = tree.metrics().io_skipped_by_filter();
+        // "abc_0000" has absent prefix "abc_" within [aaa_0000..bbb_0049]
+        let _ = tree.contains_key(b"abc_0000", u64::MAX)?;
         let after = tree.metrics().filter_queries();
-        assert!(after > before);
+        let after_hits = tree.metrics().io_skipped_by_filter();
+        assert!(after > before, "filter queries should have increased");
+        assert!(
+            after_hits > before_hits,
+            "io_skipped_by_filter should have increased"
+        );
     }
 
     Ok(())
