@@ -266,20 +266,28 @@ impl Iterator for RunReader {
                             // optimize_runs can merge tables from different runs that
                             // were built with different extractor configs.
                             let skip = if let Some(ref hint) = self.validated_prefix_hint {
-                                let should_skip = table.prefix_filter_allowed(Some(ex.name()))
-                                    && matches!(
-                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref()),
-                                        Ok(Some(false))
-                                    );
+                                if !table.prefix_filter_allowed(Some(ex.name())) {
+                                    false
+                                } else {
+                                    let probe =
+                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref());
 
-                                #[cfg(feature = "metrics")]
-                                if should_skip {
-                                    use std::sync::atomic::Ordering::Relaxed;
-                                    table.metrics.filter_queries.fetch_add(1, Relaxed);
-                                    table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                                    #[cfg(feature = "metrics")]
+                                    if matches!(&probe, Ok(Some(_))) {
+                                        use std::sync::atomic::Ordering::Relaxed;
+                                        table.metrics.filter_queries.fetch_add(1, Relaxed);
+                                    }
+
+                                    let should_skip = matches!(probe, Ok(Some(false)));
+
+                                    #[cfg(feature = "metrics")]
+                                    if should_skip {
+                                        use std::sync::atomic::Ordering::Relaxed;
+                                        table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                                    }
+
+                                    should_skip
                                 }
-
-                                should_skip
                             } else {
                                 // should_skip_range_by_prefix_filter handles
                                 // its own metrics internally.
@@ -355,20 +363,28 @@ impl DoubleEndedIterator for RunReader {
 
                         if let Some(ex) = &self.extractor {
                             let skip = if let Some(ref hint) = self.validated_prefix_hint {
-                                let should_skip = table.prefix_filter_allowed(Some(ex.name()))
-                                    && matches!(
-                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref()),
-                                        Ok(Some(false))
-                                    );
+                                if !table.prefix_filter_allowed(Some(ex.name())) {
+                                    false
+                                } else {
+                                    let probe =
+                                        table.probe_prefix_filter(hint.as_ref(), ex.as_ref());
 
-                                #[cfg(feature = "metrics")]
-                                if should_skip {
-                                    use std::sync::atomic::Ordering::Relaxed;
-                                    table.metrics.filter_queries.fetch_add(1, Relaxed);
-                                    table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                                    #[cfg(feature = "metrics")]
+                                    if matches!(&probe, Ok(Some(_))) {
+                                        use std::sync::atomic::Ordering::Relaxed;
+                                        table.metrics.filter_queries.fetch_add(1, Relaxed);
+                                    }
+
+                                    let should_skip = matches!(probe, Ok(Some(false)));
+
+                                    #[cfg(feature = "metrics")]
+                                    if should_skip {
+                                        use std::sync::atomic::Ordering::Relaxed;
+                                        table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                                    }
+
+                                    should_skip
                                 }
-
-                                should_skip
                             } else {
                                 let tmp_range = (self.range_start.clone(), self.range_end.clone());
                                 table.should_skip_range_by_prefix_filter(
