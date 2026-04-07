@@ -55,24 +55,46 @@ impl RunReader {
 
         let (lo, hi) = run.range_overlap_indexes(&range)?;
 
-        // Validate the prefix hint: the hint is usable for filter probing only when
-        // the extractor produces the same prefix for the hint and for keys matching
-        // the query range. We verify by checking extract_first(hint) == extract_first(hint + "\0").
-        // This is computed once here and reused in every lazy per-table skip check.
+        // Validate the prefix hint and precompute the most specific stable
+        // prefix hash. For multi-prefix extractors, the last (most specific)
+        // prefix gives better Bloom filter pruning than the first (coarsest).
+        //
+        // We try extract_last first (higher cardinality → fewer false positives).
+        // If its stability guard fails, fall back to extract_first.
+        // Stability guard: extract_X(hint) == extract_X(hint + "\0").
         let (validated_prefix_hint, validated_prefix_hash) =
             if let (Some(hint), Some(ex)) = (prefix_hint.as_ref(), extractor.as_ref()) {
                 let hint_bytes: &[u8] = hint.as_ref();
-                let hint_prefix = ex.extract_first(hint_bytes);
                 let mut extended = Vec::with_capacity(hint_bytes.len() + 1);
                 extended.extend_from_slice(hint_bytes);
                 extended.push(0u8);
-                let extended_prefix = ex.extract_first(&extended);
-                match (hint_prefix, extended_prefix) {
-                    (Some(hp), Some(ep)) if hp == ep => {
-                        let hash = crate::table::filter::standard_bloom::Builder::get_hash(hp);
-                        (Some((*hint).clone()), Some(hash))
+
+                // Try the most specific prefix first
+                let last_hint = ex.extract_last(hint_bytes);
+                let last_extended = ex.extract_last(&extended);
+                let best_hash = if let (Some(lh), Some(le)) = (last_hint, last_extended) {
+                    if lh == le {
+                        Some(crate::table::filter::standard_bloom::Builder::get_hash(lh))
+                    } else {
+                        None
                     }
-                    _ => (None, None),
+                } else {
+                    None
+                };
+
+                if let Some(hash) = best_hash {
+                    (Some((*hint).clone()), Some(hash))
+                } else {
+                    // Fall back to first prefix
+                    let first_hint = ex.extract_first(hint_bytes);
+                    let first_extended = ex.extract_first(&extended);
+                    match (first_hint, first_extended) {
+                        (Some(fh), Some(fe)) if fh == fe => {
+                            let hash = crate::table::filter::standard_bloom::Builder::get_hash(fh);
+                            (Some((*hint).clone()), Some(hash))
+                        }
+                        _ => (None, None),
+                    }
                 }
             } else {
                 (None, None)

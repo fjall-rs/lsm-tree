@@ -80,6 +80,19 @@ pub trait PrefixExtractor:
         self.extract(key).next()
     }
 
+    /// Extracts the most specific (last) prefix from a key.
+    ///
+    /// For single-prefix extractors, this is the same as `extract_first`.
+    /// For multi-prefix extractors, this returns the highest-cardinality
+    /// prefix, which gives the best Bloom filter pruning.
+    ///
+    /// Defaults to consuming `extract(key)` to get the last element.
+    /// Can be overridden to avoid the Box allocation when the last prefix
+    /// can be computed directly.
+    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+        self.extract(key).last()
+    }
+
     /// Returns a stable compatibility identifier for this prefix extractor.
     ///
     /// This value is persisted in table metadata and compared on reopen to determine
@@ -98,6 +111,10 @@ pub struct FullKeyExtractor;
 impl PrefixExtractor for FullKeyExtractor {
     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         Box::new(std::iter::once(key))
+    }
+
+    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+        self.extract_first(key)
     }
 
     fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
@@ -143,6 +160,10 @@ impl PrefixExtractor for FixedPrefixExtractor {
         }
     }
 
+    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+        self.extract_first(key)
+    }
+
     fn name(&self) -> &str {
         &self.name
     }
@@ -181,13 +202,17 @@ impl PrefixExtractor for FixedLengthExtractor {
         } else {
             #[expect(
                 clippy::expect_used,
-                reason = "key.len() >= self.length is checked above"
+                reason = "length is already validated via key.len() >= self.length"
             )]
             Some(
                 key.get(..self.length)
                     .expect("prefix slice should be in bounds"),
             )
         }
+    }
+
+    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+        self.extract_first(key)
     }
 
     fn name(&self) -> &str {

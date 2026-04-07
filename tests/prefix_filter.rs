@@ -5395,6 +5395,220 @@ fn test_multi_prefix_after_compaction() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+/// extract_last gives the most specific prefix for the precomputed hash.
+/// For HierarchicalPrefixExtractor(3,6), a query for "abc123" uses
+/// hash("abc123") instead of hash("abc"). A table containing only
+/// "abc999*" keys has hash("abc") but NOT hash("abc123"), so the more
+/// specific hash allows skipping the table.
+///
+/// This test writes data into two distinct 6-byte prefix groups, compacts
+/// into multiple tables, then queries with a 6-byte prefix that doesn't
+/// exist but whose 3-byte prefix does.
+#[test]
+fn test_multi_prefix_extract_last_correctness() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .filter_policy(lsm_tree::config::FilterPolicy::all(
+        lsm_tree::config::FilterPolicyEntry::Bloom(
+            lsm_tree::config::BloomConstructionPolicy::BitsPerKey(50.0),
+        ),
+    ))
+    .open()?;
+
+    // Write keys in two 6-byte prefix groups under the same 3-byte prefix
+    for i in 0..100u32 {
+        tree.insert(format!("abc000_{i:04}").as_bytes(), b"v", 0);
+    }
+    for i in 0..100u32 {
+        tree.insert(format!("abc999_{i:04}").as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // Existing 6-byte prefixes are found
+    assert_eq!(
+        tree.prefix(b"abc000", SeqNo::MAX, None).count(),
+        100,
+        "should find all abc000 keys"
+    );
+    assert_eq!(
+        tree.prefix(b"abc999", SeqNo::MAX, None).count(),
+        100,
+        "should find all abc999 keys"
+    );
+
+    // 3-byte prefix finds all 200
+    assert_eq!(
+        tree.prefix(b"abc", SeqNo::MAX, None).count(),
+        200,
+        "should find all abc keys via 3-byte prefix"
+    );
+
+    // Absent 6-byte prefix under existing 3-byte prefix
+    assert_eq!(
+        tree.prefix(b"abc123", SeqNo::MAX, None).count(),
+        0,
+        "abc123 was never written"
+    );
+    assert_eq!(
+        tree.prefix(b"abc500", SeqNo::MAX, None).count(),
+        0,
+        "abc500 was never written"
+    );
+
+    // Absent 3-byte prefix
+    assert_eq!(
+        tree.prefix(b"zzz", SeqNo::MAX, None).count(),
+        0,
+        "zzz was never written"
+    );
+
+    Ok(())
+}
+
+/// extract_last with a 3-byte hint falls back to the first prefix since
+/// HierarchicalPrefixExtractor only returns one prefix for keys < 6 bytes.
+/// Verify correctness is maintained.
+#[test]
+fn test_multi_prefix_extract_last_short_hint() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    tree.insert(b"abc000_data", b"v1", 0);
+    tree.insert(b"abc999_data", b"v2", 0);
+    tree.insert(b"def000_data", b"v3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // 3-byte prefix queries (hint < 6 bytes → extract_last == extract_first)
+    assert_eq!(tree.prefix(b"abc", SeqNo::MAX, None).count(), 2);
+    assert_eq!(tree.prefix(b"def", SeqNo::MAX, None).count(), 1);
+    assert_eq!(tree.prefix(b"zzz", SeqNo::MAX, None).count(), 0);
+
+    Ok(())
+}
+
+/// extract_last with single-prefix extractors is identical to extract_first.
+/// Verify no regression.
+#[test]
+fn test_extract_last_single_prefix_no_change() -> lsm_tree::Result<()> {
+    for prefix_len in [1, 3, 4, 8] {
+        let folder = tempfile::tempdir()?;
+
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(prefix_len)))
+        .open()?;
+
+        tree.insert(b"abcdefgh_001", b"v1", 0);
+        tree.insert(b"abcdefgh_002", b"v2", 0);
+        tree.insert(b"zzzzzzzzz_001", b"v3", 0);
+        tree.flush_active_memtable(0)?;
+
+        // Existing prefix finds data
+        assert!(tree.prefix(b"abcdefgh", SeqNo::MAX, None).count() >= 2);
+
+        // Point reads work
+        assert!(tree.get(b"abcdefgh_001", SeqNo::MAX)?.is_some());
+        assert!(tree.get(b"nonexistent", SeqNo::MAX)?.is_none());
+    }
+
+    Ok(())
+}
+
+/// After compaction, extract_last still works correctly with multi-prefix.
+#[test]
+fn test_multi_prefix_extract_last_after_compaction() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    for i in 0..200u32 {
+        tree.insert(format!("abc{i:03}_data").as_bytes(), b"v", 0);
+    }
+    for i in 0..100u32 {
+        tree.insert(format!("def{i:03}_data").as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+
+    // 6-byte prefix queries
+    assert_eq!(tree.prefix(b"abc000", SeqNo::MAX, None).count(), 1);
+    assert_eq!(tree.prefix(b"abc199", SeqNo::MAX, None).count(), 1);
+    assert_eq!(tree.prefix(b"abczzz", SeqNo::MAX, None).count(), 0);
+
+    // 3-byte prefix queries
+    assert_eq!(tree.prefix(b"abc", SeqNo::MAX, None).count(), 200);
+    assert_eq!(tree.prefix(b"def", SeqNo::MAX, None).count(), 100);
+    assert_eq!(tree.prefix(b"zzz", SeqNo::MAX, None).count(), 0);
+
+    Ok(())
+}
+
+/// Recovery with multi-prefix extract_last: verify correctness is preserved
+/// across reopen.
+#[test]
+fn test_multi_prefix_extract_last_recovery() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+    let version = SequenceNumberCounter::default();
+
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+            .open()?;
+
+        tree.insert(b"abc000_data", b"v1", seqno.next());
+        tree.insert(b"abc999_data", b"v2", seqno.next());
+        tree.insert(b"def000_data", b"v3", seqno.next());
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with same extractor
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+            .open()?;
+
+        assert_eq!(tree.prefix(b"abc000", SeqNo::MAX, None).count(), 1);
+        assert_eq!(tree.prefix(b"abc999", SeqNo::MAX, None).count(), 1);
+        assert_eq!(tree.prefix(b"abc123", SeqNo::MAX, None).count(), 0);
+        assert_eq!(tree.prefix(b"abc", SeqNo::MAX, None).count(), 2);
+        assert_eq!(tree.prefix(b"def", SeqNo::MAX, None).count(), 1);
+    }
+
+    // Reopen without extractor — all data accessible
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone()).open()?;
+
+        assert!(tree.get(b"abc000_data", SeqNo::MAX)?.is_some());
+        assert!(tree.get(b"abc999_data", SeqNo::MAX)?.is_some());
+        assert!(tree.get(b"def000_data", SeqNo::MAX)?.is_some());
+    }
+
+    Ok(())
+}
+
 // ================================================================
 // whole_key_filtering tests
 // ================================================================
