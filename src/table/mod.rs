@@ -782,29 +782,47 @@ impl Table {
         // if appending a byte changes the extracted prefix, the hint is not a stable
         // prefix for the keys in the range and the probe could yield a false negative.
         if let Some(hint) = prefix_hint {
-            let hint_prefix = extractor.extract_first(hint);
             let extended: Vec<u8> = hint.iter().copied().chain(std::iter::once(0u8)).collect();
-            let extended_prefix = extractor.extract_first(&extended);
 
-            if let (Some(hp), Some(ep)) = (hint_prefix, extended_prefix) {
-                if hp == ep {
-                    let probe = self.probe_prefix_filter(hint, extractor);
-
-                    #[cfg(feature = "metrics")]
-                    if matches!(&probe, Ok(Some(_))) {
-                        use std::sync::atomic::Ordering::Relaxed;
-                        self.metrics.filter_queries.fetch_add(1, Relaxed);
+            // Try the most specific (last) prefix first for better pruning.
+            // Fall back to the first prefix if the last isn't stable.
+            let best_hash = {
+                let last_hint = extractor.extract_last(hint);
+                let last_extended = extractor.extract_last(&extended);
+                match (last_hint, last_extended) {
+                    (Some(lh), Some(le)) if lh == le => {
+                        Some(crate::table::filter::standard_bloom::Builder::get_hash(lh))
                     }
-
-                    if matches!(probe, Ok(Some(false))) {
-                        #[cfg(feature = "metrics")]
-                        {
-                            use std::sync::atomic::Ordering::Relaxed;
-                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                    _ => {
+                        let first_hint = extractor.extract_first(hint);
+                        let first_extended = extractor.extract_first(&extended);
+                        match (first_hint, first_extended) {
+                            (Some(fh), Some(fe)) if fh == fe => {
+                                Some(crate::table::filter::standard_bloom::Builder::get_hash(fh))
+                            }
+                            _ => None,
                         }
-
-                        return true;
                     }
+                }
+            };
+
+            if let Some(hash) = best_hash {
+                let probe = self.probe_prefix_filter_with_hash(hint, hash);
+
+                #[cfg(feature = "metrics")]
+                if matches!(&probe, Ok(Some(_))) {
+                    use std::sync::atomic::Ordering::Relaxed;
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+                }
+
+                if matches!(probe, Ok(Some(false))) {
+                    #[cfg(feature = "metrics")]
+                    {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                    }
+
+                    return true;
                 }
             }
             return false;
