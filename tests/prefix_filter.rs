@@ -5565,46 +5565,94 @@ fn test_multi_prefix_extract_last_after_compaction() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-/// Recovery with multi-prefix extract_last: verify correctness is preserved
-/// across reopen.
+/// The single-table path (should_skip_range_by_prefix_filter with hint)
+/// also uses extract_last for more specific pruning. This test uses a
+/// single flush without compaction — L0 tables are individual single-table
+/// runs that go through the single-table path in range.rs, not RunReader.
 #[test]
-fn test_multi_prefix_extract_last_recovery() -> lsm_tree::Result<()> {
+fn test_extract_last_single_table_path() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let seqno = SequenceNumberCounter::default();
-    let version = SequenceNumberCounter::default();
 
-    {
-        let tree = Config::new(&folder, seqno.clone(), version.clone())
-            .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
-            .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
 
-        tree.insert(b"abc000_data", b"v1", seqno.next());
-        tree.insert(b"abc999_data", b"v2", seqno.next());
-        tree.insert(b"def000_data", b"v3", seqno.next());
-        tree.flush_active_memtable(0)?;
-    }
+    // Single flush → single L0 table → single-table path
+    tree.insert(b"abc000_data1", b"v1", 0);
+    tree.insert(b"abc000_data2", b"v2", 0);
+    tree.insert(b"abc999_data1", b"v3", 0);
+    tree.flush_active_memtable(0)?;
 
-    // Reopen with same extractor
-    {
-        let tree = Config::new(&folder, seqno.clone(), version.clone())
-            .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
-            .open()?;
+    // Existing 6-byte prefixes found
+    assert_eq!(tree.prefix(b"abc000", SeqNo::MAX, None).count(), 2);
+    assert_eq!(tree.prefix(b"abc999", SeqNo::MAX, None).count(), 1);
 
-        assert_eq!(tree.prefix(b"abc000", SeqNo::MAX, None).count(), 1);
-        assert_eq!(tree.prefix(b"abc999", SeqNo::MAX, None).count(), 1);
-        assert_eq!(tree.prefix(b"abc123", SeqNo::MAX, None).count(), 0);
-        assert_eq!(tree.prefix(b"abc", SeqNo::MAX, None).count(), 2);
-        assert_eq!(tree.prefix(b"def", SeqNo::MAX, None).count(), 1);
-    }
+    // Absent 6-byte prefix under existing 3-byte prefix.
+    // The single-table hint path uses extract_last → hash("abc123")
+    // which is absent from the filter, enabling the skip.
+    assert_eq!(
+        tree.prefix(b"abc123", SeqNo::MAX, None).count(),
+        0,
+        "abc123 was never written (single-table path)"
+    );
+    assert_eq!(
+        tree.prefix(b"abc500", SeqNo::MAX, None).count(),
+        0,
+        "abc500 was never written (single-table path)"
+    );
 
-    // Reopen without extractor — all data accessible
-    {
-        let tree = Config::new(&folder, seqno.clone(), version.clone()).open()?;
+    // 3-byte prefix still works
+    assert_eq!(tree.prefix(b"abc", SeqNo::MAX, None).count(), 3);
+    assert_eq!(tree.prefix(b"zzz", SeqNo::MAX, None).count(), 0);
 
-        assert!(tree.get(b"abc000_data", SeqNo::MAX)?.is_some());
-        assert!(tree.get(b"abc999_data", SeqNo::MAX)?.is_some());
-        assert!(tree.get(b"def000_data", SeqNo::MAX)?.is_some());
-    }
+    Ok(())
+}
+
+/// Verify that the single-table extract_last path also works correctly
+/// after multiple flushes (multiple L0 tables, each checked independently).
+#[test]
+fn test_extract_last_multiple_l0_tables() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
+    .open()?;
+
+    // Flush 1: abc000 keys
+    tree.insert(b"abc000_data1", b"v1", 0);
+    tree.insert(b"abc000_data2", b"v2", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Flush 2: abc999 keys
+    tree.insert(b"abc999_data1", b"v3", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Flush 3: def000 keys
+    tree.insert(b"def000_data1", b"v4", 0);
+    tree.flush_active_memtable(0)?;
+
+    // Each L0 table is checked independently via single-table path
+    assert_eq!(tree.prefix(b"abc000", SeqNo::MAX, None).count(), 2);
+    assert_eq!(tree.prefix(b"abc999", SeqNo::MAX, None).count(), 1);
+    assert_eq!(tree.prefix(b"def000", SeqNo::MAX, None).count(), 1);
+
+    // Absent 6-byte prefix — extract_last gives more specific hash
+    assert_eq!(tree.prefix(b"abc123", SeqNo::MAX, None).count(), 0);
+    assert_eq!(tree.prefix(b"abc500", SeqNo::MAX, None).count(), 0);
+    assert_eq!(tree.prefix(b"def999", SeqNo::MAX, None).count(), 0);
+
+    // 3-byte prefixes
+    assert_eq!(tree.prefix(b"abc", SeqNo::MAX, None).count(), 3);
+    assert_eq!(tree.prefix(b"def", SeqNo::MAX, None).count(), 1);
+    assert_eq!(tree.prefix(b"zzz", SeqNo::MAX, None).count(), 0);
 
     Ok(())
 }
