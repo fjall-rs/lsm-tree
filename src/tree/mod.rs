@@ -872,32 +872,34 @@ impl Tree {
 
         if allow_filter {
             if let Some(ex) = config.prefix_extractor.as_ref() {
-                // If prefix filtering is allowed and an extractor is configured,
-                // consult the prefix filter first for a coarse table-level check.
-                let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
+                if config.whole_key_filtering {
+                    // When whole_key_filtering is enabled, the filter contains
+                    // full-key hashes. The full-key Bloom is strictly more
+                    // precise than the prefix pre-check for point reads, so
+                    // skip the prefix check entirely and go straight to the
+                    // Bloom. This avoids a redundant filter probe on every
+                    // point read.
+                } else {
+                    // Without whole_key_filtering, the filter only has prefix
+                    // hashes. Use the prefix filter as the sole pre-check.
+                    let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
 
-                #[cfg(feature = "metrics")]
-                if probe.is_some() {
-                    use std::sync::atomic::Ordering::Relaxed;
-                    table.metrics.filter_queries.fetch_add(1, Relaxed);
-                }
-
-                if probe == Some(false) {
                     #[cfg(feature = "metrics")]
-                    {
+                    if probe.is_some() {
                         use std::sync::atomic::Ordering::Relaxed;
-                        table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                        table.metrics.filter_queries.fetch_add(1, Relaxed);
                     }
 
-                    return Ok(None);
-                }
+                    if probe == Some(false) {
+                        #[cfg(feature = "metrics")]
+                        {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                        }
 
-                // Prefix is maybe present. When whole_key_filtering is enabled,
-                // fall through to the full-key Bloom for a precise per-key check
-                // (the filter contains both prefix and full-key hashes).
-                // When disabled, the filter only has prefix hashes, so go
-                // directly to the data blocks.
-                if !config.whole_key_filtering {
+                        return Ok(None);
+                    }
+
                     return table.get_without_filter(key, seqno);
                 }
             }
