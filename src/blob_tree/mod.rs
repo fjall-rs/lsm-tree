@@ -270,7 +270,22 @@ impl AbstractTree for BlobTree {
     }
 
     fn clear(&self) -> crate::Result<()> {
-        self.index.clear()
+        let config = self.tree_config();
+        let mut versions = self.get_version_history_lock();
+
+        versions.upgrade_version(
+            &config.path,
+            |v| {
+                let mut copy = v.clone();
+                copy.active_memtable =
+                    Arc::new(Memtable::new(self.index.memtable_id_counter.next()));
+                copy.sealed_memtables = Arc::default();
+                copy.version = Version::new(v.version.id() + 1, self.tree_type());
+                Ok(copy)
+            },
+            &config.seqno,
+            &config.visible_seqno,
+        )
     }
 
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
@@ -521,10 +536,6 @@ impl AbstractTree for BlobTree {
 
     fn active_memtable(&self) -> Arc<Memtable> {
         self.index.active_memtable()
-    }
-
-    fn tree_type(&self) -> crate::TreeType {
-        crate::TreeType::Blob
     }
 
     fn rotate_memtable(&self) -> Option<Arc<Memtable>> {

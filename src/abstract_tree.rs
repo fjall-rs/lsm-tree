@@ -270,7 +270,13 @@ pub trait AbstractTree {
     fn active_memtable(&self) -> Arc<Memtable>;
 
     /// Returns the tree type.
-    fn tree_type(&self) -> crate::TreeType;
+    fn tree_type(&self) -> crate::TreeType {
+        self.tree_config()
+            .kv_separation_opts
+            .is_some()
+            .then(|| crate::TreeType::Blob)
+            .unwrap_or(crate::TreeType::Standard)
+    }
 
     /// Seals the active memtable.
     fn rotate_memtable(&self) -> Option<Arc<Memtable>>;
