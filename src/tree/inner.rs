@@ -65,6 +65,7 @@ pub struct TreeInner {
 
     /// Serializes flush operations.
     pub(crate) flush_lock: Mutex<()>,
+
     #[doc(hidden)]
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,

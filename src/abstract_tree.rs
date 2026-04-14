@@ -271,6 +271,8 @@ pub trait AbstractTree {
 
     /// Returns the tree type.
     fn tree_type(&self) -> crate::TreeType {
+        // NOTE: This is only really safe to do, because we validate
+        // that the config's kv_separation_opts is consistent with the tree type during recovery.
         if self.tree_config().kv_separation_opts.is_some() {
             crate::TreeType::Blob
         } else {
