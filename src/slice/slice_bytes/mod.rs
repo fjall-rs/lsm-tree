@@ -19,6 +19,12 @@ impl Slice {
         Self(Bytes::copy_from_slice(bytes))
     }
 
+    /// Returns the bytes slice containing the entire data.
+    #[must_use]
+    pub fn as_slice(&self) -> &[u8] {
+        &self
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn empty() -> Self {
