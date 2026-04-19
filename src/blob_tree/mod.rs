@@ -10,7 +10,7 @@ pub mod ingest;
 pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
-    abstract_tree::{AbstractTree, RangeItem},
+    abstract_tree::RangeItem,
     coding::Decode,
     iter_guard::{IterGuard, IterGuardImpl},
     table::Table,
@@ -18,7 +18,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter},
-    Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
+    AbstractTree, BatchItem, Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{
@@ -616,5 +616,14 @@ impl AbstractTree for BlobTree {
 
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
+    }
+
+    fn write_batch<K, V, I>(&self, it: I, seqno: SeqNo) -> (u64, u64)
+    where
+        K: Into<UserKey>,
+        V: Into<UserValue>,
+        I: IntoIterator<Item = BatchItem<K, V>>,
+    {
+        self.index.write_batch(it, seqno)
     }
 }
