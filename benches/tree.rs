@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
-    config::BlockSizePolicy, AbstractTree, Cache, Config, Guard, SeqNo, SequenceNumberCounter,
+    config::BlockSizePolicy, AbstractTree, BatchItem, Cache, Config, Guard, SeqNo,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -329,7 +330,6 @@ fn disk_point_read(c: &mut Criterion) {
 
 fn disjoint_tree_minmax(c: &mut Criterion) {
     let mut group = c.benchmark_group("Disjoint tree");
-
     let folder = tempfile::tempdir().unwrap();
 
     let tree = Config::new(
@@ -423,6 +423,39 @@ fn blob_tree_get(c: &mut Criterion) {
     });
 }
 
+fn tree_batch_write(c: &mut Criterion) {
+    let mut group = c.benchmark_group("write batch");
+    group.sample_size(10);
+
+    for batch_size in [10, 100, 1_000, 10_000] {
+        // prepare items outside the timed section
+        let items: Vec<_> = (0..batch_size)
+            .map(|i: u64| (i.to_be_bytes().to_vec(), b"value".to_vec()))
+            .collect();
+
+        group.bench_function(format!("naive loop, {batch_size} items"), |b| {
+            let path = tempdir().unwrap();
+            let tree = Config::new(path).open().unwrap();
+            b.iter(|| {
+                for (k, v) in &items {
+                    tree.insert(k.clone(), v.clone(), 0);
+                }
+            });
+        });
+
+        group.bench_function(format!("write_batch, {batch_size} items"), |b| {
+            let path = tempdir().unwrap();
+            let tree = Config::new(path).open().unwrap();
+            b.iter(|| {
+                let batch = items
+                    .iter()
+                    .map(|(k, v)| BatchItem::Insert(k.clone(), v.clone()));
+                tree.write_batch(batch, 0);
+            });
+        });
+    }
+}
+
 // TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
 // TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
@@ -434,6 +467,7 @@ criterion_group!(
     full_scan,
     scan_vs_query,
     scan_vs_prefix,
+    tree_batch_write,
     tree_get_pairs,
 );
 criterion_main!(benches);
