@@ -435,7 +435,9 @@ fn tree_batch_write(c: &mut Criterion) {
 
         group.bench_function(format!("naive loop, {batch_size} items"), |b| {
             let path = tempdir().unwrap();
-            let tree = Config::new(path).open().unwrap();
+            let tree = Config::new(path, Default::default(), Default::default())
+                .open()
+                .unwrap();
             b.iter(|| {
                 for (k, v) in &items {
                     tree.insert(k.clone(), v.clone(), 0);
@@ -445,7 +447,9 @@ fn tree_batch_write(c: &mut Criterion) {
 
         group.bench_function(format!("write_batch, {batch_size} items"), |b| {
             let path = tempdir().unwrap();
-            let tree = Config::new(path).open().unwrap();
+            let tree = Config::new(path, Default::default(), Default::default())
+                .open()
+                .unwrap();
             b.iter(|| {
                 let batch = items
                     .iter()
