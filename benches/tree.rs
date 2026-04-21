@@ -14,7 +14,7 @@ fn full_scan(c: &mut Criterion) {
             let path = tempdir().unwrap();
 
             let tree = Config::new(
-                path,
+                path.path(),
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
@@ -39,7 +39,7 @@ fn full_scan(c: &mut Criterion) {
             let path = tempdir().unwrap();
 
             let tree = Config::new(
-                path,
+                path.path(),
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
@@ -72,7 +72,7 @@ fn scan_vs_query(c: &mut Criterion) {
         let path = tempdir().unwrap();
 
         let tree = Config::new(
-            path,
+            path.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
         )
@@ -143,7 +143,7 @@ fn scan_vs_prefix(c: &mut Criterion) {
         let path = tempdir().unwrap();
 
         let tree = Config::new(
-            path,
+            path.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
         )
@@ -204,7 +204,7 @@ fn tree_get_pairs(c: &mut Criterion) {
         {
             let folder = tempfile::tempdir().unwrap();
             let tree = Config::new(
-                folder,
+                folder.path(),
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
@@ -246,7 +246,7 @@ fn tree_get_pairs(c: &mut Criterion) {
         {
             let folder = tempfile::tempdir().unwrap();
             let tree = Config::new(
-                folder,
+                folder.path(),
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
@@ -293,7 +293,7 @@ fn disk_point_read(c: &mut Criterion) {
     let folder = tempdir().unwrap();
 
     let tree = Config::new(
-        folder,
+        folder.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
@@ -333,7 +333,7 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
     let folder = tempfile::tempdir().unwrap();
 
     let tree = Config::new(
-        folder,
+        folder.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
@@ -414,6 +414,7 @@ fn blob_tree_get(c: &mut Criterion) {
     let value = b"powek5bowa".repeat(100);
 
     tree.insert("mykey", &value, 0);
+    tree.flush_active_memtable(0).unwrap();
 
     c.bench_function("blob tree get", |b| {
         b.iter(|| {
