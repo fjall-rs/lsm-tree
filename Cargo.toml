@@ -74,12 +74,6 @@ path = "benches/bloom.rs"
 required-features = []
 
 [[bench]]
-name = "block"
-harness = false
-path = "benches/block.rs"
-required-features = ["lz4"]
-
-[[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
