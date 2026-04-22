@@ -519,6 +519,52 @@ pub trait AbstractTree {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
+    /// Reads multiple keys from the tree.
+    ///
+    /// Returns a `Vec` with exactly one entry per input key, in the same order
+    /// as the input. Each entry is `Some(value)` if the key was found, or
+    /// `None` if it was missing. Duplicate keys in the input produce duplicate
+    /// entries in the output. This contract is guaranteed for all
+    /// implementations, including optimized ones.
+    ///
+    /// Implementations may choose to perform all lookups against a single
+    /// version snapshot and acquire the version lock only once, which can be
+    /// more efficient than calling [`AbstractTree::get`] in a loop. The
+    /// default trait implementation, however, is a convenience wrapper that
+    /// simply calls [`AbstractTree::get`] for each key and therefore does not
+    /// guarantee a single-snapshot or single-lock acquisition. Optimized
+    /// implementations (such as [`Tree`] and [`BlobTree`]) provide the
+    /// single-snapshot/one-lock behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// tree.insert("a", "value_a", 0);
+    /// tree.insert("b", "value_b", 1);
+    ///
+    /// let results = tree.multi_get(["a", "b", "c"], 2)?;
+    /// assert_eq!(results[0], Some("value_a".as_bytes().into()));
+    /// assert_eq!(results[1], Some("value_b".as_bytes().into()));
+    /// assert_eq!(results[2], None);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn multi_get<K: AsRef<[u8]>>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<UserValue>>> {
+        keys.into_iter().map(|key| self.get(key, seqno)).collect()
+    }
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.
