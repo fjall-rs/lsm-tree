@@ -58,7 +58,7 @@ Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeit
 
 ### bytes_1
 
-Uses [`bytes 1.x`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type.
+Uses [`bytes`](https://github.com/tokio-rs/bytes) 1.x as the underlying `Slice` type.
 
 *Disabled by default.*
 
