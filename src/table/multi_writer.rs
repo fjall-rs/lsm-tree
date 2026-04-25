@@ -137,7 +137,7 @@ impl MultiWriter {
         mut self,
         extractor: Option<crate::prefix::SharedPrefixExtractor>,
     ) -> Self {
-        self.prefix_extractor = extractor.clone();
+        self.prefix_extractor.clone_from(&extractor);
         self.writer = self.writer.use_prefix_extractor(extractor);
         self
     }

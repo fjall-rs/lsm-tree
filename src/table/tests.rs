@@ -1542,7 +1542,7 @@ fn table_partitioned_prefix_filter_spills_during_register_bytes() -> crate::Resu
             k.extend_from_slice(format!("{i:04}").as_bytes());
             writer.write(InternalValue::from_components(
                 &k,
-                &[],
+                [],
                 0,
                 crate::ValueType::Value,
             ))?;
@@ -1663,7 +1663,7 @@ fn table_should_skip_range_by_prefix_filter() -> crate::Result<()> {
             k.extend_from_slice(format!("{i:04}").as_bytes());
             writer.write(InternalValue::from_components(
                 &k,
-                &[],
+                [],
                 0,
                 crate::ValueType::Value,
             ))?;
@@ -1749,7 +1749,7 @@ fn table_should_skip_range_multi_prefix_start_match_min_key() -> crate::Result<(
             k.extend_from_slice(format!("{i:04}").as_bytes());
             writer.write(InternalValue::from_components(
                 &k,
-                &[],
+                [],
                 0,
                 crate::ValueType::Value,
             ))?;

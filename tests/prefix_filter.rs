@@ -1033,24 +1033,24 @@ fn test_prefix_filter_single_byte_keys() -> lsm_tree::Result<()> {
 
     // Insert single-byte keys
     for i in 0u8..10 {
-        tree.insert(&[i], format!("value_{}", i).as_bytes(), 0);
+        tree.insert([i], format!("value_{}", i).as_bytes(), 0);
     }
 
     // Insert two-byte keys
     for i in 0u8..10 {
-        tree.insert(&[i, i], format!("value_{}{}", i, i).as_bytes(), 0);
+        tree.insert([i, i], format!("value_{}{}", i, i).as_bytes(), 0);
     }
 
     tree.flush_active_memtable(0)?;
 
     // All keys should be found
     for i in 0u8..10 {
-        assert!(tree.contains_key(&[i], u64::MAX)?);
-        assert!(tree.contains_key(&[i, i], u64::MAX)?);
+        assert!(tree.contains_key([i], u64::MAX)?);
+        assert!(tree.contains_key([i, i], u64::MAX)?);
     }
 
     // Non-existent single-byte key
-    assert!(!tree.contains_key(&[255], u64::MAX)?);
+    assert!(!tree.contains_key([255], u64::MAX)?);
 
     #[cfg(feature = "metrics")]
     {
@@ -1139,7 +1139,7 @@ fn test_prefix_filter_non_ascii() -> lsm_tree::Result<()> {
     tree.insert("prefix_café".as_bytes(), b"accented", 0);
 
     // Insert binary keys (non-UTF8)
-    tree.insert(&[0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA], b"binary", 0);
+    tree.insert([0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA], b"binary", 0);
 
     tree.flush_active_memtable(0)?;
 
@@ -1151,11 +1151,11 @@ fn test_prefix_filter_non_ascii() -> lsm_tree::Result<()> {
     assert!(tree.contains_key("prefix_тест_data".as_bytes(), u64::MAX)?);
     assert!(tree.contains_key("prefix_🦀_data".as_bytes(), u64::MAX)?);
     assert!(tree.contains_key("prefix_café".as_bytes(), u64::MAX)?);
-    assert!(tree.contains_key(&[0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA], u64::MAX)?);
+    assert!(tree.contains_key([0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA], u64::MAX)?);
 
     // Non-existent keys
     assert!(!tree.contains_key("prefix_missing".as_bytes(), u64::MAX)?);
-    assert!(!tree.contains_key(&[0xFF, 0xFE, 0xFD, 0x00, 0x00, 0x00], u64::MAX)?);
+    assert!(!tree.contains_key([0xFF, 0xFE, 0xFD, 0x00, 0x00, 0x00], u64::MAX)?);
 
     #[cfg(feature = "metrics")]
     {
@@ -4023,7 +4023,7 @@ fn test_fixed_length_extractor_pipeline() -> lsm_tree::Result<()> {
         .prefix(b"aaaa_001", SeqNo::MAX, None)
         .map(|g| g.key().unwrap())
         .collect();
-    assert!(keys.len() >= 1);
+    assert!(!keys.is_empty());
     assert!(keys.iter().any(|k| &**k == b"aaaa_001"));
 
     // Range query still returns all keys in range
@@ -4943,13 +4943,13 @@ fn test_prefix_query_all_0xff_prefix_correctness() -> lsm_tree::Result<()> {
     .prefix_extractor(Arc::new(FixedPrefixExtractor::new(1)))
     .open()?;
 
-    tree.insert(&[0x00, 0x01], b"v1", 0);
-    tree.insert(&[0xFE, 0x01], b"v2", 0);
+    tree.insert([0x00, 0x01], b"v1", 0);
+    tree.insert([0xFE, 0x01], b"v2", 0);
     tree.flush_active_memtable(0)?;
 
     // Query for prefix [0xFF] — no keys should be found
     let keys: Vec<_> = tree
-        .prefix(&[0xFF], SeqNo::MAX, None)
+        .prefix([0xFF], SeqNo::MAX, None)
         .map(|g| g.key().unwrap())
         .collect();
     assert_eq!(keys.len(), 0, "no keys with prefix 0xFF should be found");

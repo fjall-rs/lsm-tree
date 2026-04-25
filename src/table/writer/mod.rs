@@ -257,6 +257,7 @@ impl Writer {
         self
     }
 
+    #[must_use]
     pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
         self.whole_key_filtering = enabled;
         self
