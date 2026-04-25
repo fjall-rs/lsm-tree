@@ -47,6 +47,10 @@ impl RunReader {
     /// prefix filter pruning determines that no table in the run may contain keys for the range.
     /// Uses common-prefix pruning only; per-table skipping happens lazily during iteration.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "extended with prefix-hint validation, hash precomputation, and upfront pruning"
+    )]
     pub fn new<R: RangeBounds<UserKey>>(
         run: Arc<Run<Table>>,
         range: R,
@@ -134,13 +138,23 @@ impl RunReader {
                 let probe = if let Some(ref hint) = validated_prefix_hint {
                     hint.as_ref()
                 } else {
-                    start_key.expect("can_prune_upfront requires both bounds to be concrete")
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "can_prune_upfront is only true when both bounds are concrete or a validated hint is set"
+                    )]
+                    let key =
+                        start_key.expect("can_prune_upfront requires both bounds to be concrete");
+                    key
                 };
 
                 let mut checks = 0usize;
                 let mut has_potential_match = false;
 
                 for idx in lo..=hi {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "lo..=hi is bounded by run.len() from range_overlap_indexes"
+                    )]
                     let table = run.deref().get(idx).expect("should exist");
                     // SAFETY INVARIANT: range_overlap_indexes uses binary search on
                     // table min/max keys and is exact for disjoint sorted runs —
@@ -304,9 +318,7 @@ impl Iterator for RunReader {
                             let skip = if let (Some(ref hint), Some(hash)) =
                                 (&self.validated_prefix_hint, self.validated_prefix_hash)
                             {
-                                if !table.prefix_filter_allowed(Some(ex.name())) {
-                                    false
-                                } else {
+                                if table.prefix_filter_allowed(Some(ex.name())) {
                                     // Fast path: use precomputed hash to avoid
                                     // per-table extract() Box allocation and hashing.
                                     let probe =
@@ -327,6 +339,8 @@ impl Iterator for RunReader {
                                     }
 
                                     should_skip
+                                } else {
+                                    false
                                 }
                             } else {
                                 // should_skip_range_by_prefix_filter handles
@@ -408,9 +422,7 @@ impl DoubleEndedIterator for RunReader {
                             let skip = if let (Some(ref hint), Some(hash)) =
                                 (&self.validated_prefix_hint, self.validated_prefix_hash)
                             {
-                                if !table.prefix_filter_allowed(Some(ex.name())) {
-                                    false
-                                } else {
+                                if table.prefix_filter_allowed(Some(ex.name())) {
                                     let probe =
                                         table.probe_prefix_filter_with_hash(hint.as_ref(), hash);
 
@@ -429,6 +441,8 @@ impl DoubleEndedIterator for RunReader {
                                     }
 
                                     should_skip
+                                } else {
+                                    false
                                 }
                             } else {
                                 let tmp_range = (self.range_start.clone(), self.range_end.clone());

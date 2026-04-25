@@ -104,6 +104,10 @@ impl DoubleEndedIterator for TreeIter {
 }
 
 impl TreeIter {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "extended with prefix-hint validation and upfront pruning"
+    )]
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
         range: R,

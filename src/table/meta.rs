@@ -232,7 +232,7 @@ impl ParsedMeta {
         // for every key).
         let whole_key_filtering = block
             .point_read(b"whole_key_filtering", SeqNo::MAX)
-            .map_or(true, |v| v.value.first().copied().unwrap_or(1) != 0);
+            .is_none_or(|v| v.value.first().copied().unwrap_or(1) != 0);
 
         Ok(Self {
             id,
