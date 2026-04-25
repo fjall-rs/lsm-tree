@@ -314,7 +314,7 @@ impl Writer {
                 // (which may trigger a partition spill for partitioned filters)
                 // keeps all hashes for the same user key in the same partition.
                 if let Some(ref extractor) = self.prefix_extractor {
-                    self.filter_writer.notify_key(&user_key);
+                    self.filter_writer.notify_key(&user_key)?;
 
                     for prefix in extractor.extract(user_key.as_ref()) {
                         self.filter_writer.register_bytes(prefix)?;

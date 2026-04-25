@@ -6103,3 +6103,57 @@ fn test_wkf_persisted_across_reopen() -> lsm_tree::Result<()> {
 }
 
 
+
+/// Partition spills in the partitioned filter writer must occur on user-key
+/// boundaries, never mid-key. With many keys, a small partition target, and
+/// a prefix extractor + whole_key_filtering=true, every key produces multiple
+/// hashes (prefix + full key). All of those hashes must end up in the same
+/// partition so the partition's TLI key correctly maps to fully committed
+/// hashes for that key. Otherwise point reads can miss keys whose full-key
+/// hash lives in a different partition than the TLI lookup finds.
+#[test]
+fn test_partitioned_filter_no_midkey_spill() -> lsm_tree::Result<()> {
+    use lsm_tree::config::PartitioningPolicy;
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+        .whole_key_filtering(true)
+        .filter_block_partitioning_policy(PartitioningPolicy::all(true))
+        .filter_policy(lsm_tree::config::FilterPolicy::all(
+            lsm_tree::config::FilterPolicyEntry::Bloom(
+                lsm_tree::config::BloomConstructionPolicy::BitsPerKey(10.0),
+            ),
+        ))
+        .open()?;
+
+    let n = 50000;
+    for i in 0..n {
+        let key = format!("abc{i:08}");
+        tree.insert(key.as_bytes(), b"v", seqno.next());
+    }
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+
+    let mut lost = 0;
+    let mut sample_lost = String::new();
+    for i in 0..n {
+        let key = format!("abc{i:08}");
+        if tree.get(key.as_bytes(), SeqNo::MAX)?.is_none() {
+            lost += 1;
+            if sample_lost.is_empty() {
+                sample_lost = key;
+            }
+        }
+    }
+
+    assert_eq!(
+        lost, 0,
+        "lost {} of {} keys (sample: {})",
+        lost, n, sample_lost
+    );
+
+    Ok(())
+}

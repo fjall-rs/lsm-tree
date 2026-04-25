@@ -171,8 +171,18 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         self
     }
 
-    fn notify_key(&mut self, key: &UserKey) {
+    fn notify_key(&mut self, key: &UserKey) -> crate::Result<()> {
+        // If the buffered partition is over the threshold, spill it before
+        // recording the new key. Spilling here (rather than mid-key, in
+        // register_bytes/register_key) guarantees the spilled partition's TLI
+        // key corresponds to a key whose hashes are all already committed.
+        if self.approx_filter_size >= self.partition_size as usize {
+            if let Some(prev_key) = self.last_key.clone() {
+                self.spill_filter_partition(&prev_key)?;
+            }
+        }
         self.last_key = Some(key.clone());
+        Ok(())
     }
 
     fn enable_dedup(&mut self) {
@@ -188,6 +198,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
 
         self.last_key = Some(key.clone());
 
+        // Spilling here is safe because register_key is called once per user
+        // key, after all of that key's prefix hashes (if any) have been
+        // registered. The spilled partition's TLI key correctly maps to a
+        // key whose hashes are fully present in the partition.
         if self.approx_filter_size >= self.partition_size as usize {
             self.spill_filter_partition(key)?;
         }
@@ -195,24 +209,16 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         Ok(())
     }
 
-    #[expect(
-        clippy::expect_used,
-        reason = "last_key is always set by notify_key before register_bytes is called"
-    )]
     fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
+        // Buffer the hash without spilling. Mid-key spills are deferred to
+        // the next `notify_key` (or `register_key` for the same user key)
+        // so the spilled partition's TLI key always reflects fully committed
+        // hashes for that key.
         self.bloom_hash_buffer.push(Builder::get_hash(bytes));
 
         self.approx_filter_size = self
             .bloom_policy
             .estimated_filter_size(self.bloom_hash_buffer.len());
-
-        if self.approx_filter_size >= self.partition_size as usize {
-            let key = self
-                .last_key
-                .clone()
-                .expect("last_key should be set by notify_key before register_bytes is called");
-            self.spill_filter_partition(&key)?;
-        }
 
         Ok(())
     }

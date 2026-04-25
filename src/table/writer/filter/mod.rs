@@ -29,12 +29,13 @@ pub trait FilterWriter<W: std::io::Write> {
     /// dedup is unnecessary.
     fn enable_dedup(&mut self) {}
 
-    /// Informs the filter writer about the current user key for partition boundary
-    /// tracking without adding its hash to the filter. This is needed when a prefix
-    /// extractor is configured: only extracted prefixes are hashed (via `register_bytes`),
-    /// but the partitioned filter writer still needs the actual user key to create
-    /// correct top-level index entries. No-op for non-partitioned filters.
-    fn notify_key(&mut self, _key: &UserKey) {}
+    /// Informs the filter writer that a new user key is about to be registered.
+    /// Implementations may use this to spill partitions on key boundaries so a
+    /// partition's TLI key always corresponds to a key whose hashes are fully
+    /// committed to that partition. No-op for non-partitioned filters.
+    fn notify_key(&mut self, _key: &UserKey) -> crate::Result<()> {
+        Ok(())
+    }
 
     /// Writes the filter to a file.
     ///
