@@ -4735,7 +4735,7 @@ fn test_prefix_query_filter_used_single_table_3byte_prefix() -> lsm_tree::Result
     )
     .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
     .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
-        BloomConstructionPolicy::BitsPerKey(50.0),
+        BloomConstructionPolicy::BitsPerKey(10.0),
     )))
     .open()?;
 
@@ -5416,7 +5416,7 @@ fn test_multi_prefix_extract_last_correctness() -> lsm_tree::Result<()> {
     .prefix_extractor(Arc::new(HierarchicalPrefixExtractor))
     .filter_policy(lsm_tree::config::FilterPolicy::all(
         lsm_tree::config::FilterPolicyEntry::Bloom(
-            lsm_tree::config::BloomConstructionPolicy::BitsPerKey(50.0),
+            lsm_tree::config::BloomConstructionPolicy::BitsPerKey(10.0),
         ),
     ))
     .open()?;
@@ -5676,7 +5676,7 @@ fn open_tree_wkf(
     .whole_key_filtering(whole_key_filtering)
     .filter_policy(lsm_tree::config::FilterPolicy::all(
         lsm_tree::config::FilterPolicyEntry::Bloom(
-            lsm_tree::config::BloomConstructionPolicy::BitsPerKey(50.0),
+            lsm_tree::config::BloomConstructionPolicy::BitsPerKey(10.0),
         ),
     ))
     .open()
@@ -5894,7 +5894,7 @@ fn test_wkf_no_effect_without_extractor() -> lsm_tree::Result<()> {
         .whole_key_filtering(wkf)
         .filter_policy(lsm_tree::config::FilterPolicy::all(
             lsm_tree::config::FilterPolicyEntry::Bloom(
-                lsm_tree::config::BloomConstructionPolicy::BitsPerKey(50.0),
+                lsm_tree::config::BloomConstructionPolicy::BitsPerKey(10.0),
             ),
         ))
         .open()?;
@@ -6050,3 +6050,56 @@ fn test_wkf_correctness_large_dataset() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// Tables written with `whole_key_filtering=false` contain only prefix hashes
+/// (no full-key hashes). After reopening with `whole_key_filtering=true`, point
+/// reads must continue to find every key — the read path must rely on the
+/// table's own persisted filter contents, not the runtime config.
+#[test]
+fn test_wkf_persisted_across_reopen() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+    let version = SequenceNumberCounter::default();
+
+    // Phase 1: write with whole_key_filtering=false
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+            .whole_key_filtering(false)
+            .filter_policy(lsm_tree::config::FilterPolicy::all(
+                lsm_tree::config::FilterPolicyEntry::Bloom(
+                    lsm_tree::config::BloomConstructionPolicy::BitsPerKey(10.0),
+                ),
+            ))
+            .open()?;
+
+        tree.insert(b"abcXYZ", b"v1", seqno.next());
+        tree.insert(b"abcDEF", b"v2", seqno.next());
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(&*tree.get(b"abcXYZ", SeqNo::MAX)?.unwrap(), b"v1");
+    }
+
+    // Phase 2: reopen with whole_key_filtering=true (default)
+    {
+        let tree = Config::new(&folder, seqno.clone(), version.clone())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+            .whole_key_filtering(true)
+            .open()?;
+
+        // The key MUST be found. If it's not, we have data loss.
+        let result = tree.get(b"abcXYZ", SeqNo::MAX)?;
+        assert!(
+            result.is_some(),
+            "key abcXYZ exists but get returned None — data loss from wkf mismatch"
+        );
+        assert_eq!(&*result.unwrap(), b"v1");
+
+        let result2 = tree.get(b"abcDEF", SeqNo::MAX)?;
+        assert!(result2.is_some(), "key abcDEF exists but get returned None");
+    }
+
+    Ok(())
+}
+
+

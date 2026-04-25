@@ -521,6 +521,14 @@ impl Writer {
             // If names differ, disable prefix-based pruning for this table to avoid false negatives.
             if let Some(ref extractor) = self.prefix_extractor {
                 meta_items.push(meta("prefix_extractor", extractor.name().as_bytes()));
+                // Persist whether this table contains full-key hashes alongside
+                // prefix hashes. Reads must use this value (not the runtime
+                // config) to decide whether the full-key Bloom is trustworthy.
+                // Mismatched config at recovery would otherwise cause data loss.
+                meta_items.push(meta(
+                    "whole_key_filtering",
+                    &[u8::from(self.whole_key_filtering)],
+                ));
             }
             meta_items.push(meta(
                 "restart_interval#data",
