@@ -872,16 +872,19 @@ impl Tree {
 
         if allow_filter {
             if let Some(ex) = config.prefix_extractor.as_ref() {
-                if config.whole_key_filtering {
-                    // When whole_key_filtering is enabled, the filter contains
-                    // full-key hashes. The full-key Bloom is strictly more
-                    // precise than the prefix pre-check for point reads, so
-                    // skip the prefix check entirely and go straight to the
-                    // Bloom. This avoids a redundant filter probe on every
-                    // point read.
+                // Use the TABLE's persisted whole_key_filtering value, NOT the
+                // runtime config. Otherwise reopening a tree with a different
+                // config could route reads through the wrong filter type and
+                // produce false negatives (data loss).
+                if table.metadata.whole_key_filtering {
+                    // The table's filter contains full-key hashes. The full-key
+                    // Bloom is strictly more precise than the prefix pre-check
+                    // for point reads, so skip the prefix check and go straight
+                    // to the Bloom. This avoids a redundant filter probe on
+                    // every point read.
                 } else {
-                    // Without whole_key_filtering, the filter only has prefix
-                    // hashes. Use the prefix filter as the sole pre-check.
+                    // Table only has prefix hashes; use the prefix filter as
+                    // the sole pre-check.
                     let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
 
                     #[cfg(feature = "metrics")]

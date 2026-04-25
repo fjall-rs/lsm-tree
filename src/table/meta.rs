@@ -53,6 +53,15 @@ pub struct ParsedMeta {
 
     /// Optional name of the prefix extractor used when this table was created.
     pub prefix_extractor_name: Option<String>,
+
+    /// Whether this table's filter contains full-key hashes alongside prefix hashes.
+    /// Only meaningful when `prefix_extractor_name` is `Some`. When false, the filter
+    /// has only prefix hashes and the full-key Bloom path is unsafe to use (would
+    /// produce false negatives = data loss).
+    ///
+    /// Defaults to `true` for backward compatibility with tables written before this
+    /// field was persisted (those tables always wrote full-key hashes).
+    pub whole_key_filtering: bool,
 }
 
 macro_rules! read_u8 {
@@ -217,6 +226,14 @@ impl ParsedMeta {
             })
             .transpose()?;
 
+        // whole_key_filtering: defaults to true for tables written before this
+        // field was persisted. Such tables predate prefix_extractor support,
+        // so they always wrote full-key hashes (no extractor → register_key
+        // for every key).
+        let whole_key_filtering = block
+            .point_read(b"whole_key_filtering", SeqNo::MAX)
+            .map_or(true, |v| v.value.first().copied().unwrap_or(1) != 0);
+
         Ok(Self {
             id,
             created_at,
@@ -232,6 +249,7 @@ impl ParsedMeta {
             data_block_compression,
             index_block_compression,
             prefix_extractor_name,
+            whole_key_filtering,
         })
     }
 }
