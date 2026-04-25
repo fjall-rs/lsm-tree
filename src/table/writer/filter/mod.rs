@@ -30,9 +30,16 @@ pub trait FilterWriter<W: std::io::Write> {
     fn enable_dedup(&mut self) {}
 
     /// Informs the filter writer that a new user key is about to be registered.
-    /// Implementations may use this to spill partitions on key boundaries so a
-    /// partition's TLI key always corresponds to a key whose hashes are fully
-    /// committed to that partition. No-op for non-partitioned filters.
+    /// Implementations may use this to spill an oversized buffered partition
+    /// on key boundaries, so a partition's TLI key always corresponds to a
+    /// key whose hashes are fully committed to that partition. No-op for
+    /// non-partitioned filters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a partition spill triggered by this call fails.
+    /// Only possible for partitioned implementations, which perform I/O
+    /// during spills.
     fn notify_key(&mut self, _key: &UserKey) -> crate::Result<()> {
         Ok(())
     }

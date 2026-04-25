@@ -373,12 +373,17 @@ impl Table {
         }
     }
 
-    /// Checks via the filter whether any extracted prefix of `key` may be present in this table.
-    /// Returns:
+    /// Checks via the filter whether the key's first extracted prefix may be
+    /// present in this table. Returns:
     /// - Ok(Some(true)) if the filter indicates a possible match
     /// - Ok(Some(false)) if the filter indicates no match
-    /// - Ok(None) if the key is out of the extractor's domain
-    ///   If no filter is available for this table, returns Ok(Some(true)).
+    /// - Ok(None) if the key is out of the extractor's domain, the table's
+    ///   stored extractor is incompatible with the current one, or no
+    ///   filter block is available for this table.
+    ///
+    /// Only `extract_first` is consulted (single-probe). Callers that have
+    /// already computed a hash for a more specific prefix should use
+    /// `probe_prefix_filter_with_hash` instead.
     pub fn maybe_contains_prefix(
         &self,
         key: &[u8],
@@ -778,9 +783,13 @@ impl Table {
         //
         // We can only trust the probe when the extractor produces the same prefix
         // for both the hint AND for keys that would match the prefix query. We
-        // verify this by checking that extract_first(hint) == extract_first(hint + "\0"):
-        // if appending a byte changes the extracted prefix, the hint is not a stable
-        // prefix for the keys in the range and the probe could yield a false negative.
+        // verify this with a stability guard: extract_X(hint) == extract_X(hint + "\0").
+        // If appending a byte changes the extracted prefix, the hint is not a
+        // stable prefix for the keys in the range and the probe could yield a
+        // false negative.
+        //
+        // We try extract_last first (most specific prefix → best Bloom pruning),
+        // and fall back to extract_first if the last-prefix guard fails.
         if let Some(hint) = prefix_hint {
             let extended: Vec<u8> = hint.iter().copied().chain(std::iter::once(0u8)).collect();
 

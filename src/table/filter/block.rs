@@ -17,9 +17,14 @@ impl FilterBlock {
         Ok(StandardBloomFilterReader::new(&self.0.data)?.contains_hash(hash))
     }
 
-    /// Returns Ok(Some(true)) if any extracted prefix of `key` may be contained.
-    /// Returns Ok(Some(false)) if the filter indicates no extracted prefix is present.
-    /// Returns Ok(None) if the key is out of the extractor's domain (no prefixes).
+    /// Returns Ok(Some(true)) if the key's first extracted prefix may be
+    /// contained, Ok(Some(false)) if the filter indicates that prefix is
+    /// not present, or Ok(None) if the key is out of the extractor's
+    /// domain (`extract_first` returns None).
+    ///
+    /// Only `extract_first` is consulted. For multi-prefix extractors that
+    /// want to probe the most-specific prefix, use the hash-based probe
+    /// path on `Table` instead.
     pub fn maybe_contains_prefix(
         &self,
         key: &[u8],

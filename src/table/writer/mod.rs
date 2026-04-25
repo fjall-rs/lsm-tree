@@ -310,9 +310,19 @@ impl Writer {
                 // This matches RocksDB's whole_key_filtering + prefix_extractor
                 // approach.
                 //
-                // Prefixes are registered first so that the full key registration
-                // (which may trigger a partition spill for partitioned filters)
-                // keeps all hashes for the same user key in the same partition.
+                // Order matters for partitioned filters:
+                //   1. notify_key flushes any pending oversized partition
+                //      first, using the *previous* user key as the TLI
+                //      boundary — so partition i covers everything up to and
+                //      including the previous user key.
+                //   2. Prefix hashes are buffered (register_bytes never spills).
+                //   3. The full-key hash is registered last; register_key is
+                //      the only spill trigger inside this key, and any spill
+                //      it causes uses the *current* user key as the TLI
+                //      boundary, after all of this key's hashes (prefixes +
+                //      full) are committed to the partition.
+                // This guarantees a partition's TLI key always corresponds
+                // to a key whose hashes are fully present in that partition.
                 if let Some(ref extractor) = self.prefix_extractor {
                     self.filter_writer.notify_key(&user_key)?;
 

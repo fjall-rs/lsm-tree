@@ -28,13 +28,17 @@ pub struct RunReader {
 
     // Pre-validated prefix hint for direct filter probing during lazy iteration.
     // Set only when the prefix_hint passes the stability guard
-    // (extract_first(hint) == extract_first(hint + "\0")), meaning the hint IS
-    // a valid extracted prefix and probe_prefix_filter can be called directly
-    // without the per-table guard check or Vec allocation.
+    // (extract_X(hint) == extract_X(hint + "\0")) for either extract_last
+    // (preferred, most specific prefix → best pruning) or, as a fallback,
+    // extract_first. When set, `validated_prefix_hash` holds the hash of
+    // that validated prefix, so probe_prefix_filter_with_hash can be called
+    // directly without per-table guard checks, extract() Box allocations,
+    // or rehashing.
     validated_prefix_hint: Option<UserKey>,
 
-    // Precomputed hash of the validated prefix, avoiding per-table extract()
-    // Box allocation and hash computation in the lazy loop hot path.
+    // Precomputed hash of the validated prefix (see `validated_prefix_hint`).
+    // Avoids per-table extract() Box allocation and hash computation in the
+    // lazy loop hot path.
     validated_prefix_hash: Option<u64>,
 }
 
@@ -398,6 +402,9 @@ impl DoubleEndedIterator for RunReader {
                         );
 
                         if let Some(ex) = &self.extractor {
+                            // prefix_filter_allowed must be checked per-table because
+                            // optimize_runs can merge tables from different runs that
+                            // were built with different extractor configs.
                             let skip = if let (Some(ref hint), Some(hash)) =
                                 (&self.validated_prefix_hint, self.validated_prefix_hash)
                             {

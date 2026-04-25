@@ -172,10 +172,12 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
     }
 
     fn notify_key(&mut self, key: &UserKey) -> crate::Result<()> {
-        // If the buffered partition is over the threshold, spill it before
-        // recording the new key. Spilling here (rather than mid-key, in
-        // register_bytes/register_key) guarantees the spilled partition's TLI
-        // key corresponds to a key whose hashes are all already committed.
+        // If the buffered partition is over the threshold, spill it now,
+        // before any of the new key's hashes are buffered. The spilled
+        // partition's TLI key is the *previous* user key, whose hashes are
+        // all already committed. register_bytes never spills; register_key
+        // may spill at the end of a user key, after all of that key's
+        // hashes (prefixes + full) have been buffered.
         if self.approx_filter_size >= self.partition_size as usize {
             if let Some(prev_key) = self.last_key.clone() {
                 self.spill_filter_partition(&prev_key)?;
