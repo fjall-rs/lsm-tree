@@ -6102,8 +6102,6 @@ fn test_wkf_persisted_across_reopen() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-
-
 /// Partition spills in the partitioned filter writer must occur on user-key
 /// boundaries, never mid-key. With many keys, a small partition target, and
 /// a prefix extractor + whole_key_filtering=true, every key produces multiple

@@ -128,9 +128,15 @@ impl<'a> StandardBloomFilterReader<'a> {
         self.contains_hash(Self::get_hash(key))
     }
 
-    /// Returns `true` if any prefix of the key may be contained.
+    /// Returns `Some(true)` if the key's first extracted prefix may be
+    /// contained, `Some(false)` if it is definitively absent, or `None`
+    /// if the key is out of the extractor's domain (`extract_first`
+    /// returns None).
     ///
-    /// Returns `None` if the key is out of domain.
+    /// Note: only the first extracted prefix is consulted. For multi-prefix
+    /// extractors, this is a coarse pruning probe — callers that need to
+    /// check the most-specific prefix should compute that prefix's hash
+    /// themselves and use a hash-based probe path on `Table`.
     #[must_use]
     pub fn contains_prefix(
         &self,
