@@ -6263,3 +6263,194 @@ fn test_partitioned_filter_dedup_after_rotation() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// When the configured prefix extractor doesn't match the table's persisted
+/// extractor name (different extractor, removed extractor, or legacy table
+/// without one), the prefix filter is bypassed — but the full-key Bloom is
+/// still valid whenever the table was written with `whole_key_filtering=true`.
+/// `point_read_from_table` should consult that Bloom instead of falling
+/// straight through to a data-block scan.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_full_key_bloom_used_on_extractor_mismatch() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    // Write tables with extractor X and WKF=true (so full-key hashes are in
+    // the filter).
+    {
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+            .whole_key_filtering(true)
+            .open()?;
+
+        for i in 0..100 {
+            let key = format!("abc{i:05}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with a different extractor (length 5 vs 3) — names mismatch, so
+    // `prefix_filter_allowed` returns false on the existing tables.
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(5)))
+        .whole_key_filtering(true)
+        .open()?;
+
+    let queries_before = tree.metrics().filter_queries();
+
+    // Look up an absent key that lies *within* the table's key range so
+    // `get_for_key` doesn't prune before reaching `point_read_from_table`.
+    // The full-key Bloom should reject it — incrementing both
+    // `filter_queries` and `io_skipped_by_filter`. Without the optimization,
+    // the read would skip the filter entirely (no metric bump).
+    assert!(!tree.contains_key(b"abc00000_absent", u64::MAX)?);
+
+    let queries_after = tree.metrics().filter_queries();
+    assert!(
+        queries_after > queries_before,
+        "full-key Bloom not consulted on extractor mismatch: filter_queries unchanged ({} -> {})",
+        queries_before,
+        queries_after,
+    );
+
+    // Sanity: real keys still found.
+    for i in 0..10 {
+        let key = format!("abc{i:05}");
+        assert!(tree.contains_key(key.as_bytes(), u64::MAX)?);
+    }
+
+    Ok(())
+}
+
+/// Same optimization for tables written without an extractor: legacy tables
+/// store full-key hashes, and reopening with a configured extractor must
+/// still be able to use the full-key Bloom.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_full_key_bloom_used_on_legacy_table_reopen() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    // Write legacy tables (no extractor configured).
+    {
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+
+        for i in 0..100 {
+            let key = format!("abc{i:05}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with an extractor — `prefix_filter_allowed` returns false because
+    // the table's persisted name is None but the current config is Some(_).
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+        .whole_key_filtering(true)
+        .open()?;
+
+    let queries_before = tree.metrics().filter_queries();
+
+    assert!(!tree.contains_key(b"abc00000_absent", u64::MAX)?);
+
+    let queries_after = tree.metrics().filter_queries();
+    assert!(
+        queries_after > queries_before,
+        "full-key Bloom not consulted on legacy table: filter_queries unchanged ({} -> {})",
+        queries_before,
+        queries_after,
+    );
+
+    for i in 0..10 {
+        let key = format!("abc{i:05}");
+        assert!(tree.contains_key(key.as_bytes(), u64::MAX)?);
+    }
+
+    Ok(())
+}
+
+/// Mirror of the previous test: tree opened *without* an extractor reading
+/// tables that were written *with* one. The full-key Bloom is still queryable.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_full_key_bloom_used_when_extractor_dropped() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    {
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+            .whole_key_filtering(true)
+            .open()?;
+
+        for i in 0..100 {
+            let key = format!("abc{i:05}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen without an extractor.
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+
+    let queries_before = tree.metrics().filter_queries();
+    assert!(!tree.contains_key(b"abc00000_absent", u64::MAX)?);
+    let queries_after = tree.metrics().filter_queries();
+    assert!(
+        queries_after > queries_before,
+        "full-key Bloom not consulted after dropping extractor: filter_queries unchanged ({} -> {})",
+        queries_before,
+        queries_after,
+    );
+
+    for i in 0..10 {
+        let key = format!("abc{i:05}");
+        assert!(tree.contains_key(key.as_bytes(), u64::MAX)?);
+    }
+
+    Ok(())
+}
+
+/// When the table was written with `whole_key_filtering=false` and a now-
+/// mismatched extractor, the full-key Bloom is **not** valid (the filter
+/// only contains prefix hashes). The read path must skip the filter entirely
+/// in that case to avoid false negatives.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_full_key_bloom_skipped_when_table_wkf_false_and_mismatch() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    {
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+            .whole_key_filtering(false)
+            .open()?;
+
+        for i in 0..100 {
+            let key = format!("abc{i:05}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with mismatched extractor.
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(5)))
+        .whole_key_filtering(false)
+        .open()?;
+
+    // No false negatives: every real key must still be found, even though the
+    // table's prefix-only filter is unusable with the new extractor.
+    for i in 0..100 {
+        let key = format!("abc{i:05}");
+        assert!(
+            tree.contains_key(key.as_bytes(), u64::MAX)?,
+            "false negative on key {key}",
+        );
+    }
+
+    Ok(())
+}
