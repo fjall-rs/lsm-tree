@@ -20,8 +20,8 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
-    ValueType,
+    AbstractTree, BatchItem, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey,
+    UserValue, ValueType,
 };
 use inner::{TreeId, TreeInner};
 use std::{
@@ -660,6 +660,24 @@ impl AbstractTree for Tree {
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
+    }
+
+    fn write_batch<K, V, I>(&self, it: I, seqno: SeqNo) -> (u64, u64)
+    where
+        K: Into<UserKey>,
+        V: Into<UserValue>,
+        I: IntoIterator<Item = BatchItem<K, V>>,
+    {
+        let active_memtable = self.active_memtable();
+        let items = it.into_iter().map(|item| match item {
+            BatchItem::Insert(key, value) => {
+                InternalValue::from_components(key, value, seqno, ValueType::Value)
+            }
+            BatchItem::Remove(key) => InternalValue::new_tombstone(key, seqno),
+            BatchItem::RemoveWeak(key) => InternalValue::new_weak_tombstone(key, seqno),
+        });
+
+        active_memtable.insert_batch(items)
     }
 }
 

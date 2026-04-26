@@ -13,6 +13,25 @@ use std::{
 
 pub type RangeItem = crate::Result<KvPair>;
 
+/// A single operation within a write batch.
+///
+/// Used with [`AbstractTree::write_batch`] to perform multiple
+/// insert and delete operations using a single memtable lookup.
+pub enum BatchItem<K: Into<UserKey>, V: Into<UserValue>> {
+    /// Insert a key-value pair.
+    Insert(K, V),
+
+    /// Remove a key (strong tombstone).
+    Remove(K),
+
+    /// Remove a key (weak tombstone).
+    ///
+    /// The tombstone marker will vanish when it collides with its
+    /// corresponding insertion. Should only be used when a key is
+    /// only ever written once.
+    RemoveWeak(K),
+}
+
 type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 
 /// Generic Tree API
@@ -546,6 +565,39 @@ pub trait AbstractTree {
         value: V,
         seqno: SeqNo,
     ) -> (u64, u64);
+
+    /// Writes a batch of operations into the tree.
+    ///
+    /// This is more efficient than calling [`insert`](AbstractTree::insert),
+    /// [`remove`](AbstractTree::remove), or [`remove_weak`](AbstractTree::remove_weak)
+    /// in a loop, because the active memtable is resolved once instead of
+    /// once per item.
+    ///
+    /// Returns the size sum of all inserted entries and the new size of the memtable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, BatchItem, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    ///
+    /// let batch = vec![
+    ///     BatchItem::Insert("a", "hello"),
+    ///     BatchItem::Insert("b", "world"),
+    ///     BatchItem::Remove("c"),
+    /// ];
+    ///
+    /// tree.write_batch(batch, 0);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    fn write_batch<K, V, I>(&self, it: I, seqno: SeqNo) -> (u64, u64)
+    where
+        K: Into<UserKey>,
+        V: Into<UserValue>,
+        I: IntoIterator<Item = BatchItem<K, V>>;
 
     /// Removes an item from the tree.
     ///
