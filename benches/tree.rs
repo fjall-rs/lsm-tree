@@ -447,7 +447,7 @@ fn tree_batch_write(c: &mut Criterion) {
 
         group.bench_function(format!("write_batch, {batch_size} items"), |b| {
             let path = tempdir().unwrap();
-            let tree = Config::new(path, Default::default(), Default::default())
+            let tree = Config::new(path.path(), Default::default(), Default::default())
                 .open()
                 .unwrap();
             b.iter(|| {

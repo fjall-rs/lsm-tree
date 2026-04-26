@@ -672,22 +672,15 @@ impl AbstractTree for Tree {
         I: IntoIterator<Item = BatchItem<K, V>>,
     {
         let active_memtable = self.active_memtable();
-        let mut total_item_size = 0;
-        let mut final_table_size = 0;
+        let items = it.into_iter().map(|item| match item {
+            BatchItem::Insert(key, value) => {
+                InternalValue::from_components(key, value, seqno, ValueType::Value)
+            }
+            BatchItem::Remove(key) => InternalValue::new_tombstone(key, seqno),
+            BatchItem::RemoveWeak(key) => InternalValue::new_weak_tombstone(key, seqno),
+        });
 
-        for item in it.into_iter() {
-            let value = match item {
-                BatchItem::Insert(key, value) => {
-                    InternalValue::from_components(key, value, seqno, ValueType::Value)
-                }
-                BatchItem::Remove(key) => InternalValue::new_tombstone(key, seqno),
-                BatchItem::RemoveWeak(key) => InternalValue::new_weak_tombstone(key, seqno),
-            };
-            let (item_size, table_size) = active_memtable.insert(value);
-            total_item_size += item_size;
-            final_table_size = table_size;
-        }
-        (total_item_size, final_table_size)
+        active_memtable.insert_batch(items)
     }
 }
 

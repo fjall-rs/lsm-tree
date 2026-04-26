@@ -166,6 +166,56 @@ impl Memtable {
         (item_size, size_before + item_size)
     }
 
+    /// Inserts a batch of items into the memtable.
+    ///
+    /// Returns the added items' total size and new size of the memtable.
+    #[doc(hidden)]
+    pub fn insert_batch<I>(&self, items: I) -> (u64, u64)
+    where
+        I: IntoIterator<Item = InternalValue>,
+    {
+        let mut total_item_size = 0_u64;
+        let mut batch_seqno: Option<SeqNo> = None;
+
+        for item in items {
+            #[expect(
+                clippy::expect_used,
+                reason = "keys are limited to 16-bit length + values are limited to 32-bit length"
+            )]
+            let item_size: u64 =
+                (item.key.user_key.len() + item.value.len() + std::mem::size_of::<InternalValue>())
+                    .try_into()
+                    .expect("should fit into u64");
+
+            total_item_size += item_size;
+            if batch_seqno.is_none() {
+                batch_seqno = Some(item.key.seqno);
+            }
+
+            let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
+            self.items.insert(key, item.value);
+        }
+
+        if total_item_size == 0 {
+            return (
+                0,
+                self.approximate_size
+                    .load(std::sync::atomic::Ordering::Acquire),
+            );
+        }
+
+        let size_before = self
+            .approximate_size
+            .fetch_add(total_item_size, std::sync::atomic::Ordering::AcqRel);
+
+        if let Some(seqno) = batch_seqno {
+            self.highest_seqno
+                .fetch_max(seqno, std::sync::atomic::Ordering::AcqRel);
+        }
+
+        (total_item_size, size_before + total_item_size)
+    }
+
     /// Returns the highest sequence number in the memtable.
     pub fn get_highest_seqno(&self) -> Option<SeqNo> {
         if self.is_empty() {
@@ -322,6 +372,29 @@ mod tests {
                 ValueType::Value,
             )),
             memtable.get(b"abc0", SeqNo::MAX)
+        );
+    }
+
+    #[test]
+    fn memtable_insert_batch() {
+        let memtable = Memtable::new(0);
+
+        let (written_size, new_size) = memtable.insert_batch(vec![
+            InternalValue::from_components(b"a".to_vec(), b"1".to_vec(), 1, ValueType::Value),
+            InternalValue::from_components(b"b".to_vec(), b"2".to_vec(), 3, ValueType::Value),
+            InternalValue::from_components(b"c".to_vec(), b"3".to_vec(), 2, ValueType::Value),
+        ]);
+
+        assert_eq!(written_size, new_size);
+        assert_eq!(Some(3), memtable.get_highest_seqno());
+        assert_eq!(
+            Some(InternalValue::from_components(
+                b"a".to_vec(),
+                b"1".to_vec(),
+                1,
+                ValueType::Value,
+            )),
+            memtable.get(b"a", SeqNo::MAX)
         );
     }
 
