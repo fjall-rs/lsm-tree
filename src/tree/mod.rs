@@ -910,8 +910,20 @@ impl Tree {
             return table.get(key, seqno, key_hash);
         }
 
-        // Filter is not trustworthy (incompatible/missing extractor): skip
-        // full-key Bloom.
+        // Filter compatibility failed (mismatched/missing extractor) but the
+        // full-key Bloom may still be valid. The filter contains full-key
+        // hashes whenever `whole_key_filtering` is true; that flag is
+        // independent of the prefix extractor and is preserved across
+        // reopens with a different (or absent) extractor. Tables written
+        // without an extractor parse `whole_key_filtering=true` by default
+        // (see meta.rs), so legacy tables also take this path.
+        if table.metadata.whole_key_filtering {
+            return table.get(key, seqno, key_hash);
+        }
+
+        // Table was written with an extractor and `whole_key_filtering=false`,
+        // so its filter contains only prefix hashes that aren't queryable with
+        // the full-key hash. Skip the filter and read the data block directly.
         table.get_without_filter(key, seqno)
     }
 
