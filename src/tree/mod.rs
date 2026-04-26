@@ -162,7 +162,7 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        Self::get_internal_entry_from_version(&super_version, key, seqno)
+        Self::get_internal_entry_from_version(&super_version, key, seqno, &self.config)
     }
 
     fn current_version(&self) -> Version {
@@ -388,7 +388,12 @@ impl AbstractTree for Tree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        // Ensure tables built during flush carry the configured extractor.
+        // This lets writers register prefixes and persist the extractor name in metadata
+        // for compatibility checks at read time.
+        .use_prefix_extractor(self.config.prefix_extractor.clone())
+        .use_whole_key_filtering(self.config.whole_key_filtering);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -670,6 +675,8 @@ impl Tree {
         range: &'a R,
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
+        prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
+        prefix_hint: Option<&[u8]>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
@@ -688,7 +695,14 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let iter_state = { IterState { version, ephemeral } };
+        let iter_state = {
+            IterState {
+                version,
+                ephemeral,
+                prefix_extractor,
+                prefix_hint: prefix_hint.map(Into::into),
+            }
+        };
 
         TreeIter::create_range(iter_state, bounds, seqno)
     }
@@ -697,6 +711,7 @@ impl Tree {
         super_version: &SuperVersion,
         key: &[u8],
         seqno: SeqNo,
+        config: &Config,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
@@ -710,13 +725,14 @@ impl Tree {
         }
 
         // Now look in tables... this may involve disk I/O
-        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
+        Self::get_internal_entry_from_tables(&super_version.version, key, seqno, config)
     }
 
     fn get_internal_entry_from_tables(
         version: &Version,
         key: &[u8],
         seqno: SeqNo,
+        config: &Config,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
@@ -727,7 +743,7 @@ impl Tree {
             .flat_map(|lvl| lvl.iter())
             .filter_map(|run| run.get_for_key(key))
         {
-            if let Some(item) = table.get(key, seqno, key_hash)? {
+            if let Some(item) = Self::point_read_from_table(config, table, key, seqno, key_hash)? {
                 return Ok(ignore_tombstone_value(item));
             }
         }
@@ -837,6 +853,77 @@ impl Tree {
             .is_empty()
     }
 
+    /// Centralized point-read from a single table with prefix-aware pre-checks and
+    /// compatibility gating. Returns Ok(None) if the prefix filter definitively excludes
+    /// the key or if the table lookup returns no match.
+    fn point_read_from_table(
+        config: &Config,
+        table: &Table,
+        key: &[u8],
+        seqno: SeqNo,
+        key_hash: u64,
+    ) -> crate::Result<Option<InternalValue>> {
+        // Determine compatibility of table's stored extractor with current config
+        let allow_filter =
+            table.prefix_filter_allowed(config.prefix_extractor.as_ref().map(|e| e.name()));
+
+        if allow_filter {
+            if let Some(ex) = config.prefix_extractor.as_ref() {
+                // Use the TABLE's persisted whole_key_filtering value, NOT the
+                // runtime config. Otherwise reopening a tree with a different
+                // config could route reads through the wrong filter type and
+                // produce false negatives (data loss).
+                if table.metadata.whole_key_filtering {
+                    // The table's filter contains full-key hashes. The full-key
+                    // Bloom is strictly more precise than the prefix pre-check
+                    // for point reads, so skip the prefix check and go straight
+                    // to the Bloom. This avoids a redundant filter probe on
+                    // every point read.
+                } else {
+                    // Table only has prefix hashes; use the prefix filter as
+                    // the sole pre-check.
+                    let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
+
+                    #[cfg(feature = "metrics")]
+                    if probe.is_some() {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        table.metrics.filter_queries.fetch_add(1, Relaxed);
+                    }
+
+                    if probe == Some(false) {
+                        #[cfg(feature = "metrics")]
+                        {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                        }
+
+                        return Ok(None);
+                    }
+
+                    return table.get_without_filter(key, seqno);
+                }
+            }
+
+            return table.get(key, seqno, key_hash);
+        }
+
+        // Filter compatibility failed (mismatched/missing extractor) but the
+        // full-key Bloom may still be valid. The filter contains full-key
+        // hashes whenever `whole_key_filtering` is true; that flag is
+        // independent of the prefix extractor and is preserved across
+        // reopens with a different (or absent) extractor. Tables written
+        // without an extractor parse `whole_key_filtering=true` by default
+        // (see meta.rs), so legacy tables also take this path.
+        if table.metadata.whole_key_filtering {
+            return table.get(key, seqno, key_hash);
+        }
+
+        // Table was written with an extractor and `whole_key_filtering=false`,
+        // so its filter contains only prefix hashes that aren't queryable with
+        // the full-key hash. Skip the filter and read the data block directly.
+        table.get_without_filter(key, seqno)
+    }
+
     fn inner_compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
@@ -878,7 +965,15 @@ impl Tree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        Self::create_internal_range(super_version, range, seqno, ephemeral).map(|item| match item {
+        Self::create_internal_range(
+            super_version,
+            range,
+            seqno,
+            ephemeral,
+            self.config.prefix_extractor.clone(),
+            None,
+        )
+        .map(|item| match item {
             Ok(kv) => Ok((kv.key.user_key, kv.value)),
             Err(e) => Err(e),
         })
@@ -893,8 +988,28 @@ impl Tree {
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use crate::range::prefix_to_range;
 
-        let range = prefix_to_range(prefix.as_ref());
-        self.create_range(&range, seqno, ephemeral)
+        let prefix_bytes = prefix.as_ref();
+        let range = prefix_to_range(prefix_bytes);
+
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        Self::create_internal_range(
+            super_version,
+            &range,
+            seqno,
+            ephemeral,
+            self.config.prefix_extractor.clone(),
+            Some(prefix_bytes),
+        )
+        .map(|item| match item {
+            Ok(kv) => Ok((kv.key.user_key, kv.value)),
+            Err(e) => Err(e),
+        })
     }
 
     /// Adds an item to the active memtable.

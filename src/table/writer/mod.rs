@@ -92,6 +92,14 @@ pub struct Writer {
     linked_blob_files: Vec<LinkedFile>,
 
     initial_level: u8,
+
+    /// Optional prefix extractor used to register extracted prefixes into the filter.
+    /// When present, extracted prefixes are registered instead of the full key.
+    prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
+
+    /// When true, full-key hashes are always added to the filter (even with a
+    /// prefix extractor), enabling precise point-read filtering.
+    whole_key_filtering: bool,
 }
 
 impl Writer {
@@ -140,6 +148,9 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+
+            prefix_extractor: None,
+            whole_key_filtering: true,
         })
     }
 
@@ -162,6 +173,14 @@ impl Writer {
     pub fn use_partitioned_filter(mut self) -> Self {
         self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy))
             .use_tli_compression(self.index_block_compression);
+        // If a prefix extractor was already configured, propagate dedup to
+        // the freshly-installed partitioned writer. Without this, callers
+        // that invoke `use_prefix_extractor` *before* `use_partitioned_filter`
+        // would silently lose dedup because the previous filter writer
+        // (where `enable_dedup` was applied) is discarded above.
+        if self.prefix_extractor.is_some() {
+            self.filter_writer.enable_dedup();
+        }
         self
     }
 
@@ -233,6 +252,25 @@ impl Writer {
         self
     }
 
+    /// Sets the prefix extractor to enable prefix-aware filter construction.
+    #[must_use]
+    pub fn use_prefix_extractor(
+        mut self,
+        extractor: Option<crate::prefix::SharedPrefixExtractor>,
+    ) -> Self {
+        if extractor.is_some() {
+            self.filter_writer.enable_dedup();
+        }
+        self.prefix_extractor = extractor;
+        self
+    }
+
+    #[must_use]
+    pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
+        self.whole_key_filtering = enabled;
+        self
+    }
+
     /// Writes an item.
     ///
     /// # Note
@@ -273,7 +311,40 @@ impl Writer {
             // of the same key
 
             if self.bloom_policy.is_active() {
-                self.filter_writer.register_key(&user_key)?;
+                // When a prefix extractor is configured, register extracted
+                // prefix hashes. When whole_key_filtering is also enabled
+                // (the default), register the full key hash too. This allows:
+                // - Prefix scans to use the prefix filter (coarse, table-level)
+                // - Point reads to use the full-key Bloom (precise, when enabled)
+                // This matches RocksDB's whole_key_filtering + prefix_extractor
+                // approach.
+                //
+                // Order matters for partitioned filters:
+                //   1. notify_key flushes any pending oversized partition
+                //      first, using the *previous* user key as the TLI
+                //      boundary — so partition i covers everything up to and
+                //      including the previous user key.
+                //   2. Prefix hashes are buffered (register_bytes never spills).
+                //   3. The full-key hash is registered last; register_key is
+                //      the only spill trigger inside this key, and any spill
+                //      it causes uses the *current* user key as the TLI
+                //      boundary, after all of this key's hashes (prefixes +
+                //      full) are committed to the partition.
+                // This guarantees a partition's TLI key always corresponds
+                // to a key whose hashes are fully present in that partition.
+                if let Some(ref extractor) = self.prefix_extractor {
+                    self.filter_writer.notify_key(&user_key)?;
+
+                    for prefix in extractor.extract(user_key.as_ref()) {
+                        self.filter_writer.register_bytes(prefix)?;
+                    }
+
+                    if self.whole_key_filtering {
+                        self.filter_writer.register_key(&user_key)?;
+                    }
+                } else {
+                    self.filter_writer.register_key(&user_key)?;
+                }
             }
         }
 
@@ -418,7 +489,7 @@ impl Writer {
                 InternalValue::from_components(key, value, 0, crate::ValueType::Value)
             }
 
-            let meta_items = [
+            let mut meta_items = vec![
                 meta(
                     "block_count#data",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
@@ -453,47 +524,63 @@ impl Writer {
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
                     "key#max",
-                    // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
                     "key#min",
-                    // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
                 meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
-                meta(
-                    "restart_interval#data",
-                    &self.data_block_restart_interval.to_le_bytes(),
-                ),
-                meta(
-                    "restart_interval#index",
-                    &self.index_block_restart_interval.to_le_bytes(),
-                ),
-                meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
-                meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
-                meta("table_id", &self.table_id.to_le_bytes()),
-                meta("table_version", &[3u8]),
-                meta(
-                    "tombstone_count",
-                    &(self.meta.tombstone_count as u64).to_le_bytes(),
-                ),
-                meta("user_data_size", &self.meta.uncompressed_size.to_le_bytes()),
-                meta(
-                    "weak_tombstone_count",
-                    &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
-                ),
-                meta(
-                    "weak_tombstone_reclaimable",
-                    &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
-                ),
             ];
+            // Persist the extractor name so recovery can compare it to the current extractor.
+            // If names differ, disable prefix-based pruning for this table to avoid false negatives.
+            if let Some(ref extractor) = self.prefix_extractor {
+                meta_items.push(meta("prefix_extractor", extractor.name().as_bytes()));
+                // Persist whether this table contains full-key hashes alongside
+                // prefix hashes. Reads must use this value (not the runtime
+                // config) to decide whether the full-key Bloom is trustworthy.
+                // Mismatched config at recovery would otherwise cause data loss.
+                meta_items.push(meta(
+                    "whole_key_filtering",
+                    &[u8::from(self.whole_key_filtering)],
+                ));
+            }
+            meta_items.push(meta(
+                "restart_interval#data",
+                &self.data_block_restart_interval.to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "restart_interval#index",
+                &self.index_block_restart_interval.to_le_bytes(),
+            ));
+            meta_items.push(meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()));
+            meta_items.push(meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()));
+            meta_items.push(meta("table_id", &self.table_id.to_le_bytes()));
+            meta_items.push(meta("table_version", &[3u8]));
+            meta_items.push(meta(
+                "tombstone_count",
+                &(self.meta.tombstone_count as u64).to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "user_data_size",
+                &self.meta.uncompressed_size.to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "weak_tombstone_count",
+                &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "weak_tombstone_reclaimable",
+                &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
+            ));
 
-            // NOTE: Just to make sure the items are definitely sorted
+            // Ensure deterministic ordering for metadata entries without cloning keys
+            meta_items.sort_by(|a, b| a.key.cmp(&b.key));
+
             #[cfg(debug_assertions)]
             {
                 let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);

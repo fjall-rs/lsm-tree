@@ -7,6 +7,7 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    prefix::SharedPrefixExtractor,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -68,6 +69,13 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 pub struct IterState {
     pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
+    pub(crate) prefix_extractor: Option<SharedPrefixExtractor>,
+
+    /// When set, this is the original prefix from a `tree.prefix()` call.
+    /// It allows the filter layer to consult the prefix filter even when the
+    /// range bounds (produced by `prefix_to_range`) have different extracted
+    /// prefixes.
+    pub(crate) prefix_hint: Option<UserKey>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -96,6 +104,10 @@ impl DoubleEndedIterator for TreeIter {
 }
 
 impl TreeIter {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "extended with prefix-hint validation and upfront pruning"
+    )]
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
         range: R,
@@ -165,17 +177,35 @@ impl TreeIter {
                             range.start_bound().map(|x| &*x.user_key),
                             range.end_bound().map(|x| &*x.user_key),
                         )) {
-                            let reader = table
-                                .range((
+                            let mut skip = false;
+                            if let Some(ex) = lock.prefix_extractor.as_ref() {
+                                let ref_range = (
                                     range.start_bound().map(|x| &x.user_key).cloned(),
                                     range.end_bound().map(|x| &x.user_key).cloned(),
-                                ))
-                                .filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                });
+                                );
+                                let hint = lock.prefix_hint.as_deref();
+                                if table.should_skip_range_by_prefix_filter(
+                                    &ref_range,
+                                    ex.as_ref(),
+                                    hint,
+                                ) {
+                                    skip = true;
+                                }
+                            }
 
-                            iters.push(Box::new(reader));
+                            if !skip {
+                                let reader = table
+                                    .range((
+                                        range.start_bound().map(|x| &x.user_key).cloned(),
+                                        range.end_bound().map(|x| &x.user_key).cloned(),
+                                    ))
+                                    .filter(move |item| match item {
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                        Err(_) => true,
+                                    });
+
+                                iters.push(Box::new(reader));
+                            }
                         }
                     }
                     _ => {
@@ -185,6 +215,8 @@ impl TreeIter {
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ),
+                            lock.prefix_extractor.clone(),
+                            lock.prefix_hint.as_ref(),
                         ) {
                             iters.push(Box::new(reader.filter(move |item| match item {
                                 Ok(item) => seqno_filter(item.key.seqno, seqno),

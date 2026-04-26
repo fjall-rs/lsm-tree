@@ -216,18 +216,25 @@ impl AbstractTree for BlobTree {
         let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
-        let range = prefix_to_range(prefix.as_ref());
+        let prefix_bytes = prefix.as_ref();
+        let range = prefix_to_range(prefix_bytes);
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
-                move |kv| {
-                    IterGuardImpl::Blob(Guard {
-                        tree: tree.clone(),
-                        version: super_version.version.clone(),
-                        kv,
-                    })
-                },
-            ),
+            crate::Tree::create_internal_range(
+                super_version.clone(),
+                &range,
+                seqno,
+                index,
+                self.index.config.prefix_extractor.clone(),
+                Some(prefix_bytes),
+            )
+            .map(move |kv| {
+                IterGuardImpl::Blob(Guard {
+                    tree: tree.clone(),
+                    version: super_version.version.clone(),
+                    kv,
+                })
+            }),
         )
     }
 
@@ -241,15 +248,21 @@ impl AbstractTree for BlobTree {
         let tree = self.clone();
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
-                move |kv| {
-                    IterGuardImpl::Blob(Guard {
-                        tree: tree.clone(),
-                        version: super_version.version.clone(),
-                        kv,
-                    })
-                },
-            ),
+            crate::Tree::create_internal_range(
+                super_version.clone(),
+                &range,
+                seqno,
+                index,
+                self.index.config.prefix_extractor.clone(),
+                None,
+            )
+            .map(move |kv| {
+                IterGuardImpl::Blob(Guard {
+                    tree: tree.clone(),
+                    version: super_version.version.clone(),
+                    kv,
+                })
+            }),
         )
     }
 
@@ -399,7 +412,12 @@ impl AbstractTree for BlobTree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        // Ensure tables built during blob tree flush carry the configured extractor.
+        // This lets writers register prefixes and persist the extractor name in metadata
+        // for compatibility checks at read time.
+        .use_prefix_extractor(self.index.config.prefix_extractor.clone())
+        .use_whole_key_filtering(self.index.config.whole_key_filtering);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -605,7 +623,12 @@ impl AbstractTree for BlobTree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        let Some(item) = crate::Tree::get_internal_entry_from_version(&super_version, key, seqno)?
+        let Some(item) = crate::Tree::get_internal_entry_from_version(
+            &super_version,
+            key,
+            seqno,
+            &self.index.config,
+        )?
         else {
             return Ok(None);
         };
