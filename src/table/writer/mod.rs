@@ -173,6 +173,14 @@ impl Writer {
     pub fn use_partitioned_filter(mut self) -> Self {
         self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy))
             .use_tli_compression(self.index_block_compression);
+        // If a prefix extractor was already configured, propagate dedup to
+        // the freshly-installed partitioned writer. Without this, callers
+        // that invoke `use_prefix_extractor` *before* `use_partitioned_filter`
+        // would silently lose dedup because the previous filter writer
+        // (where `enable_dedup` was applied) is discarded above.
+        if self.prefix_extractor.is_some() {
+            self.filter_writer.enable_dedup();
+        }
         self
     }
 

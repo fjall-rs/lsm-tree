@@ -6155,3 +6155,111 @@ fn test_partitioned_filter_no_midkey_spill() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// Regression: `Writer::use_prefix_extractor` calls `enable_dedup` on the
+/// current filter writer, but `use_partitioned_filter` *replaces* the filter
+/// writer afterwards. Without propagating dedup into the new partitioned
+/// writer, every duplicate prefix hash gets re-buffered, which inflates
+/// `bloom_hash_buffer.len()` (used as `n` for filter sizing) and triggers
+/// premature partition spills.
+///
+/// Insert many keys that share a single prefix with `whole_key_filtering=false`,
+/// so the only hashes registered are duplicate prefix hashes. With dedup,
+/// the on-disk filter is tiny (one unique hash). Without dedup, it grows
+/// proportionally to the key count.
+#[test]
+fn test_partitioned_filter_dedup_with_prefix_extractor() -> lsm_tree::Result<()> {
+    use lsm_tree::config::PartitioningPolicy;
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+        .whole_key_filtering(false)
+        .filter_block_partitioning_policy(PartitioningPolicy::all(true))
+        .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
+            BloomConstructionPolicy::BitsPerKey(10.0),
+        )))
+        .open()?;
+
+    // 10000 keys all share the 4-byte prefix b"abcd". With WKF=false the only
+    // hashes registered are prefix hashes — all identical — so after dedup the
+    // filter holds one unique hash.
+    let n = 10_000;
+    for i in 0..n {
+        let key = format!("abcd{i:08}");
+        tree.insert(key.as_bytes(), b"v", seqno.next());
+    }
+    tree.flush_active_memtable(0)?;
+    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+
+    let filter_size = tree.filter_size();
+
+    // With dedup: ~one hash worth of bits per partition + TLI overhead. Even
+    // with framing/checksum/TLI a properly-deduped filter for one unique hash
+    // is well under 1 KiB.
+    //
+    // Without dedup: 10000 hashes × 10 bpk = 12 500 bytes of raw filter bits,
+    // plus partition framing and TLI entries → easily >10 KiB.
+    assert!(
+        filter_size < 1024,
+        "partitioned filter not deduped: {} bytes for {} duplicate prefix hashes (expected < 1 KiB)",
+        filter_size,
+        n,
+    );
+
+    // Sanity: reads still work.
+    for i in 0..100 {
+        let key = format!("abcd{i:08}");
+        assert!(
+            tree.contains_key(key.as_bytes(), SeqNo::MAX)?,
+            "missing key {key}",
+        );
+    }
+
+    Ok(())
+}
+
+/// Same regression but exercising the `MultiWriter::rotate` path: compaction
+/// with a small `target_size` to force rotation across multiple output tables.
+#[test]
+fn test_partitioned_filter_dedup_after_rotation() -> lsm_tree::Result<()> {
+    use lsm_tree::config::PartitioningPolicy;
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+        .whole_key_filtering(false)
+        .filter_block_partitioning_policy(PartitioningPolicy::all(true))
+        .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
+            BloomConstructionPolicy::BitsPerKey(10.0),
+        )))
+        .open()?;
+
+    let n = 20_000;
+    for i in 0..n {
+        let key = format!("abcd{i:08}");
+        tree.insert(key.as_bytes(), &vec![b'x'; 64], seqno.next());
+    }
+    tree.flush_active_memtable(0)?;
+
+    // Force the compaction MultiWriter to rotate by passing a small target
+    // size — every output table that is created here goes through `rotate`,
+    // which is the path where the dedup propagation bug lives.
+    tree.major_compact(64 * 1024, SeqNo::MAX)?;
+
+    // Filter across all rotated tables should still be deduped per-partition.
+    // Each rotated table has its own filter; total stays small relative to N.
+    let filter_size = tree.filter_size();
+    assert!(
+        filter_size < 64 * 1024,
+        "filter across rotated tables not deduped: {} bytes for {} duplicate prefix hashes (expected < 64 KiB)",
+        filter_size,
+        n,
+    );
+
+    Ok(())
+}
