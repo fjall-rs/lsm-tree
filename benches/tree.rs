@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use lsm_tree::{
     config::BlockSizePolicy, AbstractTree, BatchItem, Cache, Config, Guard, SeqNo,
     SequenceNumberCounter,
@@ -428,34 +428,47 @@ fn tree_batch_write(c: &mut Criterion) {
     group.sample_size(10);
 
     for batch_size in [10, 100, 1_000, 10_000] {
+        //group.throughput(Throughput::Elements(batch_size));
+
         // prepare items outside the timed section
         let items: Vec<_> = (0..batch_size)
             .map(|i: u64| (i.to_be_bytes().to_vec(), b"value".to_vec()))
             .collect();
 
         group.bench_function(format!("naive loop, {batch_size} items"), |b| {
-            let path = tempdir().unwrap();
-            let tree = Config::new(path.path(), Default::default(), Default::default())
-                .open()
-                .unwrap();
-            b.iter(|| {
-                for (k, v) in &items {
-                    tree.insert(k.clone(), v.clone(), 0);
-                }
-            });
+            b.iter_batched(
+                || {
+                    let path = tempdir().unwrap();
+                    let tree = Config::new(path.path(), Default::default(), Default::default())
+                        .open()
+                        .unwrap();
+                    (path, tree)
+                },
+                |(_path, tree)| {
+                    for (k, v) in &items {
+                        tree.insert(k.clone(), v.clone(), 0);
+                    }
+                },
+                criterion::BatchSize::PerIteration,
+            );
         });
-
         group.bench_function(format!("write_batch, {batch_size} items"), |b| {
-            let path = tempdir().unwrap();
-            let tree = Config::new(path.path(), Default::default(), Default::default())
-                .open()
-                .unwrap();
-            b.iter(|| {
-                let batch = items
-                    .iter()
-                    .map(|(k, v)| BatchItem::Insert(k.clone(), v.clone()));
-                tree.write_batch(batch, 0);
-            });
+            b.iter_batched(
+                || {
+                    let path = tempdir().unwrap();
+                    let tree = Config::new(path.path(), Default::default(), Default::default())
+                        .open()
+                        .unwrap();
+                    let batch = items
+                        .iter()
+                        .map(|(k, v)| BatchItem::Insert(k.clone(), v.clone()));
+                    (path, tree, batch)
+                },
+                |(_path, tree, batch)| {
+                    tree.write_batch(batch, 0);
+                },
+                criterion::BatchSize::PerIteration,
+            );
         });
     }
 }

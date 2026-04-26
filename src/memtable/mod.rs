@@ -174,10 +174,11 @@ impl Memtable {
     where
         I: IntoIterator<Item = InternalValue>,
     {
+        let items: Vec<InternalValue> = items.into_iter().collect();
         let mut total_item_size = 0_u64;
-        let mut batch_seqno: Option<SeqNo> = None;
+        let mut max_seqno: Option<SeqNo> = None;
 
-        for item in items {
+        for item in &items {
             #[expect(
                 clippy::expect_used,
                 reason = "keys are limited to 16-bit length + values are limited to 32-bit length"
@@ -188,12 +189,10 @@ impl Memtable {
                     .expect("should fit into u64");
 
             total_item_size += item_size;
-            if batch_seqno.is_none() {
-                batch_seqno = Some(item.key.seqno);
-            }
-
-            let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
-            self.items.insert(key, item.value);
+            max_seqno = Some(match max_seqno {
+                Some(current) => current.max(item.key.seqno),
+                None => item.key.seqno,
+            });
         }
 
         if total_item_size == 0 {
@@ -208,9 +207,14 @@ impl Memtable {
             .approximate_size
             .fetch_add(total_item_size, std::sync::atomic::Ordering::AcqRel);
 
-        if let Some(seqno) = batch_seqno {
+        if let Some(seqno) = max_seqno {
             self.highest_seqno
                 .fetch_max(seqno, std::sync::atomic::Ordering::AcqRel);
+        }
+
+        for item in items {
+            let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
+            self.items.insert(key, item.value);
         }
 
         (total_item_size, size_before + total_item_size)
