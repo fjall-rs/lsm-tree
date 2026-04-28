@@ -22,7 +22,7 @@ impl Slice {
     /// Returns the bytes slice containing the entire data.
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {
-        &self
+        self
     }
 
     #[doc(hidden)]
