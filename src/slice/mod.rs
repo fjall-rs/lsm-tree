@@ -249,4 +249,12 @@ mod tests {
         let slice = Slice::from_reader(&mut reader, 4).expect("read");
         assert_eq!(slice, vec![1, 2, 3, 4]);
     }
+
+    /// Verifies that `Slice::as_slice` returns the data as-is.
+    #[test]
+    fn test_slice_as_slice() {
+        let original = [1_u8, 2, 3, 4];
+        let slice = Slice::from_iter(original.iter().copied());
+        assert_eq!(slice.as_slice(), original);
+    }
 }
