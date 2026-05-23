@@ -72,6 +72,32 @@ fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
     }
 }
 
+/// Route a point read takes through the per-table filter machinery. Selected
+/// once per (table, current extractor) and dispatched by `point_read_from_table`.
+///
+/// The decision depends on:
+/// - whether the table's persisted extractor is compatible with the current
+///   one (`prefix_filter_allowed`),
+/// - the table's persisted `whole_key_filtering` flag (NOT the runtime config —
+///   it must match what's actually in the filter on disk).
+enum PointReadRoute {
+    /// Probe the full-key Bloom via `Table::get`. Valid whenever the table's
+    /// filter contains full-key hashes — i.e., `whole_key_filtering=true`,
+    /// or no extractor was configured at write time (legacy tables).
+    FullKeyBloom,
+
+    /// Probe via `Table::maybe_contains_prefix`, then read the data block
+    /// directly (no full-key Bloom probe). Valid when the extractor is
+    /// compatible and `whole_key_filtering=false` (filter holds only prefix
+    /// hashes that aren't queryable with the full-key hash).
+    PrefixOnly,
+
+    /// Skip the filter entirely. Valid when the prefix portion is
+    /// untrustworthy (incompatible extractor) AND `whole_key_filtering=false`
+    /// (so there's no usable full-key Bloom either).
+    NoFilter,
+}
+
 /// A log-structured merge tree (LSM-tree/LSMT)
 #[derive(Clone)]
 pub struct Tree(#[doc(hidden)] pub Arc<TreeInner>);
@@ -741,12 +767,25 @@ impl Tree {
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
 
+        // Hoist the extractor name lookup out of the per-table loop: it is
+        // invariant across all tables walked for this read. Avoids one
+        // virtual dispatch + Arc deref per table.
+        let extractor_ref = config.prefix_extractor.as_ref();
+        let current_extractor_name = extractor_ref.map(|e| e.name());
+
         for table in version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .filter_map(|run| run.get_for_key(key))
         {
-            if let Some(item) = Self::point_read_from_table(config, table, key, seqno, key_hash)? {
+            if let Some(item) = Self::point_read_from_table(
+                extractor_ref.map(std::convert::AsRef::as_ref),
+                current_extractor_name,
+                table,
+                key,
+                seqno,
+                key_hash,
+            )? {
                 return Ok(ignore_tombstone_value(item));
             }
         }
@@ -859,72 +898,91 @@ impl Tree {
     /// Centralized point-read from a single table with prefix-aware pre-checks and
     /// compatibility gating. Returns Ok(None) if the prefix filter definitively excludes
     /// the key or if the table lookup returns no match.
+    ///
+    /// Callers should hoist `current_extractor` and `current_extractor_name`
+    /// out of the per-table loop — they're invariant across tables walked for
+    /// the same key, and recomputing them per call is wasted CPU.
     fn point_read_from_table(
-        config: &Config,
+        current_extractor: Option<&dyn crate::prefix::PrefixExtractor>,
+        current_extractor_name: Option<&str>,
         table: &Table,
         key: &[u8],
         seqno: SeqNo,
         key_hash: u64,
     ) -> crate::Result<Option<InternalValue>> {
-        // Determine compatibility of table's stored extractor with current config
-        let allow_filter =
-            table.prefix_filter_allowed(config.prefix_extractor.as_ref().map(|e| e.name()));
+        match Self::decide_point_read_route(table, current_extractor_name) {
+            PointReadRoute::FullKeyBloom => table.get(key, seqno, key_hash),
+            PointReadRoute::PrefixOnly => {
+                // SAFETY: PrefixOnly is only chosen when current_extractor is
+                // Some — the routing function requires it.
+                #[expect(
+                    clippy::expect_used,
+                    reason = "PrefixOnly route is only chosen by decide_point_read_route when current_extractor is Some"
+                )]
+                let ex = current_extractor.expect("PrefixOnly route implies extractor present");
+                let probe = table.maybe_contains_prefix(key, ex)?;
 
-        if allow_filter {
-            if let Some(ex) = config.prefix_extractor.as_ref() {
-                // Use the TABLE's persisted whole_key_filtering value, NOT the
-                // runtime config. Otherwise reopening a tree with a different
-                // config could route reads through the wrong filter type and
-                // produce false negatives (data loss).
-                if table.metadata.whole_key_filtering {
-                    // The table's filter contains full-key hashes. The full-key
-                    // Bloom is strictly more precise than the prefix pre-check
-                    // for point reads, so skip the prefix check and go straight
-                    // to the Bloom. This avoids a redundant filter probe on
-                    // every point read.
-                } else {
-                    // Table only has prefix hashes; use the prefix filter as
-                    // the sole pre-check.
-                    let probe = table.maybe_contains_prefix(key, ex.as_ref())?;
-
-                    #[cfg(feature = "metrics")]
-                    if probe.is_some() {
-                        use std::sync::atomic::Ordering::Relaxed;
-                        table.metrics.filter_queries.fetch_add(1, Relaxed);
-                    }
-
-                    if probe == Some(false) {
-                        #[cfg(feature = "metrics")]
-                        {
-                            use std::sync::atomic::Ordering::Relaxed;
-                            table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
-                        }
-
-                        return Ok(None);
-                    }
-
-                    return table.get_without_filter(key, seqno);
+                #[cfg(feature = "metrics")]
+                if probe.is_some() {
+                    use std::sync::atomic::Ordering::Relaxed;
+                    table.metrics.filter_queries.fetch_add(1, Relaxed);
                 }
+
+                if probe == Some(false) {
+                    #[cfg(feature = "metrics")]
+                    {
+                        use std::sync::atomic::Ordering::Relaxed;
+                        table.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                    }
+                    return Ok(None);
+                }
+
+                table.get_without_filter(key, seqno)
             }
+            PointReadRoute::NoFilter => table.get_without_filter(key, seqno),
+        }
+    }
 
-            return table.get(key, seqno, key_hash);
+    /// Decides how to route a point read for `(table, current_extractor_name)`.
+    /// See [`PointReadRoute`] for the meaning of each variant.
+    ///
+    /// This is intentionally a pure function over the table's persisted
+    /// metadata + the current extractor's identity. The "why" of each branch
+    /// is documented on the [`PointReadRoute`] variants.
+    fn decide_point_read_route(
+        table: &Table,
+        current_extractor_name: Option<&str>,
+    ) -> PointReadRoute {
+        let allow_filter = table.prefix_filter_allowed(current_extractor_name);
+
+        if !allow_filter {
+            // Prefix portion of the filter is untrustworthy (mismatched or
+            // missing extractor). The full-key Bloom is still valid when the
+            // table has WKF=true (which is also the legacy default for tables
+            // written before extractor support).
+            return if table.metadata.whole_key_filtering {
+                PointReadRoute::FullKeyBloom
+            } else {
+                PointReadRoute::NoFilter
+            };
         }
 
-        // Filter compatibility failed (mismatched/missing extractor) but the
-        // full-key Bloom may still be valid. The filter contains full-key
-        // hashes whenever `whole_key_filtering` is true; that flag is
-        // independent of the prefix extractor and is preserved across
-        // reopens with a different (or absent) extractor. Tables written
-        // without an extractor parse `whole_key_filtering=true` by default
-        // (see meta.rs), so legacy tables also take this path.
+        // Filter is compatible. If no extractor is configured at all
+        // (allow_filter==true with both names None), the table contains only
+        // full-key hashes — use the full-key Bloom.
+        if current_extractor_name.is_none() {
+            return PointReadRoute::FullKeyBloom;
+        }
+
+        // Extractor configured and compatible with this table. Branch on the
+        // TABLE's persisted whole_key_filtering — NOT the runtime config.
+        // Persisted value reflects what's actually in the filter; using
+        // anything else risks false negatives after a config change.
         if table.metadata.whole_key_filtering {
-            return table.get(key, seqno, key_hash);
+            PointReadRoute::FullKeyBloom
+        } else {
+            PointReadRoute::PrefixOnly
         }
-
-        // Table was written with an extractor and `whole_key_filtering=false`,
-        // so its filter contains only prefix hashes that aren't queryable with
-        // the full-key hash. Skip the filter and read the data block directly.
-        table.get_without_filter(key, seqno)
     }
 
     fn inner_compact(

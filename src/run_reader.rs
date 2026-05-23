@@ -11,7 +11,29 @@ use std::{
     sync::Arc,
 };
 
-/// Reads through a disjoint run
+/// Reads through a disjoint run (a sorted sequence of non-overlapping tables)
+/// with prefix-filter–aware pruning.
+///
+/// A run is a level (or part of a level) in the LSM tree. `RunReader` finds
+/// the subset of tables whose key range overlaps the query range, then
+/// constructs per-table readers lazily as iteration advances.
+///
+/// # Prefix-filter pruning
+///
+/// When an extractor + prefix hint are supplied, the reader performs two
+/// layers of pruning:
+///
+/// 1. **Upfront pruning** at construction time
+///    ([`Self::new`]): probes the first few overlapping tables' filters with
+///    the validated prefix hash. If all of them definitively don't contain
+///    the prefix, returns `None` so the caller can skip building any per-table
+///    readers at all.
+/// 2. **Lazy per-table pruning** during iteration: each table is probed just
+///    before its reader is opened. Tables whose filter rejects the prefix
+///    are skipped without an iterator allocation or block I/O for data.
+///
+/// Both layers use the same precomputed prefix hash, validated once via
+/// [`crate::table::validate_hint_and_hash`] in [`Self::new`].
 pub struct RunReader {
     run: Arc<Run<Table>>,
     lo: usize,
@@ -43,20 +65,54 @@ pub struct RunReader {
 }
 
 impl RunReader {
-    /// Creates a run reader over a disjoint set of tables. Returns None when up-front
-    /// prefix filter pruning determines that no table in the run may contain keys for the range.
-    /// Uses common-prefix pruning only; per-table skipping happens lazily during iteration.
+    /// Creates a run reader over a disjoint set of tables.
+    ///
+    /// # Parameters
+    ///
+    /// - `run`: the run (sorted disjoint tables) to read from.
+    /// - `range`: user-key range to read.
+    /// - `extractor`: optional prefix extractor for prefix-filter pruning. If
+    ///   `None`, no prefix-filter pruning happens and the reader behaves like
+    ///   a plain range iterator. Per-table compatibility is checked via
+    ///   [`Table::prefix_filter_allowed`].
+    /// - `prefix_hint`: optional user-supplied prefix (typically from
+    ///   `tree.prefix(p)`). When set together with an extractor, enables
+    ///   precise prefix-filter probing using the precomputed hash of the
+    ///   validated prefix. Without a hint, pruning falls back to deriving a
+    ///   common prefix from the range bounds.
+    ///
+    /// # Returns
+    ///
+    /// `None` when upfront prefix-filter pruning determines that no table in
+    /// the run may contain matching keys for the range (allowing the caller
+    /// to skip iterator setup entirely). Otherwise returns `Some` with a
+    /// reader that does lazy per-table pruning during iteration.
     #[must_use]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "extended with prefix-hint validation, hash precomputation, and upfront pruning"
-    )]
     pub fn new<R: RangeBounds<UserKey>>(
         run: Arc<Run<Table>>,
         range: R,
         extractor: Option<SharedPrefixExtractor>,
         prefix_hint: Option<&UserKey>,
     ) -> Option<Self> {
+        // Upper bound on how many tables we probe upfront before bailing to
+        // lazy per-table pruning. The trade-off:
+        //
+        // - Upfront pruning lets us return `None` early (skip the whole run)
+        //   when no table contains the prefix, avoiding any iterator setup.
+        // - Each upfront probe loads a filter block (cached after first hit).
+        //   For very large runs, cold-cache filter loads add latency before
+        //   we know whether to bail.
+        //
+        // 10 was chosen as a reasonable balance: large enough to prune
+        // common cases (a few overlapping L0 tables, single-table runs at
+        // upper levels), small enough that worst-case cold-cache cost stays
+        // bounded. Runs with more than this many tables continue lazily —
+        // per-table filter checks happen as the iterator advances, which is
+        // strictly cheaper than upfront probes when readers also need
+        // filter blocks.
+        //
+        // If you change this, also consider whether the lazy `next` /
+        // `next_back` paths need an equivalent cap.
         const MAX_UPFRONT_CHECKS: usize = 10;
 
         assert!(!run.is_empty(), "level reader cannot read empty level");
@@ -64,45 +120,14 @@ impl RunReader {
         let (lo, hi) = run.range_overlap_indexes(&range)?;
 
         // Validate the prefix hint and precompute the most specific stable
-        // prefix hash. For multi-prefix extractors, the last (most specific)
-        // prefix gives better Bloom filter pruning than the first (coarsest).
-        //
-        // We try extract_last first (higher cardinality → fewer false positives).
-        // If its stability guard fails, fall back to extract_first.
-        // Stability guard: extract_X(hint) == extract_X(hint + "\0").
+        // prefix hash. Shared logic with
+        // `Table::should_skip_range_by_prefix_filter` (see
+        // `crate::table::validate_hint_and_hash` for the stability rules).
         let (validated_prefix_hint, validated_prefix_hash) =
             if let (Some(hint), Some(ex)) = (prefix_hint.as_ref(), extractor.as_ref()) {
-                let hint_bytes: &[u8] = hint.as_ref();
-                let mut extended = Vec::with_capacity(hint_bytes.len() + 1);
-                extended.extend_from_slice(hint_bytes);
-                extended.push(0u8);
-
-                // Try the most specific prefix first
-                let last_hint = ex.extract_last(hint_bytes);
-                let last_extended = ex.extract_last(&extended);
-                let best_hash = if let (Some(lh), Some(le)) = (last_hint, last_extended) {
-                    if lh == le {
-                        Some(crate::table::filter::standard_bloom::Builder::get_hash(lh))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                if let Some(hash) = best_hash {
-                    (Some((*hint).clone()), Some(hash))
-                } else {
-                    // Fall back to first prefix
-                    let first_hint = ex.extract_first(hint_bytes);
-                    let first_extended = ex.extract_first(&extended);
-                    match (first_hint, first_extended) {
-                        (Some(fh), Some(fe)) if fh == fe => {
-                            let hash = crate::table::filter::standard_bloom::Builder::get_hash(fh);
-                            (Some((*hint).clone()), Some(hash))
-                        }
-                        _ => (None, None),
-                    }
+                match crate::table::validate_hint_and_hash(ex.as_ref(), hint.as_ref()) {
+                    Some(hash) => (Some((*hint).clone()), Some(hash)),
+                    None => (None, None),
                 }
             } else {
                 (None, None)
@@ -149,6 +174,7 @@ impl RunReader {
 
                 let mut checks = 0usize;
                 let mut has_potential_match = false;
+                let ex_name = ex.name();
 
                 for idx in lo..=hi {
                     #[expect(
@@ -170,10 +196,23 @@ impl RunReader {
                         "range_overlap_indexes returned a non-overlapping table in upfront pruning"
                     );
 
-                    if !matches!(
-                        table.maybe_contains_prefix(probe, ex.as_ref()),
-                        Ok(Some(false))
-                    ) {
+                    // Fast path: when we have a precomputed validated hash,
+                    // probe with it directly to avoid re-extracting and
+                    // re-hashing the prefix per-table. Otherwise fall back
+                    // to `maybe_contains_prefix` which does both.
+                    let probe_result = if let Some(hash) = validated_prefix_hash {
+                        if table.prefix_filter_allowed(Some(ex_name)) {
+                            table.probe_prefix_filter_with_hash(probe, hash)
+                        } else {
+                            // Incompatible extractor on this table — cannot
+                            // determine via the filter; assume potential match.
+                            Ok(None)
+                        }
+                    } else {
+                        table.maybe_contains_prefix(probe, ex.as_ref())
+                    };
+
+                    if !matches!(probe_result, Ok(Some(false))) {
                         has_potential_match = true;
                         break;
                     }

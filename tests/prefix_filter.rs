@@ -6454,3 +6454,492 @@ fn test_full_key_bloom_skipped_when_table_wkf_false_and_mismatch() -> lsm_tree::
 
     Ok(())
 }
+
+/// Documents and locks down the behavior when a user-defined `PrefixExtractor`
+/// returns a `name()` that collides with the built-in `FixedPrefixExtractor`
+/// namespace.
+///
+/// The `name()` is the *only* compatibility key between a table on disk and
+/// the runtime extractor. If a user impl returns e.g. `"fixed_prefix:4"`, it
+/// will silently appear "compatible" with `FixedPrefixExtractor::new(4)` on
+/// reopen, and the prefix filter built by a different extraction algorithm
+/// gets trusted on prefix scans — producing false negatives.
+///
+/// The trait `Contract` section documents this as a reserved namespace.
+/// This test demonstrates the failure mode so a contributor stumbling on it
+/// has a reproducible example, and ensures the existing infrastructure
+/// (`prefix_filter_allowed` matching on `name()`) at least produces a
+/// *deterministic* wrong answer rather than a panic or UB.
+///
+/// We use **prefix scans** to exercise the poisoned-prefix path. Point reads
+/// with `whole_key_filtering=true` (the default) route through the full-key
+/// Bloom and never consult the prefix filter — so a point-read-only test
+/// would pass even with a corrupted prefix filter and wouldn't catch the bug
+/// this test documents.
+#[test]
+fn test_user_extractor_colliding_name_with_builtin_is_documented_footgun() -> lsm_tree::Result<()> {
+    // A user extractor that returns the same name as FixedPrefixExtractor::new(4)
+    // but uses an entirely different extraction algorithm (takes the LAST 4
+    // bytes instead of the first).
+    struct LastFourExtractor;
+
+    impl PrefixExtractor for LastFourExtractor {
+        fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+            Box::new(self.extract_first(key).into_iter())
+        }
+
+        fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+            if key.len() < 4 {
+                None
+            } else {
+                Some(&key[key.len() - 4..])
+            }
+        }
+
+        fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+            self.extract_first(key)
+        }
+
+        fn name(&self) -> &str {
+            // VIOLATES the reserved-namespace rule — collides with the
+            // built-in FixedPrefixExtractor::new(4) name. A correct user impl
+            // would use e.g. "mycrate::LastFourExtractor:v1".
+            "fixed_prefix:4"
+        }
+
+        fn is_single_prefix(&self) -> bool {
+            true
+        }
+    }
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    // Write a table with the user extractor.
+    //
+    // Use prefixes that are anchored at the END of the key (so LastFour
+    // extracts them), and put a varying byte sequence at the BEGINNING so
+    // FixedPrefix(4) would extract a DIFFERENT 4-byte prefix per key.
+    // This way the writer registers hashes of "XXXX" (the last-four) but
+    // a reopened reader using FixedPrefix would probe with hashes of the
+    // first-four — which were never registered → false negatives on prefix
+    // scans.
+    let n = 50;
+    {
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(Arc::new(LastFourExtractor))
+            .open()?;
+
+        for i in 0u32..n {
+            // Key format: <first-4 varies>_<last-4 also varies>
+            // LastFour extracts last 4 bytes: "{i:04}"
+            // FixedPrefix(4) would extract first 4 bytes: "k{i:03}"
+            let key = format!("k{i:03}_{i:04}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with the BUILT-IN FixedPrefixExtractor(4) — same name, different
+    // extraction. Per the trait contract this is forbidden, but nothing in
+    // the code rejects it.
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+        .whole_key_filtering(true)
+        .open()?;
+
+    // Point reads (WKF=true): route through full-key Bloom, never consult
+    // the prefix filter. These succeed because full-key hashes are still in
+    // the filter.
+    for i in 0u32..n {
+        let key = format!("k{i:03}_{i:04}");
+        assert!(
+            tree.contains_key(key.as_bytes(), u64::MAX)?,
+            "WKF=true full-key Bloom should find every key: missing {key}"
+        );
+    }
+
+    // Prefix scans: these DO consult the prefix filter. Each per-key prefix
+    // (the first 4 bytes "kNNN") was NOT registered by LastFour, so the
+    // prefix Bloom probes for these will say "absent" → the scan iterator
+    // skips the table → empty result for every prefix query.
+    //
+    // This is the user-visible "data loss" symptom: the user thinks their
+    // keys exist (and indeed point reads find them), but their prefix
+    // queries return nothing.
+    let mut empty_prefix_scans = 0;
+    for i in 0u32..n {
+        let prefix = format!("k{i:03}_");
+        let count = tree.prefix(prefix.as_bytes(), u64::MAX, None).count();
+        if count == 0 {
+            empty_prefix_scans += 1;
+        }
+    }
+    // We expect ~all prefix scans to return empty because the prefix filter
+    // (built with LastFour's hashes) rejects all of FixedPrefix(4)'s
+    // first-4-byte probes. At least 90% to allow for the small probability
+    // of a Bloom false positive making a probe say "maybe present".
+    assert!(
+        empty_prefix_scans >= (n as usize * 9 / 10),
+        "expected most prefix scans to be empty due to name collision; \
+         got {empty_prefix_scans} / {n}. If this is now 0, the runtime gained \
+         name-namespace validation — update the test to assert the new \
+         behavior (clean error or refused open)."
+    );
+
+    Ok(())
+}
+
+/// Same scenario as test 1 but with `whole_key_filtering=false`. With WKF=false
+/// there is no full-key Bloom; point reads also consult the prefix filter.
+/// The name collision produces a different first-4-byte hash per key (since
+/// keys vary at both ends), so each lookup probes a distinct unregistered
+/// hash — making `missing` close to N rather than binary 0/N.
+///
+/// Locks in the buggy outcome as a regression guard: if a runtime check is
+/// added (e.g., name-namespace validation), this test should be updated.
+#[test]
+fn test_user_extractor_name_collision_with_wkf_false_can_produce_misses() -> lsm_tree::Result<()> {
+    struct LastFourExtractor;
+
+    impl PrefixExtractor for LastFourExtractor {
+        fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+            Box::new(self.extract_first(key).into_iter())
+        }
+
+        fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+            if key.len() < 4 {
+                None
+            } else {
+                Some(&key[key.len() - 4..])
+            }
+        }
+
+        fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+            self.extract_first(key)
+        }
+
+        fn name(&self) -> &str {
+            "fixed_prefix:4"
+        }
+
+        fn is_single_prefix(&self) -> bool {
+            true
+        }
+    }
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    let n: u32 = 50;
+    {
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(Arc::new(LastFourExtractor))
+            .whole_key_filtering(false)
+            .open()?;
+
+        for i in 0..n {
+            // Vary the FIRST 4 bytes per key so each reader probe sees a
+            // distinct hash. The writer (LastFour) registers a hash of the
+            // last 4 bytes, which is also varying. The reader (FixedPrefix(4))
+            // will probe with the first 4 bytes — never registered.
+            let key = format!("k{i:03}_{i:04}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+        .whole_key_filtering(false)
+        .open()?;
+
+    // Count false negatives. Each key probes a distinct first-4-byte hash
+    // that the writer never registered, so almost all lookups should miss.
+    // At default 10 BPK, FPR ≈ 1%, so expect ~99% misses out of 50 lookups.
+    let mut missing = 0;
+    for i in 0..n {
+        let key = format!("k{i:03}_{i:04}");
+        if !tree.contains_key(key.as_bytes(), u64::MAX)? {
+            missing += 1;
+        }
+    }
+    // Tight assertion: expect at least 90% misses. With 50 unique probes
+    // and FPR ≈ 1%, expected misses ≈ 49.5; allowing margin for variance.
+    assert!(
+        missing >= (n as usize * 9 / 10),
+        "expected name-collision + WKF=false to produce ~all misses; \
+         got {missing} / {n}. If this is now low, the runtime gained \
+         name-namespace validation — update the test."
+    );
+
+    Ok(())
+}
+
+/// Locks down that a user `PrefixExtractor` whose `extract_first` is
+/// inconsistent with `extract().next()` produces *predictable* wrong
+/// behavior (some misses) rather than a panic or silent corruption.
+///
+/// The trait contract forbids this, but nothing in the code enforces it.
+/// This test serves both as documentation and as a regression guard: if a
+/// runtime check is later added (e.g. a debug_assert in the writer or
+/// reader), this test will fail and signal the new behavior.
+#[test]
+fn test_inconsistent_extract_first_produces_predictable_misses() -> lsm_tree::Result<()> {
+    /// Buggy extractor: `extract` returns 2 prefixes (multi-prefix), and the
+    /// writer registers BOTH. But `extract_first` returns a different prefix
+    /// that's NOT in the registered set. Violates the trait contract
+    /// (`extract_first == extract().next()`).
+    ///
+    /// `is_single_prefix=false` to force the writer to use the multi-prefix
+    /// `extract()` path; otherwise the writer would just call `extract_first`
+    /// and the inconsistency would be invisible.
+    struct BuggyExtractor;
+
+    impl PrefixExtractor for BuggyExtractor {
+        fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+            if key.len() < 4 {
+                Box::new(std::iter::empty())
+            } else {
+                // Writer registers TWO prefixes: 3 bytes and 4 bytes.
+                Box::new(vec![&key[..3], &key[..4]].into_iter())
+            }
+        }
+
+        fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+            if key.len() < 2 {
+                None
+            } else {
+                // Reader probes with first 2 bytes — NEITHER of the registered
+                // prefixes (3 bytes, 4 bytes). Hash mismatch → false negatives.
+                Some(&key[..2])
+            }
+        }
+
+        fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+            // Also wrong — returns the SAME inconsistent 2-byte prefix.
+            self.extract_first(key)
+        }
+
+        fn name(&self) -> &str {
+            "mycrate::BuggyExtractor:v1"
+        }
+
+        fn is_single_prefix(&self) -> bool {
+            false
+        }
+    }
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .prefix_extractor(Arc::new(BuggyExtractor))
+        .whole_key_filtering(false) // force reliance on prefix filter
+        .open()?;
+
+    // Use keys with VARYING first 2 bytes so each reader probe sees a
+    // distinct unregistered hash. If we used a constant first 2 bytes
+    // ("ab"), all 50 probes would hash the same value — making the result
+    // binary 0 or 50 with ~1% Bloom-FPR flake risk.
+    //
+    // Writer (extract): registers first 3 bytes + first 4 bytes per key.
+    // Reader (extract_first): probes first 2 bytes — never registered.
+    let n: u32 = 50;
+    for i in 0..n {
+        // 8 bytes: "aXY_NNNN" where X,Y are varying letters → first 2 bytes
+        // are unique per key.
+        let c1 = (b'a' + (i / 7) as u8) as char;
+        let c2 = (b'a' + (i % 7) as u8) as char;
+        let key = format!("{c1}{c2}_{i:04}");
+        tree.insert(key.as_bytes(), b"v", seqno.next());
+    }
+    tree.flush_active_memtable(0)?;
+
+    let mut missing = 0;
+    for i in 0..n {
+        let c1 = (b'a' + (i / 7) as u8) as char;
+        let c2 = (b'a' + (i % 7) as u8) as char;
+        let key = format!("{c1}{c2}_{i:04}");
+        if !tree.contains_key(key.as_bytes(), u64::MAX)? {
+            missing += 1;
+        }
+    }
+    // Tight assertion: expect at least 90% misses. Each lookup probes a
+    // distinct unregistered 2-byte hash with FPR ≈ 1%.
+    assert!(
+        missing >= (n as usize * 9 / 10),
+        "expected inconsistent extract_first to produce ~all misses; \
+         got {missing} / {n}. If this is now low, the runtime gained \
+         trait-contract validation — update the test."
+    );
+
+    Ok(())
+}
+
+/// Concurrent reads against a tree that is being mutated in parallel by a
+/// background writer + flusher thread. Exercises the prefix-filter read
+/// path under real concurrent mutation (memtable inserts, flushes producing
+/// new tables, version snapshot churn).
+///
+/// Readers query for keys that were pre-inserted before the writer started,
+/// so the answer is deterministic: every pre-existing key must be findable
+/// regardless of concurrent writes, and missing keys must remain missing.
+#[test]
+fn test_prefix_filter_concurrent_reads_with_writer() -> lsm_tree::Result<()> {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::thread;
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Arc::new(
+        Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+            .open()?,
+    );
+
+    // Pre-insert 1000 keys (the "stable" set readers will query). Flush so
+    // they're on disk before readers start.
+    let n_prefixes = 10u32;
+    let keys_per_prefix = 100u32;
+    for p in 0..n_prefixes {
+        for k in 0..keys_per_prefix {
+            let key = format!("p{p:03}_{k:08}");
+            tree.insert(key.as_bytes(), b"v", seqno.next());
+        }
+    }
+    tree.flush_active_memtable(0)?;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer_seqno = seqno.clone();
+
+    // Background writer thread: inserts NEW keys (different prefixes) and
+    // periodically flushes, producing new L0 tables concurrent with reads.
+    let writer_tree = Arc::clone(&tree);
+    let writer_stop = Arc::clone(&stop);
+    let writer_handle = thread::spawn(move || {
+        let mut i = 0u64;
+        while !writer_stop.load(Ordering::Relaxed) {
+            // Use "w" prefix so writer-added keys can't be confused with
+            // pre-inserted "p" keys.
+            let key = format!("w{i:07}");
+            writer_tree.insert(key.as_bytes(), b"v", writer_seqno.next());
+            i += 1;
+            if i % 200 == 0 {
+                let _ = writer_tree.flush_active_memtable(0);
+            }
+        }
+    });
+
+    let total_correct = Arc::new(AtomicU64::new(0));
+    let n_threads = 4;
+    let queries_per_thread = 500;
+
+    let mut handles = Vec::new();
+    for tid in 0..n_threads {
+        let tree = Arc::clone(&tree);
+        let total_correct = Arc::clone(&total_correct);
+        handles.push(thread::spawn(move || {
+            let mut local_correct = 0u64;
+            for q in 0..queries_per_thread {
+                let p = (tid + q) as u32 % n_prefixes;
+                let k = q as u32 % keys_per_prefix;
+
+                if q % 3 == 0 {
+                    // Point read of a pre-inserted key — must always be found
+                    // regardless of concurrent writes (the writer never
+                    // touches "p" prefix keys).
+                    let key = format!("p{p:03}_{k:08}");
+                    if tree.contains_key(key.as_bytes(), u64::MAX).unwrap() {
+                        local_correct += 1;
+                    }
+                } else if q % 3 == 1 {
+                    // Point read of a permanently-missing key (no "p" prefix
+                    // key has suffix 99999999).
+                    let key = format!("p{p:03}_99999999");
+                    if !tree.contains_key(key.as_bytes(), u64::MAX).unwrap() {
+                        local_correct += 1;
+                    }
+                } else {
+                    // Prefix scan of pre-inserted set — count must remain
+                    // exactly keys_per_prefix (writer doesn't touch "p"
+                    // prefixes, so the snapshot must always see all 100).
+                    let prefix = format!("p{p:03}");
+                    let count = tree.prefix(prefix.as_bytes(), u64::MAX, None).count();
+                    if count == keys_per_prefix as usize {
+                        local_correct += 1;
+                    }
+                }
+            }
+            total_correct.fetch_add(local_correct, Ordering::Relaxed);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    // Stop the writer thread.
+    stop.store(true, Ordering::Relaxed);
+    writer_handle.join().unwrap();
+
+    let expected_total = (n_threads as u64) * (queries_per_thread as u64);
+    let actual_total = total_correct.load(Ordering::Relaxed);
+    assert_eq!(
+        actual_total, expected_total,
+        "every query against the stable pre-inserted set must produce the \
+         correct result even while a writer is concurrently inserting new \
+         keys + flushing (expected {expected_total}, got {actual_total})",
+    );
+
+    Ok(())
+}
+
+/// Locks in the `FilterWriter` calling protocol documented on the trait:
+/// `notify_key(K)` is called for every user key, even when no extractor is
+/// configured. This was changed during the audit; this test guards against
+/// regression.
+///
+/// Without this protocol, the partitioned filter writer's `last_key` could
+/// be left as `None` after a write run, causing `finish` to skip the filter
+/// entirely (no filter on disk → no filtering on read).
+#[test]
+fn test_partitioned_filter_finish_works_without_extractor() -> lsm_tree::Result<()> {
+    use lsm_tree::config::PartitioningPolicy;
+
+    let folder = tempfile::tempdir()?;
+    let seqno = SequenceNumberCounter::default();
+
+    // No prefix extractor, but partitioned filter is enabled.
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .filter_block_partitioning_policy(PartitioningPolicy::all(true))
+        .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
+            BloomConstructionPolicy::BitsPerKey(10.0),
+        )))
+        .open()?;
+
+    for i in 0u32..1000 {
+        let key = format!("key{i:08}");
+        tree.insert(key.as_bytes(), b"v", seqno.next());
+    }
+    tree.flush_active_memtable(0)?;
+
+    // The filter should exist (size > 0) — if `notify_key` weren't being
+    // called in the no-extractor path, `last_key` would stay `None` and
+    // `finish` would skip writing the filter.
+    let filter_bytes = tree.filter_size();
+    assert!(
+        filter_bytes > 0,
+        "partitioned filter without extractor should still produce a non-empty filter; \
+         got {filter_bytes} bytes — has notify_key been skipped in the no-extractor path?"
+    );
+
+    // And lookups should work.
+    for i in 0u32..100 {
+        let key = format!("key{i:08}");
+        assert!(tree.contains_key(key.as_bytes(), u64::MAX)?);
+    }
+    assert!(!tree.contains_key(b"keyMISSING", u64::MAX)?);
+
+    Ok(())
+}

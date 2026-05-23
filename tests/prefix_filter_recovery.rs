@@ -204,3 +204,188 @@ fn test_skip_range_incompatible_extractor() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// Recovery: tree written with `whole_key_filtering=false` and a prefix
+/// extractor is reopened with the same extractor. Reads must still work
+/// (using prefix filter alone since no full-key hashes are persisted).
+#[test]
+fn test_recovery_wkf_false_same_extractor() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    {
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(5)))
+        .whole_key_filtering(false)
+        .open()?;
+
+        for i in 0..50 {
+            let key = format!("hello_{i:04}");
+            tree.insert(key.as_bytes(), b"v", 0);
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with identical config.
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(5)))
+    .whole_key_filtering(false)
+    .open()?;
+
+    for i in 0..50 {
+        let key = format!("hello_{i:04}");
+        assert!(
+            tree.contains_key(key.as_bytes(), u64::MAX)?,
+            "false negative after WKF=false reopen: {key}"
+        );
+    }
+
+    // Prefix scan also works.
+    let count = tree.prefix(b"hello", u64::MAX, None).count();
+    assert_eq!(count, 50);
+
+    Ok(())
+}
+
+/// Recovery: a legacy-style table (written without any prefix extractor)
+/// is reopened with an extractor. `prefix_filter_allowed` should return
+/// `false` for this table (table has no extractor name persisted), and
+/// reads must fall through to the full-key Bloom path (legacy default
+/// `whole_key_filtering=true` ensures the full-key Bloom is queryable).
+#[test]
+fn test_recovery_legacy_table_then_extractor_added() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    // Phase 1: write without extractor (simulates a table from before
+    // the prefix-filter feature existed).
+    {
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        for i in 0..50 {
+            let key = format!("legacy_{i:04}");
+            tree.insert(key.as_bytes(), b"v", 0);
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Phase 2: reopen with an extractor configured. The on-disk tables
+    // have no extractor name, so prefix_filter_allowed returns false; but
+    // they were written with full-key hashes, so point reads can still use
+    // the full-key Bloom.
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(7)))
+    .open()?;
+
+    // Point reads: must find every key.
+    for i in 0..50 {
+        let key = format!("legacy_{i:04}");
+        assert!(
+            tree.contains_key(key.as_bytes(), u64::MAX)?,
+            "false negative for legacy table on extractor-added reopen: {key}"
+        );
+    }
+
+    // Prefix scan: should also work (falls back to bounds-based pruning
+    // since the legacy table has no extractor name, so the prefix-aware
+    // pruning is skipped per table).
+    let count = tree.prefix(b"legacy_", u64::MAX, None).count();
+    assert_eq!(
+        count, 50,
+        "prefix scan on legacy table should find all keys"
+    );
+
+    Ok(())
+}
+
+/// Recovery: a table written with extractor A is reopened with extractor B
+/// (different name). `prefix_filter_allowed` returns false. With
+/// `whole_key_filtering=true` (the default), the full-key Bloom is still
+/// valid and reads succeed.
+///
+/// This locks in the audit's full-key-Bloom-on-mismatch optimization
+/// (commit 9cf39ad9): a tree migrated between extractors must remain
+/// readable AND use the full-key Bloom path (not just `get_without_filter`).
+/// Without the metric assertion below, this test would pass even if the
+/// optimization were reverted (because the data-block scan would still
+/// find the keys); the metric check is what actually locks in the
+/// optimization.
+#[test]
+#[cfg(feature = "metrics")]
+fn test_recovery_extractor_change_with_wkf_true_reads_succeed() -> lsm_tree::Result<()> {
+    use lsm_tree::AbstractTree;
+    let folder = tempfile::tempdir()?;
+
+    {
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(3)))
+        .whole_key_filtering(true)
+        .open()?;
+
+        for i in 0..50 {
+            let key = format!("abc{i:05}");
+            tree.insert(key.as_bytes(), b"v", 0);
+        }
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with extractor of different length → different name → mismatch.
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedPrefixExtractor::new(5)))
+    .whole_key_filtering(true)
+    .open()?;
+
+    // Existing keys are findable.
+    for i in 0..50 {
+        let key = format!("abc{i:05}");
+        assert!(
+            tree.contains_key(key.as_bytes(), u64::MAX)?,
+            "false negative after extractor change with WKF=true: {key}"
+        );
+    }
+
+    // Verify the optimization (9cf39ad9) is exercised: a missing-key lookup
+    // whose key range falls inside the table should bump the
+    // `io_skipped_by_filter` counter — meaning the full-key Bloom was
+    // consulted and rejected the key. Without the optimization, reads
+    // would fall through to `get_without_filter` and this counter would
+    // not increment.
+    let before = tree.metrics().io_skipped_by_filter();
+    // Use a key that lies within the table's key_range but doesn't exist,
+    // so it isn't pruned by key-range overlap before reaching the filter.
+    for i in 0..50 {
+        let key = format!("abc{i:05}_absent");
+        assert!(!tree.contains_key(key.as_bytes(), u64::MAX)?);
+    }
+    let after = tree.metrics().io_skipped_by_filter();
+    assert!(
+        after > before,
+        "full-key Bloom was not consulted on extractor mismatch — \
+         9cf39ad9 optimization regressed (io_skipped_by_filter: {before} -> {after})"
+    );
+
+    Ok(())
+}

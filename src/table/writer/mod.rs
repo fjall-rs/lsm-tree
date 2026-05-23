@@ -265,6 +265,18 @@ impl Writer {
         self
     }
 
+    /// Controls whether full-key hashes are added to the filter alongside
+    /// prefix hashes when a prefix extractor is configured (via
+    /// [`Self::use_prefix_extractor`]).
+    ///
+    /// Setting this to `false` produces a prefix-only filter (no full-key
+    /// hashes), saving filter space for seek-only workloads. Only takes
+    /// effect when a prefix extractor is set — without one, the writer
+    /// registers full-key hashes regardless and this flag is not persisted
+    /// to metadata.
+    ///
+    /// Defaults to `true`. See [`crate::Config::whole_key_filtering`] for
+    /// the full semantics.
     #[must_use]
     pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
         self.whole_key_filtering = enabled;
@@ -332,11 +344,25 @@ impl Writer {
                 //      full) are committed to the partition.
                 // This guarantees a partition's TLI key always corresponds
                 // to a key whose hashes are fully present in that partition.
-                if let Some(ref extractor) = self.prefix_extractor {
-                    self.filter_writer.notify_key(&user_key)?;
+                // Always call notify_key first so partitioned writers see a
+                // consistent "new user key" boundary in every mode (with or
+                // without an extractor, WKF=true or WKF=false). FullFilterWriter
+                // has a no-op default, so this is free for that path.
+                self.filter_writer.notify_key(&user_key)?;
 
-                    for prefix in extractor.extract(user_key.as_ref()) {
-                        self.filter_writer.register_bytes(prefix)?;
+                if let Some(ref extractor) = self.prefix_extractor {
+                    // Fast path for single-prefix extractors (the common
+                    // case: FixedPrefixExtractor, FixedLengthExtractor,
+                    // FullKeyExtractor). Avoids the per-key Box<dyn Iterator>
+                    // allocation that `extract` requires.
+                    if extractor.is_single_prefix() {
+                        if let Some(prefix) = extractor.extract_first(user_key.as_ref()) {
+                            self.filter_writer.register_bytes(prefix)?;
+                        }
+                    } else {
+                        for prefix in extractor.extract(user_key.as_ref()) {
+                            self.filter_writer.register_bytes(prefix)?;
+                        }
                     }
 
                     if self.whole_key_filtering {

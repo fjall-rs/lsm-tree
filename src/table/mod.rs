@@ -83,6 +83,56 @@ impl std::fmt::Debug for Table {
     }
 }
 
+/// Validates a prefix hint against the extractor's stability contract and
+/// returns the hash of the most specific stable prefix.
+///
+/// The "stability guard" is: `extract_X(hint) == extract_X(hint + "\0")`.
+/// If appending a byte to `hint` changes the extracted prefix, then `hint`
+/// is not a stable boundary for the keys that would extend it, and probing
+/// with `hash(extract_X(hint))` could give a false negative.
+///
+/// We try `extract_last` first (most specific prefix → highest cardinality
+/// → best Bloom pruning). If the last-prefix stability guard fails, fall
+/// back to `extract_first`. If neither is stable, return `None` (the
+/// caller should not use a hint-based probe and should fall back to
+/// bounds-based pruning or read the table).
+///
+/// This is the single source of truth for the validation rules used in
+/// `RunReader::new` (multi-table range setup) and
+/// `Table::should_skip_range_by_prefix_filter` (single-table range path).
+/// Both call sites must stay in sync; centralizing the logic here ensures
+/// a fix or invariant change applies to both.
+pub(crate) fn validate_hint_and_hash(
+    extractor: &dyn crate::prefix::PrefixExtractor,
+    hint: &[u8],
+) -> Option<u64> {
+    let mut extended = Vec::with_capacity(hint.len() + 1);
+    extended.extend_from_slice(hint);
+    extended.push(0u8);
+
+    // Try extract_last first (most specific prefix → better Bloom pruning).
+    if let (Some(lh), Some(le)) = (
+        extractor.extract_last(hint),
+        extractor.extract_last(&extended),
+    ) {
+        if lh == le {
+            return Some(crate::table::filter::standard_bloom::Builder::get_hash(lh));
+        }
+    }
+
+    // Fall back to extract_first if the last-prefix guard failed.
+    if let (Some(fh), Some(fe)) = (
+        extractor.extract_first(hint),
+        extractor.extract_first(&extended),
+    ) {
+        if fh == fe {
+            return Some(crate::table::filter::standard_bloom::Builder::get_hash(fh));
+        }
+    }
+
+    None
+}
+
 impl Table {
     #[must_use]
     pub fn global_seqno(&self) -> SeqNo {
@@ -760,6 +810,44 @@ impl Table {
         self.metadata.key_range.min()
     }
 
+    /// Fast variant of `should_skip_range_by_prefix_filter` that uses a hash
+    /// computed once at iterator setup, avoiding per-table re-extraction and
+    /// re-hashing in the L0 single-table loop.
+    ///
+    /// The caller is responsible for having validated the hint's stability
+    /// (via `validate_hint_and_hash`) before precomputing the hash.
+    ///
+    /// Updates filter metrics like `should_skip_range_by_prefix_filter` does.
+    pub(crate) fn should_skip_with_precomputed_hash(
+        &self,
+        hint: &[u8],
+        hash: u64,
+        current_extractor_name: &str,
+    ) -> bool {
+        if !self.prefix_filter_allowed(Some(current_extractor_name)) {
+            return false;
+        }
+
+        let probe = self.probe_prefix_filter_with_hash(hint, hash);
+
+        #[cfg(feature = "metrics")]
+        if matches!(&probe, Ok(Some(_))) {
+            use std::sync::atomic::Ordering::Relaxed;
+            self.metrics.filter_queries.fetch_add(1, Relaxed);
+        }
+
+        if matches!(probe, Ok(Some(false))) {
+            #[cfg(feature = "metrics")]
+            {
+                use std::sync::atomic::Ordering::Relaxed;
+                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+            }
+            return true;
+        }
+
+        false
+    }
+
     /// Determines if this table can be skipped for a given user range by consulting the prefix filter.
     ///
     /// Behavior:
@@ -776,46 +864,16 @@ impl Table {
             return false;
         }
 
-        // If a prefix hint is available (from tree.prefix()), try to use it
-        // for a direct probe. This handles the case where prefix_to_range produces
-        // bounds with different extracted prefixes (e.g. prefix "h" → range "h".."i"
-        // with extractor length 1).
+        // If a prefix hint is available (from tree.prefix()), use it for a
+        // direct probe. This handles the case where prefix_to_range produces
+        // bounds with different extracted prefixes (e.g. prefix "h" → range
+        // "h".."i" with extractor length 1).
         //
-        // We can only trust the probe when the extractor produces the same prefix
-        // for both the hint AND for keys that would match the prefix query. We
-        // verify this with a stability guard: extract_X(hint) == extract_X(hint + "\0").
-        // If appending a byte changes the extracted prefix, the hint is not a
-        // stable prefix for the keys in the range and the probe could yield a
-        // false negative.
-        //
-        // We try extract_last first (most specific prefix → best Bloom pruning),
-        // and fall back to extract_first if the last-prefix guard fails.
+        // The hint's stability is checked by `validate_hint_and_hash` (shared
+        // with RunReader::new). If neither extract_last nor extract_first
+        // produces a stable result, we don't probe and return false (no skip).
         if let Some(hint) = prefix_hint {
-            let extended: Vec<u8> = hint.iter().copied().chain(std::iter::once(0u8)).collect();
-
-            // Try the most specific (last) prefix first for better pruning.
-            // Fall back to the first prefix if the last isn't stable.
-            let best_hash = {
-                let last_hint = extractor.extract_last(hint);
-                let last_extended = extractor.extract_last(&extended);
-                match (last_hint, last_extended) {
-                    (Some(lh), Some(le)) if lh == le => {
-                        Some(crate::table::filter::standard_bloom::Builder::get_hash(lh))
-                    }
-                    _ => {
-                        let first_hint = extractor.extract_first(hint);
-                        let first_extended = extractor.extract_first(&extended);
-                        match (first_hint, first_extended) {
-                            (Some(fh), Some(fe)) if fh == fe => {
-                                Some(crate::table::filter::standard_bloom::Builder::get_hash(fh))
-                            }
-                            _ => None,
-                        }
-                    }
-                }
-            };
-
-            if let Some(hash) = best_hash {
+            if let Some(hash) = validate_hint_and_hash(extractor, hint) {
                 let probe = self.probe_prefix_filter_with_hash(hint, hash);
 
                 #[cfg(feature = "metrics")]
