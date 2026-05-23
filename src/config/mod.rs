@@ -330,7 +330,21 @@ impl Config {
     }
 
     /// Sets the prefix extractor for building prefix-aware filters.
-    /// If set, extracted prefixes are added to filters and the extractor name is stored in table metadata.
+    ///
+    /// When set, the table writer adds extracted prefixes to filters and
+    /// persists the extractor's `name()` in table metadata. Reads check the
+    /// persisted name against the current extractor's `name()` and only use
+    /// the prefix filter when they match — see [`crate::prefix::PrefixExtractor`]
+    /// for the contract, especially the warning about reserved name namespaces.
+    ///
+    /// Together with [`Self::whole_key_filtering`], this controls the on-disk
+    /// filter layout:
+    ///
+    /// | extractor | whole_key_filtering | filter contains |
+    /// |---|---|---|
+    /// | None | (ignored, see below) | full-key hashes only |
+    /// | Some(X) | true (default) | full-key hashes + X-prefix hashes |
+    /// | Some(X) | false | X-prefix hashes only |
     #[must_use]
     pub fn prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
         self.prefix_extractor = Some(extractor);
@@ -346,7 +360,20 @@ impl Config {
     /// Set to `false` for seek-only workloads that never perform point lookups,
     /// reducing filter size by omitting full-key hashes.
     ///
-    /// Has no effect when no prefix extractor is configured.
+    /// # No-op without a prefix extractor
+    ///
+    /// **This option only takes effect when a prefix extractor is configured
+    /// via [`Self::prefix_extractor`].** When no extractor is set:
+    /// - the writer registers full-key hashes regardless of this flag (the
+    ///   filter contains only full-key hashes by definition);
+    /// - the value is not persisted to table metadata (recovery defaults it
+    ///   to `true`, matching what such tables actually contain);
+    /// - the read path takes the full-key Bloom path regardless of this flag.
+    ///
+    /// Calling `whole_key_filtering(false)` without also calling
+    /// [`Self::prefix_extractor`] is effectively a no-op and does not save
+    /// any filter space. If you intended to disable filtering entirely, use
+    /// [`Self::filter_policy`] instead.
     #[must_use]
     pub fn whole_key_filtering(mut self, enabled: bool) -> Self {
         self.whole_key_filtering = enabled;

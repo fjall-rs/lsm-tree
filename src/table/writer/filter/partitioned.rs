@@ -192,13 +192,34 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
     }
 
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
+        // Protocol invariant: the writer must call `notify_key(key)` before
+        // any `register_*` for the same user key. `notify_key` sets
+        // `self.last_key = Some(key.clone())`, so by the time we get here
+        // `last_key` should match `key`. If a future contributor removes the
+        // unconditional `notify_key` call in `Writer::write`, this assert
+        // catches the regression before it can silently produce empty
+        // filters at finish() time (which checks `last_key.is_none()`).
+        // This is a protocol-level invariant that must hold in release
+        // builds too — a violation indicates a logic bug, and surfacing it
+        // loudly is preferable to silent data loss.
+        assert!(
+            self.last_key.as_deref().map(AsRef::as_ref) == Some(key.as_ref()),
+            "register_key called without preceding notify_key — writer protocol violation"
+        );
+
         self.bloom_hash_buffer.push(Builder::get_hash(key));
 
         self.approx_filter_size = self
             .bloom_policy
             .estimated_filter_size(self.bloom_hash_buffer.len());
 
-        self.last_key = Some(key.clone());
+        // NOTE: `self.last_key` is intentionally NOT updated here. The
+        // writer's protocol calls `notify_key(key)` before any registers for
+        // a user key, which already sets `self.last_key = Some(key.clone())`.
+        // Setting it again here would be a redundant Arc clone on the writer
+        // hot path (once per user key, every key). The fallthrough spill
+        // below uses the function parameter `key` directly for the TLI
+        // boundary, so this method does not depend on `self.last_key`.
 
         // Spilling here is safe because register_key is called once per user
         // key, after all of that key's prefix hashes (if any) have been
