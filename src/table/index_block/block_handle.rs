@@ -234,9 +234,8 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         let key_len_i64 = key_len as i64;
         unwrap!(reader.seek_relative(key_len_i64));
 
-        let key = data.get(key_start..(key_start + key_len));
-
-        key.map(|k| (k, seqno))
+        data.get(key_start..(key_start + key_len))
+            .map(|k| (k, seqno))
     }
 
     // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
