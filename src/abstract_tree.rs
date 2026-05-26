@@ -175,6 +175,16 @@ pub trait AbstractTree {
     /// Will return `Err` only if an IO error occurs.
     fn clear(&self) -> crate::Result<()>;
 
+    /// Drops all tables and clears all memtables atomically.
+    ///
+    /// Optionally stores an external sequence number corresponding to the clear, which (if
+    /// non-empty) will be returned by subsequent calls to [`get_highest_persisted_seqno`]
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` only if an IO error occurs.
+    fn clear_at_seqno(&self, seqno: Option<SeqNo>) -> crate::Result<()>;
+
     /// Performs major compaction, blocking the caller until it's done.
     ///
     /// # Errors
