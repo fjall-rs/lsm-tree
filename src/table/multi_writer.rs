@@ -48,6 +48,11 @@ pub struct MultiWriter {
 
     /// Level the tables are written to
     initial_level: u8,
+
+    /// Optional prefix extractor to register prefixes in filters.
+    prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
+
+    whole_key_filtering: bool,
 }
 
 impl MultiWriter {
@@ -91,6 +96,9 @@ impl MultiWriter {
             current_key: None,
 
             linked_blobs: HashMap::default(),
+
+            prefix_extractor: None,
+            whole_key_filtering: true,
         })
     }
 
@@ -121,6 +129,23 @@ impl MultiWriter {
     pub fn use_partitioned_filter(mut self) -> Self {
         self.use_partitioned_filter = true;
         self.writer = self.writer.use_partitioned_filter();
+        self
+    }
+
+    #[must_use]
+    pub fn use_prefix_extractor(
+        mut self,
+        extractor: Option<crate::prefix::SharedPrefixExtractor>,
+    ) -> Self {
+        self.prefix_extractor.clone_from(&extractor);
+        self.writer = self.writer.use_prefix_extractor(extractor);
+        self
+    }
+
+    #[must_use]
+    pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
+        self.whole_key_filtering = enabled;
+        self.writer = self.writer.use_whole_key_filtering(enabled);
         self
     }
 
@@ -192,6 +217,9 @@ impl MultiWriter {
             .use_index_block_restart_interval(self.index_block_restart_interval)
             .use_bloom_policy(self.bloom_policy)
             .use_data_block_hash_ratio(self.data_block_hash_ratio);
+
+        new_writer = new_writer.use_prefix_extractor(self.prefix_extractor.clone());
+        new_writer = new_writer.use_whole_key_filtering(self.whole_key_filtering);
 
         if self.use_partitioned_index {
             new_writer = new_writer.use_partitioned_index();
