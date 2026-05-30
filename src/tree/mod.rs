@@ -373,6 +373,7 @@ impl AbstractTree for Tree {
             self.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
+            self.config.use_direct_io_for_flush_and_compaction,
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)

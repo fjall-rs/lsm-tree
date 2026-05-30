@@ -90,6 +90,10 @@ pub mod config;
 #[doc(hidden)]
 pub mod descriptor_table;
 
+// `direct_io` is an internal implementation detail; the public surface for the
+// feature is the two `use_direct_io_for_*` builder methods on `Config`.
+pub(crate) mod direct_io;
+
 #[doc(hidden)]
 pub mod file_accessor;
 

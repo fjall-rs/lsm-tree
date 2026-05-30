@@ -4,16 +4,14 @@
 
 use crate::{
     checksum::ChecksummedWriter,
+    direct_io::ChunkedWriter,
     table::{
         block::Header as BlockHeader, index_block::KeyedBlockHandle,
         writer::index::BlockIndexWriter, Block, BlockHandle, BlockOffset, IndexBlock,
     },
     CompressionType,
 };
-use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
-};
+use std::io::{Seek, Write};
 
 pub struct PartitionedIndexWriter {
     relative_file_pos: u64,
@@ -105,7 +103,7 @@ impl PartitionedIndexWriter {
 
     fn write_top_level_index(
         &mut self,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
         index_base_offset: BlockOffset,
     ) -> crate::Result<()> {
         file_writer.start("tli")?;
@@ -183,7 +181,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
 
     fn finish(
         mut self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
     ) -> crate::Result<usize> {
         if self.buffer_size > 0 {
             self.cut_index_block()?;
