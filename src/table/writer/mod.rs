@@ -13,6 +13,7 @@ use super::{
 use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
+    direct_io::ChunkedWriter,
     file::fsync_directory,
     table::{
         writer::{
@@ -26,7 +27,7 @@ use crate::{
     Checksum, CompressionType, InternalValue, TableId, UserKey, ValueType,
 };
 use index::BlockIndexWriter;
-use std::{fs::File, io::BufWriter, path::PathBuf};
+use std::path::PathBuf;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, std::hash::Hash)]
 pub struct LinkedFile {
@@ -63,15 +64,15 @@ pub struct Writer {
 
     /// File writer
     #[expect(clippy::struct_field_names)]
-    file_writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    file_writer: sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
 
     /// Writer of index blocks
     #[expect(clippy::struct_field_names)]
-    index_writer: Box<dyn BlockIndexWriter<BufWriter<File>>>,
+    index_writer: Box<dyn BlockIndexWriter<ChunkedWriter>>,
 
     /// Writer of filter
     #[expect(clippy::struct_field_names)]
-    filter_writer: Box<dyn FilterWriter<BufWriter<File>>>,
+    filter_writer: Box<dyn FilterWriter<ChunkedWriter>>,
 
     /// Buffer of KVs
     chunk: Vec<InternalValue>,
@@ -95,8 +96,16 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn new(path: PathBuf, table_id: TableId, initial_level: u8) -> crate::Result<Self> {
-        let writer = BufWriter::with_capacity(u16::MAX.into(), File::create_new(&path)?);
+    /// Opens a new table file for writing. When `use_direct_io` is `true` the
+    /// underlying file is opened with platform direct I/O; flush and compaction
+    /// paths pass [`crate::Config::use_direct_io_for_flush_and_compaction`].
+    pub fn new(
+        path: PathBuf,
+        table_id: TableId,
+        initial_level: u8,
+        use_direct_io: bool,
+    ) -> crate::Result<Self> {
+        let writer = ChunkedWriter::create_new(&path, use_direct_io)?;
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;
@@ -373,8 +382,16 @@ impl Writer {
 
         self.spill_block()?;
 
-        // No items written! Just delete table file and return nothing
+        // No items written! Just delete table file and return nothing.
+        // Drop the file_writer first via `cancel` so the AlignedFileWriter (if any)
+        // does not try to write a padded trailing block / set_len on a file we are
+        // about to remove (which would be wasted I/O on Unix and can fail with
+        // ERROR_ACCESS_DENIED on Windows when the file is already marked-for-deletion).
         if self.meta.item_count == 0 {
+            let checksum_writer = self.file_writer.into_inner()?;
+            let (chunked, _) = checksum_writer.into_inner();
+            let file = chunked.cancel();
+            drop(file);
             std::fs::remove_file(&self.path)?;
             return Ok(None);
         }
@@ -514,10 +531,15 @@ impl Writer {
         };
 
         // Write fixed-size trailer
-        // and flush & fsync the table file
-        let mut checksum = self.file_writer.into_inner()?;
-        checksum.inner_mut().get_mut().sync_all()?;
-        let checksum = checksum.checksum();
+        // and flush & fsync the table file.
+        //
+        // For direct-I/O writes, ChunkedWriter::finalize zero-pads the trailing block
+        // (which the kernel requires) and then truncates the file back to the real
+        // byte count before we sync.
+        let checksum_writer = self.file_writer.into_inner()?;
+        let (chunked, checksum) = checksum_writer.into_inner();
+        let file = chunked.finalize()?;
+        file.sync_all()?;
 
         // IMPORTANT: fsync folder on Unix
 
@@ -548,7 +570,7 @@ mod tests {
     fn table_writer_count() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("1");
-        let mut writer = Writer::new(path, 1, 0)?;
+        let mut writer = Writer::new(path, 1, 0, false)?;
 
         assert_eq!(0, writer.meta.key_count);
         assert_eq!(0, writer.chunk_size);

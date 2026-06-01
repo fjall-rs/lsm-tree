@@ -43,11 +43,14 @@ impl<'a> BlobIngestion<'a> {
         let blob_file_size = kv.file_target_size;
 
         let table = TableIngestion::new(&tree.index)?;
+        // Blob-file writes during ingest honor the same direct-I/O knob as flush
+        // and compaction-output (they are equivalently write-once data).
         let blob = BlobFileWriter::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
             tree.index.id,
             tree.index.config.descriptor_table.clone(),
+            tree.index.config.use_direct_io_for_flush_and_compaction,
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);

@@ -33,10 +33,17 @@ pub struct MultiWriter {
 
     tree_id: TreeId,
     descriptor_table: Option<Arc<DescriptorTable>>,
+
+    /// Propagated to per-blob-file `Writer` construction. Mirrors the table writer's
+    /// `use_direct_io` plumbing.
+    use_direct_io: bool,
 }
 
 impl MultiWriter {
     /// Initializes a new blob file writer.
+    ///
+    /// Constructs a `MultiWriter`. When `use_direct_io` is `true` each
+    /// per-blob-file `Writer` is opened with platform direct I/O.
     ///
     /// # Errors
     ///
@@ -47,6 +54,7 @@ impl MultiWriter {
         folder: P,
         tree_id: TreeId,
         descriptor_table: Option<Arc<DescriptorTable>>,
+        use_direct_io: bool,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
@@ -58,7 +66,7 @@ impl MultiWriter {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new(blob_file_path, blob_file_id, tree_id)?,
+            active_writer: Writer::new(blob_file_path, blob_file_id, tree_id, use_direct_io)?,
 
             results: Vec::new(),
 
@@ -67,6 +75,8 @@ impl MultiWriter {
 
             tree_id,
             descriptor_table,
+
+            use_direct_io,
         })
     }
 
@@ -103,8 +113,14 @@ impl MultiWriter {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
-            .use_compression(self.compression);
+        // Each rotated blob file must use the same I/O mode as its predecessors.
+        let new_writer = Writer::new(
+            blob_file_path,
+            new_blob_file_id,
+            self.tree_id,
+            self.use_direct_io,
+        )?
+        .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
         let blob_file = Self::consume_writer(
@@ -172,10 +188,17 @@ impl MultiWriter {
                 writer.path.display(),
             );
 
-            if let Err(e) = std::fs::remove_file(&writer.path) {
+            // Drop the writer first via `cancel_for_delete` so the underlying
+            // AlignedFileWriter (if any) does not pad+truncate a file we're about
+            // to remove. Wasted I/O on Unix; can be flat-out broken on Windows
+            // (ERROR_ACCESS_DENIED on a marked-for-deletion handle).
+            let path = writer.path.clone();
+            writer.cancel_for_delete();
+
+            if let Err(e) = std::fs::remove_file(&path) {
                 log::warn!(
                     "Could not delete empty blob file at {}: {e:?}",
-                    writer.path.display(),
+                    path.display(),
                 );
             }
 

@@ -118,8 +118,9 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer =
+            crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None, false)?
+                .use_target_size(u64::MAX);
 
         let handle = writer.write(b"a", 0, b"abcdef")?;
 
@@ -140,9 +141,10 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer =
+            crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None, false)?
+                .use_target_size(u64::MAX)
+                .use_compression(CompressionType::Lz4);
 
         let handle0 = writer.write(b"a", 0, b"abcdef")?;
         let handle1 = writer.write(b"b", 0, b"ghi")?;

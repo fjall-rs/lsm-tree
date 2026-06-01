@@ -13,12 +13,19 @@ pub struct RunScanner {
     lo: usize,
     hi: usize,
     lo_reader: Option<Scanner>,
+    /// Propagated to each per-table `Scanner` so the I/O mode is consistent across
+    /// the run.
+    use_direct_io: bool,
 }
 
 impl RunScanner {
+    /// Constructs a `RunScanner` over the given range. When `use_direct_io` is
+    /// `true` each per-table scanner opens the underlying file with platform
+    /// direct I/O.
     pub fn culled(
         run: Arc<Run<Table>>,
         (lo, hi): (Option<usize>, Option<usize>),
+        use_direct_io: bool,
     ) -> crate::Result<Self> {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
@@ -29,13 +36,14 @@ impl RunScanner {
         )]
         let lo_table = run.get(lo).expect("should exist");
 
-        let lo_reader = lo_table.scan()?;
+        let lo_reader = lo_table.scan(use_direct_io)?;
 
         Ok(Self {
             tables: run,
             lo,
             hi,
             lo_reader: Some(lo_reader),
+            use_direct_io,
         })
     }
 }
@@ -59,8 +67,11 @@ impl Iterator for RunScanner {
                         clippy::expect_used,
                         reason = "hi is at most equal to the last slot; so because 0 <= lo <= hi, it must be a valid index"
                     )]
-                    let scanner =
-                        fail_iter!(self.tables.get(self.lo).expect("should exist").scan());
+                    let scanner = fail_iter!(self
+                        .tables
+                        .get(self.lo)
+                        .expect("should exist")
+                        .scan(self.use_direct_io));
 
                     self.lo_reader = Some(scanner);
                 }
@@ -112,7 +123,7 @@ mod tests {
 
         #[expect(clippy::unwrap_used)]
         {
-            let multi_reader = RunScanner::culled(level.clone(), (None, None))?;
+            let multi_reader = RunScanner::culled(level.clone(), (None, None), false)?;
 
             let mut iter = multi_reader.flatten();
 
@@ -133,7 +144,7 @@ mod tests {
 
         #[expect(clippy::unwrap_used)]
         {
-            let multi_reader = RunScanner::culled(level, (Some(1), None))?;
+            let multi_reader = RunScanner::culled(level, (Some(1), None), false)?;
 
             let mut iter = multi_reader.flatten();
 

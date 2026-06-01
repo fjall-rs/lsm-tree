@@ -4,13 +4,12 @@
 
 use super::meta::Metadata;
 use crate::{
-    checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
-    KeyRange, SeqNo, TreeId, UserKey,
+    checksum::ChecksummedWriter, direct_io::ChunkedWriter, time::unix_timestamp, vlog::BlobFileId,
+    Checksum, CompressionType, KeyRange, SeqNo, TreeId, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
-    fs::File,
-    io::{BufWriter, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -30,7 +29,7 @@ pub struct Writer {
     pub(crate) blob_file_id: BlobFileId,
 
     #[expect(clippy::struct_field_names)]
-    writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    writer: sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
 
     offset: u64,
 
@@ -50,15 +49,18 @@ impl Writer {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[doc(hidden)]
+    ///
+    /// When `use_direct_io` is `true` the underlying file is opened with
+    /// platform direct I/O.
     pub fn new<P: AsRef<Path>>(
         path: P,
         blob_file_id: BlobFileId,
         tree_id: TreeId,
+        use_direct_io: bool,
     ) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        let writer = BufWriter::new(File::create(path)?);
+        let writer = ChunkedWriter::create_or_truncate(path, use_direct_io)?;
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;
@@ -204,6 +206,20 @@ impl Writer {
         self.write_raw(key, seqno, value, value.len() as u32)
     }
 
+    /// Discards buffered data and releases the underlying file without padding or
+    /// truncating. The caller is expected to immediately remove the file from disk.
+    pub(crate) fn cancel_for_delete(self) {
+        let checksum_writer = match self.writer.into_inner() {
+            Ok(w) => w,
+            Err(e) => {
+                log::warn!("Discarding blob file writer with sfa::Writer error: {e:?}");
+                return;
+            }
+        };
+        let (chunked, _) = checksum_writer.into_inner();
+        drop(chunked.cancel());
+    }
+
     pub(crate) fn finish(mut self) -> crate::Result<(Metadata, Checksum)> {
         self.writer.start("meta")?;
 
@@ -227,9 +243,12 @@ impl Writer {
         };
         metadata.encode_into(&mut self.writer)?;
 
-        let mut checksum = self.writer.into_inner()?;
-        checksum.inner_mut().get_mut().sync_all()?;
-        let checksum = checksum.checksum();
+        // Drain sfa and ChecksummedWriter wrappers, then finalize the chunked writer
+        // (zero-pad + truncate for direct-I/O mode) before issuing the final fsync.
+        let checksum_writer = self.writer.into_inner()?;
+        let (chunked, checksum) = checksum_writer.into_inner();
+        let file = chunked.finalize()?;
+        file.sync_all()?;
 
         Ok((metadata, checksum))
     }

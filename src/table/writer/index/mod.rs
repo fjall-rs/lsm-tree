@@ -8,8 +8,10 @@ mod partitioned;
 pub use full::FullIndexWriter;
 pub use partitioned::PartitionedIndexWriter;
 
-use crate::{checksum::ChecksummedWriter, table::index_block::KeyedBlockHandle, CompressionType};
-use std::{fs::File, io::BufWriter};
+use crate::{
+    checksum::ChecksummedWriter, direct_io::ChunkedWriter, table::index_block::KeyedBlockHandle,
+    CompressionType,
+};
 
 pub trait BlockIndexWriter<W: std::io::Write> {
     /// Registers a data block in the block index.
@@ -20,7 +22,7 @@ pub trait BlockIndexWriter<W: std::io::Write> {
     /// Returns the number of index blocks written.
     fn finish(
         self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
     ) -> crate::Result<usize>;
 
     fn use_compression(

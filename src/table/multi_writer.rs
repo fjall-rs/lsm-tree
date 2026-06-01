@@ -25,6 +25,10 @@ pub struct MultiWriter {
     use_partitioned_index: bool,
     use_partitioned_filter: bool,
 
+    /// When `true`, the per-table `Writer` is constructed with direct I/O enabled.
+    /// Propagated from `Config::use_direct_io_for_flush_and_compaction`.
+    use_direct_io: bool,
+
     /// Target size of tables in bytes
     ///
     /// If a table reaches the target size, a new one is started,
@@ -51,17 +55,20 @@ pub struct MultiWriter {
 }
 
 impl MultiWriter {
-    /// Sets up a new `MultiWriter` at the given tables folder
+    /// Sets up a new `MultiWriter` at the given tables folder. When
+    /// `use_direct_io` is `true` each underlying table file is opened with
+    /// platform direct I/O.
     pub fn new(
         base_path: PathBuf,
         table_id_generator: SequenceNumberCounter,
         target_size: u64,
         initial_level: u8,
+        use_direct_io: bool,
     ) -> crate::Result<Self> {
         let current_table_id = table_id_generator.next();
 
         let path = base_path.join(current_table_id.to_string());
-        let writer = Writer::new(path, current_table_id, initial_level)?;
+        let writer = Writer::new(path, current_table_id, initial_level, use_direct_io)?;
 
         Ok(Self {
             initial_level,
@@ -85,6 +92,8 @@ impl MultiWriter {
 
             use_partitioned_index: false,
             use_partitioned_filter: false,
+
+            use_direct_io,
 
             bloom_policy: BloomConstructionPolicy::default(),
 
@@ -184,14 +193,17 @@ impl MultiWriter {
         let new_table_id = self.table_id_generator.next();
         let path = self.base_path.join(new_table_id.to_string());
 
-        let mut new_writer = Writer::new(path, new_table_id, self.initial_level)?
-            .use_data_block_compression(self.data_block_compression)
-            .use_index_block_compression(self.index_block_compression)
-            .use_data_block_size(self.data_block_size)
-            .use_data_block_restart_interval(self.data_block_restart_interval)
-            .use_index_block_restart_interval(self.index_block_restart_interval)
-            .use_bloom_policy(self.bloom_policy)
-            .use_data_block_hash_ratio(self.data_block_hash_ratio);
+        // Rotation must preserve the direct-I/O setting so every table in a run is
+        // written through the same I/O path.
+        let mut new_writer =
+            Writer::new(path, new_table_id, self.initial_level, self.use_direct_io)?
+                .use_data_block_compression(self.data_block_compression)
+                .use_index_block_compression(self.index_block_compression)
+                .use_data_block_size(self.data_block_size)
+                .use_data_block_restart_interval(self.data_block_restart_interval)
+                .use_index_block_restart_interval(self.index_block_restart_interval)
+                .use_bloom_policy(self.bloom_policy)
+                .use_data_block_hash_ratio(self.data_block_hash_ratio);
 
         if self.use_partitioned_index {
             new_writer = new_writer.use_partitioned_index();

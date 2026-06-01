@@ -25,7 +25,7 @@ fn test_with_table(
     let file = dir.path().join("table");
 
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?;
+        let mut writer = Writer::new(file.clone(), 0, 0, false)?;
 
         if let Some(f) = &config_writer {
             writer = f(writer);
@@ -193,7 +193,7 @@ fn test_with_table(
 
     // Test with partitioned indexes
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?.use_partitioned_index();
+        let mut writer = Writer::new(file.clone(), 0, 0, false)?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);
@@ -517,7 +517,7 @@ fn table_scan() -> crate::Result<()> {
     test_with_table(
         &items,
         |table| {
-            assert_eq!(items, &*table.scan()?.flatten().collect::<Vec<_>>());
+            assert_eq!(items, &*table.scan(false)?.flatten().collect::<Vec<_>>());
 
             assert_eq!(
                 table.metadata.key_range,
@@ -1206,7 +1206,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let data_block_size = 97;
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, false)
         .unwrap()
         .use_data_block_size(data_block_size);
 
@@ -1278,7 +1278,7 @@ fn table_partitioned_index() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, false)
         .unwrap()
         .use_partitioned_index()
         .use_data_block_size(5)
@@ -1388,7 +1388,7 @@ fn table_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)?
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, false)?
         .use_partitioned_filter()
         .use_data_block_size(1)
         .use_meta_partition_size(1);
@@ -1440,7 +1440,7 @@ fn table_return_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)?;
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, false)?;
 
     for item in items {
         writer.write(item)?;

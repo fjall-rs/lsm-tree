@@ -232,6 +232,28 @@ pub struct Config {
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
+    /// If `true`, compaction-input SST and blob files are opened with platform-native
+    /// direct I/O (`O_DIRECT` on Linux, `F_NOCACHE` on macOS), bypassing the OS
+    /// page cache.
+    ///
+    /// Silent no-op on other platforms (including Windows). On Linux, if the
+    /// filesystem rejects `O_DIRECT` at runtime (e.g. tmpfs / overlayfs / some
+    /// FUSE filesystems), opens transparently fall back to buffered I/O and log
+    /// a single `warn`.
+    ///
+    /// Defaults to `false`.
+    pub(crate) use_direct_io_for_compaction_reads: bool,
+
+    /// If `true`, the SST and blob files produced by flush, ingest, and compaction-output
+    /// are opened with direct I/O.
+    ///
+    /// Silent no-op on platforms without a direct-I/O mechanism (including
+    /// Windows). On Linux, if the filesystem rejects `O_DIRECT` at runtime,
+    /// opens transparently fall back to buffered I/O and log a single `warn`.
+    ///
+    /// Defaults to `false`.
+    pub(crate) use_direct_io_for_flush_and_compaction: bool,
+
     /// The global sequence number generator
     ///
     /// Should be shared between multple trees of a database
@@ -294,6 +316,9 @@ impl Default for Config {
             expect_point_read_hits: false,
 
             kv_separation_opts: None,
+
+            use_direct_io_for_compaction_reads: false,
+            use_direct_io_for_flush_and_compaction: false,
         }
     }
 }
@@ -457,6 +482,44 @@ impl Config {
     #[must_use]
     pub fn with_kv_separation(mut self, opts: Option<KvSeparationOptions>) -> Self {
         self.kv_separation_opts = opts;
+        self
+    }
+
+    /// Enables direct I/O for compaction-input reads.
+    ///
+    /// When `true`, the file handles opened by the compaction worker to read
+    /// existing SST and blob files use `O_DIRECT` (Linux) or `F_NOCACHE` (macOS).
+    /// This avoids polluting the OS page cache with sequential, read-once
+    /// compaction data, protecting user-read tail latency on cache-pressured
+    /// workloads.
+    ///
+    /// Silent no-op on other platforms (including Windows). On Linux where the
+    /// filesystem rejects `O_DIRECT` at runtime, transparently falls back to
+    /// buffered I/O.
+    ///
+    /// For best results, pair with [`Config::use_direct_io_for_flush_and_compaction`].
+    ///
+    /// Defaults to `false`.
+    #[must_use]
+    pub fn use_direct_io_for_compaction_reads(mut self, b: bool) -> Self {
+        self.use_direct_io_for_compaction_reads = b;
+        self
+    }
+
+    /// Enables direct I/O for flush, ingest, and compaction-output writes.
+    ///
+    /// When `true`, newly created SST and blob files (from flush, bulk ingest, and
+    /// compaction) are opened with `O_DIRECT` (Linux) or `F_NOCACHE` (macOS).
+    /// This avoids polluting the OS page cache with write-once data.
+    ///
+    /// Silent no-op on other platforms (including Windows). On Linux where the
+    /// filesystem rejects `O_DIRECT` at runtime, transparently falls back to
+    /// buffered I/O.
+    ///
+    /// Defaults to `false`.
+    #[must_use]
+    pub fn use_direct_io_for_flush_and_compaction(mut self, b: bool) -> Self {
+        self.use_direct_io_for_flush_and_compaction = b;
         self
     }
 

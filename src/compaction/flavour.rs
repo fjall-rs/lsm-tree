@@ -77,6 +77,7 @@ pub(super) fn prepare_table_writer(
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
+        opts.config.use_direct_io_for_flush_and_compaction,
     )?;
 
     if index_partitioning {

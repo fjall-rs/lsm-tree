@@ -6,16 +6,14 @@ use super::FilterWriter;
 use crate::{
     checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
+    direct_io::ChunkedWriter,
     table::{
         block::Header as BlockHeader, filter::standard_bloom::Builder, Block, BlockHandle,
         BlockOffset, IndexBlock, KeyedBlockHandle,
     },
     CompressionType, UserKey,
 };
-use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
-};
+use std::io::{Seek, Write};
 
 pub struct PartitionedFilterWriter {
     final_filter_buffer: Vec<u8>,
@@ -102,7 +100,7 @@ impl PartitionedFilterWriter {
 
     fn write_top_level_index(
         &mut self,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
         index_base_offset: BlockOffset,
     ) -> crate::Result<()> {
         file_writer.start("filter_tli")?;
@@ -178,7 +176,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
 
     fn finish(
         mut self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
     ) -> crate::Result<usize> {
         if self.last_key.is_none() {
             log::trace!("Filter writer has not seen any writes - not building filter");
