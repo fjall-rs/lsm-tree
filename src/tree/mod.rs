@@ -634,8 +634,12 @@ impl AbstractTree for Tree {
     }
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        let guard = self.version_history.read().expect("lock is poisoned");
-        let super_version = guard.latest_version();
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version();
         if super_version.is_empty() {
             super_version.version.created_seqno
         } else {

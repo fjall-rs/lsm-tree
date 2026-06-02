@@ -159,7 +159,10 @@ pub struct VersionInner {
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
 
-    /// seqno at which this version was born
+    /// Seqno at which this version was created.
+    ///
+    /// Note: This is optional because previous versions of `lsm-tree` did not persist the version
+    /// seqno.
     pub created_seqno: Option<SeqNo>,
 }
 
