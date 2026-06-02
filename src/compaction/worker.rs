@@ -612,9 +612,11 @@ fn drop_tables(
         |current| {
             let mut copy = current.clone();
 
-            copy.version = copy
-                .version
-                .with_dropped(ids_to_drop, &mut dropped_blob_files)?;
+            copy.version = copy.version.with_dropped_at(
+                ids_to_drop,
+                &mut dropped_blob_files,
+                Some(opts.global_seqno.get()),
+            )?;
 
             Ok(copy)
         },

@@ -419,6 +419,18 @@ impl Version {
         ids: &[TableId],
         dropped_blob_files: &mut Vec<BlobFile>,
     ) -> crate::Result<Self> {
+        self.with_dropped_at(ids, dropped_blob_files, None)
+    }
+
+    /// Returns a new version with a list of tables removed, as of a given sequence number.
+    ///
+    /// The table files are not immediately deleted, this is handled by the version system's free list.
+    pub fn with_dropped_at(
+        &self,
+        ids: &[TableId],
+        dropped_blob_files: &mut Vec<BlobFile>,
+        seqno: Option<SeqNo>,
+    ) -> crate::Result<Self> {
         let id = self.id + 1;
 
         let mut levels = vec![];
@@ -484,6 +496,14 @@ impl Version {
             Arc::new(copy)
         };
 
+        // reset the created_seqno if the tree has newly become empty
+        let table_count: usize = levels.iter().map(|x| x.table_count()).sum();
+        let created_seqno = if table_count == 0 {
+            self.created_seqno.max(seqno)
+        } else {
+            self.created_seqno
+        };
+
         Ok(Self {
             inner: Arc::new(VersionInner {
                 id,
@@ -491,7 +511,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
-                created_seqno: self.created_seqno,
+                created_seqno,
             }),
         })
     }
@@ -504,6 +524,27 @@ impl Version {
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
         blob_files_to_drop: &HashSet<BlobFileId>,
+    ) -> Self {
+        self.with_merge_at(
+            old_ids,
+            new_tables,
+            dest_level,
+            diff,
+            new_blob_files,
+            blob_files_to_drop,
+            None,
+        )
+    }
+
+    pub fn with_merge_at(
+        &self,
+        old_ids: &[TableId],
+        new_tables: &[Table],
+        dest_level: usize,
+        diff: Option<FragmentationMap>,
+        new_blob_files: Vec<BlobFile>,
+        blob_files_to_drop: &HashSet<BlobFileId>,
+        seqno: Option<SeqNo>,
     ) -> Self {
         let id = self.id + 1;
 
@@ -566,6 +607,14 @@ impl Version {
             self.gc_stats.clone()
         };
 
+        // reset the created_seqno if the tree has newly become empty
+        let table_count: usize = levels.iter().map(|x| x.table_count()).sum();
+        let created_seqno = if table_count == 0 {
+            self.created_seqno.max(seqno)
+        } else {
+            self.created_seqno
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
@@ -573,7 +622,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
-                created_seqno: self.created_seqno,
+                created_seqno,
             }),
         }
     }
