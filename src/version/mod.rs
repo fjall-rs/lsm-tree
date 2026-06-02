@@ -19,11 +19,11 @@ use crate::checksum::ChecksumType;
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
-use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
+use crate::{SeqNo, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
@@ -158,6 +158,9 @@ pub struct VersionInner {
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
+
+    /// seqno at which this version was born
+    pub created_seqno: Option<SeqNo>,
 }
 
 /// A version is an immutable, point-in-time view of a tree's structure
@@ -209,6 +212,11 @@ impl Version {
 
     /// Creates a new empty version.
     pub fn new(id: VersionId, tree_type: TreeType) -> Self {
+        Self::new_at_seqno(id, tree_type, None)
+    }
+
+    /// Creates a new empty version at the given sequence number
+    pub fn new_at_seqno(id: VersionId, tree_type: TreeType, created_seqno: Option<SeqNo>) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
@@ -218,6 +226,7 @@ impl Version {
                 levels,
                 blob_files: Arc::default(),
                 gc_stats: Arc::default(),
+                created_seqno,
             }),
         }
     }
@@ -265,6 +274,7 @@ impl Version {
             version_levels,
             BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,
+            recovery.created_seqno,
         ))
     }
 
@@ -275,6 +285,7 @@ impl Version {
         levels: Vec<Level>,
         blob_files: BlobFileList,
         gc_stats: FragmentationMap,
+        created_seqno: Option<SeqNo>,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
@@ -283,6 +294,7 @@ impl Version {
                 levels,
                 blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
+                created_seqno,
             }),
         }
     }
@@ -391,6 +403,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
+                created_seqno: self.created_seqno,
             }),
         }
     }
@@ -475,6 +488,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
+                created_seqno: self.created_seqno,
             }),
         })
     }
@@ -556,6 +570,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
+                created_seqno: self.created_seqno,
             }),
         }
     }
@@ -604,6 +619,7 @@ impl Version {
                 levels,
                 blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),
+                created_seqno: self.created_seqno,
             }),
         }
     }
@@ -698,6 +714,11 @@ impl Version {
         writer.start("blob_gc_stats")?;
 
         self.gc_stats.encode_into(writer)?;
+
+        if let Some(seqno) = self.created_seqno {
+            writer.start("created_seqno")?;
+            writer.write_u64::<LittleEndian>(seqno)?;
+        }
 
         Ok(())
     }
