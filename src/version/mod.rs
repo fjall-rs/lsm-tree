@@ -536,6 +536,7 @@ impl Version {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_merge_at(
         &self,
         old_ids: &[TableId],
