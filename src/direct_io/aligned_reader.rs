@@ -36,8 +36,14 @@ impl AlignedFileReader {
     ///
     /// # Errors
     ///
-    /// Returns an error if the file length cannot be read.
+    /// Returns an error if `alignment` is zero or the file length cannot be read.
     pub fn new(file: File, alignment: usize) -> io::Result<Self> {
+        if alignment == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "direct-I/O alignment must be non-zero",
+            ));
+        }
         let capacity = alignment.saturating_mul(BUFFER_BLOCKS).max(alignment);
         let file_len = file.metadata()?.len();
         Ok(Self {

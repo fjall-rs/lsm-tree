@@ -34,7 +34,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Optional key-value separation for large value workloads [[2]](#footnotes), with automatic garbage collection
 - Single deletion tombstones ("weak" deletion)
 - Optional compaction filters to run custom logic during compactions
-- Optional direct I/O for flush and compaction [[4]](#footnotes) (Linux `O_DIRECT`, macOS `F_NOCACHE`; no-op elsewhere)
+- Optional direct I/O [[4]](#footnotes) (Linux `O_DIRECT`, macOS `F_NOCACHE`; no-op elsewhere), with two independent knobs: `use_direct_io_for_flush_and_compaction` for write-once output (flush, ingest, and compaction-output files) and `use_direct_io_for_compaction_reads` for compaction input reads
 
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes.
 As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.

@@ -119,3 +119,20 @@ and within noise in iterations 2 & 3).
   Docker overlay configurations) is already covered by the open-time
   fallback path in `src/direct_io/chunked.rs`; the benchmark transparently
   falls back to buffered I/O in that case.
+
+## Confirming direct I/O was actually used
+
+Because an O_DIRECT-rejecting filesystem silently downgrades to buffered I/O,
+it is possible to accidentally measure "buffered vs buffered" and see no delta.
+Before trusting the numbers, confirm direct I/O was actually in effect:
+
+- Watch the logs. The first fallback emits a single `log::warn` from
+  `log_unsupported_once` in `src/direct_io/chunked.rs`
+  ("direct I/O not supported by filesystem ... falling back to buffered I/O").
+  Run the container with `RUST_LOG=warn` (the bench uses `env_logger`/`test_log`);
+  if that line appears, the `writes_only` / `reads_only` / `both` configs are
+  *not* actually exercising direct I/O and the comparison is meaningless.
+- Verify the data directory lives on an O_DIRECT-capable filesystem (a real
+  block-backed mount such as ext4/xfs). The Docker volume used by
+  `run_bench.sh` is backed by the host's overlay/volume driver — prefer a
+  bind-mount to a real disk if you see the fallback warning, and re-run.

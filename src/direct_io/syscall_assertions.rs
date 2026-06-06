@@ -124,10 +124,26 @@ fn integration_flush_and_compact_uses_direct_io_at_syscall_level() -> crate::Res
         return Ok(());
     }
 
+    use std::sync::atomic::Ordering;
+
+    // Two flushes of the *same* key range produce two overlapping tables, so the
+    // subsequent major compaction must rewrite a merged output (it cannot be a
+    // trivial manifest-only move) — guaranteeing the compaction-output write path
+    // is exercised.
     for i in 0..1_000 {
-        tree.insert(format!("k{i:08}").as_bytes(), b"payload", seqno.next());
+        tree.insert(format!("k{i:08}").as_bytes(), b"payload-v1", seqno.next());
     }
+
+    // Prove the *write* path itself requested direct I/O — not just that the
+    // finished files happen to be re-openable with O_DIRECT below. Without this,
+    // the read-back assertions would still pass even if flush/compaction silently
+    // stopped routing writes through the direct-I/O writer.
+    direct_io::DIRECT_WRITE_OPEN_COUNT.store(0, Ordering::Relaxed);
     tree.flush_active_memtable(0)?;
+    assert!(
+        direct_io::DIRECT_WRITE_OPEN_COUNT.load(Ordering::Relaxed) > 0,
+        "flush did not open any file through the direct-write path",
+    );
 
     // On Linux, fcntl(F_GETFL) can read back the O_DIRECT flag on a freshly opened
     // file. Elsewhere the flag is unobservable post-open, so we only check that
@@ -143,7 +159,18 @@ fn integration_flush_and_compact_uses_direct_io_at_syscall_level() -> crate::Res
         assert!(direct_io::is_direct_io_enabled(&_file)?);
     }
 
+    // Second overlapping table so the compaction below has something to merge.
+    for i in 0..1_000 {
+        tree.insert(format!("k{i:08}").as_bytes(), b"payload-v2", seqno.next());
+    }
+    tree.flush_active_memtable(0)?;
+
+    direct_io::DIRECT_WRITE_OPEN_COUNT.store(0, Ordering::Relaxed);
     tree.major_compact(64 * 1_024 * 1_024, 0)?;
+    assert!(
+        direct_io::DIRECT_WRITE_OPEN_COUNT.load(Ordering::Relaxed) > 0,
+        "compaction did not open any output file through the direct-write path",
+    );
 
     for entry in std::fs::read_dir(&tables_folder)? {
         let entry = entry?;

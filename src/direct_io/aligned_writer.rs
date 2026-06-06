@@ -101,8 +101,13 @@ impl AlignedFileWriter {
         self.bytes_written
     }
 
-    /// Drains the trailing partial block (zero-padded to alignment), truncates the
-    /// file to the real byte count, and returns the inner `File`.
+    /// Drains the trailing partial block and returns the inner `File`.
+    ///
+    /// Any complete aligned chunks still buffered are written via the direct
+    /// handle; the final sub-alignment tail (if any) is written through a
+    /// separate buffered (non-`O_DIRECT`) handle so the file ends at exactly the
+    /// real byte count — no zero padding is ever persisted and no `set_len` is
+    /// needed.
     pub fn finalize(mut self) -> io::Result<File> {
         self.finalize_in_place()?;
         #[expect(
@@ -322,15 +327,17 @@ impl AlignedFileWriter {
 
 impl Drop for AlignedFileWriter {
     fn drop(&mut self) {
-        // If the caller didn't finalize/cancel and we're not poisoned, try to flush
-        // the tail and truncate. A failure here means the file may be left with up
-        // to one alignment unit of trailing zeros; log loudly because data integrity
-        // is at stake and the caller has lost the ability to react.
+        // If the caller didn't finalize/cancel and we're not poisoned, try to drain
+        // the tail. A failure here means the file may be left missing up to one
+        // alignment unit of trailing bytes (the unwritten sub-alignment tail); log
+        // loudly because data integrity is at stake and the caller has lost the
+        // ability to react. Note: Drop-time finalization is best-effort and does
+        // not fsync — production paths must call `finalize()` explicitly.
         if !self.finalized && !self.poisoned {
             if let Err(e) = self.finalize_in_place() {
                 log::error!(
                     "AlignedFileWriter dropped without explicit finalize and finalize_in_place failed: {e:?}; \
-                     file may have trailing zero padding",
+                     file may be missing up to one alignment unit of trailing bytes",
                 );
             }
         }

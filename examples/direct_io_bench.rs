@@ -26,11 +26,28 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
+
+/// Records the first fatal worker-thread error and signals all threads to stop.
+/// Without this, a direct-I/O failure mid-run would be silently swallowed and the
+/// reported throughput / latencies would be untrustworthy.
+fn record_worker_error(
+    slot: &Mutex<Option<String>>,
+    stop: &AtomicBool,
+    context: &str,
+    e: &dyn std::fmt::Display,
+) {
+    if let Ok(mut guard) = slot.lock() {
+        if guard.is_none() {
+            *guard = Some(format!("{context}: {e}"));
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+}
 
 fn env_usize(name: &str, default: usize) -> usize {
     std::env::var(name)
@@ -283,6 +300,10 @@ fn run_one(
     let stop = Arc::new(AtomicBool::new(false));
     let read_ops = Arc::new(AtomicU64::new(0));
     let write_ops = Arc::new(AtomicU64::new(0));
+    // First fatal error from any worker thread (get / flush / compaction). When
+    // set, all threads stop and `run_one` returns the error instead of reporting
+    // numbers gathered after the I/O path already failed.
+    let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     // Latency samples: bounded reservoir per reader thread so memory stays flat
     // even at high throughput. SAMPLE_CAP=2M × 4 threads × 4 B per sample = 32 MiB.
@@ -296,6 +317,7 @@ fn run_one(
         let tree = Arc::clone(&tree);
         let stop = Arc::clone(&stop);
         let read_ops = Arc::clone(&read_ops);
+        let first_error = Arc::clone(&first_error);
         let num = settings.num;
         let warmup = Duration::from_secs(settings.warmup_secs);
         let h = thread::spawn(move || {
@@ -316,6 +338,11 @@ fn run_one(
                 let r = tree.get(key, SeqNo::MAX);
                 #[expect(clippy::cast_possible_truncation, reason = "u32 ns covers ~4s")]
                 let dt = t0.elapsed().as_nanos().min(u128::from(u32::MAX)) as u32;
+
+                if let Err(e) = &r {
+                    record_worker_error(&first_error, &stop, "reader get", e);
+                    break;
+                }
 
                 if start.elapsed() >= warmup && r.is_ok() {
                     read_ops.fetch_add(1, Ordering::Relaxed);
@@ -357,6 +384,7 @@ fn run_one(
         let tree = Arc::clone(&tree);
         let stop = Arc::clone(&stop);
         let write_ops = Arc::clone(&write_ops);
+        let first_error = Arc::clone(&first_error);
         let seqno = seqno.clone();
         let total_keys = settings.total_keys;
         let value_size = settings.value_size;
@@ -407,7 +435,10 @@ fn run_one(
                 // a memtable rotation occurs; for sustained writes we explicitly flush
                 // periodically to drive the compactor.
                 if write_ops.load(Ordering::Relaxed).is_multiple_of(2_000) {
-                    let _ = tree.flush_active_memtable(0);
+                    if let Err(e) = tree.flush_active_memtable(0) {
+                        record_worker_error(&first_error, &stop, "writer flush", &e);
+                        break;
+                    }
                 }
             }
         })
@@ -420,6 +451,7 @@ fn run_one(
     let compaction_handle = {
         let tree = Arc::clone(&tree);
         let stop = Arc::clone(&stop);
+        let first_error = Arc::clone(&first_error);
         let target_size = settings.target_size;
         thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
@@ -429,7 +461,10 @@ fn run_one(
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
-                let _ = tree.major_compact(target_size, 0);
+                if let Err(e) = tree.major_compact(target_size, 0) {
+                    record_worker_error(&first_error, &stop, "compaction", &e);
+                    return;
+                }
             }
         })
     };
@@ -443,6 +478,12 @@ fn run_one(
     }
     writer_handle.join().expect("writer thread");
     compaction_handle.join().expect("compaction thread");
+
+    // If any worker hit a fatal I/O error, fail loudly rather than reporting
+    // numbers measured after the (possibly direct-I/O) path already broke.
+    if let Some(msg) = first_error.lock().expect("first_error mutex").take() {
+        return Err(format!("[{}] worker thread failed: {msg}", perm.label).into());
+    }
 
     // Measurement window is the requested duration (warmup excluded). The
     // wall-clock wait for the compaction thread to finish after `stop` does not

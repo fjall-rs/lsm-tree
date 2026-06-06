@@ -58,6 +58,14 @@ use fallback as platform;
 
 use std::{fs::File, io, path::Path};
 
+/// Test-only counter of direct-write opens (`create_write_direct` +
+/// `create_or_truncate_write_direct`). Lets tests assert that the flush /
+/// compaction *write* path actually requested direct I/O, not merely that the
+/// finished files can be re-opened with `O_DIRECT` for reading.
+#[cfg(test)]
+pub(crate) static DIRECT_WRITE_OPEN_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Opens an existing file for reading with direct I/O enabled.
 ///
 /// On Linux, `O_DIRECT` is set atomically at open. On macOS, this opens the
@@ -71,6 +79,8 @@ pub fn open_read_direct(path: &Path) -> io::Result<File> {
 ///
 /// Equivalent to `File::create_new` on unsupported platforms.
 pub fn create_write_direct(path: &Path) -> io::Result<File> {
+    #[cfg(test)]
+    DIRECT_WRITE_OPEN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     platform::create_write_direct(path)
 }
 
@@ -78,6 +88,8 @@ pub fn create_write_direct(path: &Path) -> io::Result<File> {
 ///
 /// Equivalent to `File::create` on unsupported platforms.
 pub fn create_or_truncate_write_direct(path: &Path) -> io::Result<File> {
+    #[cfg(test)]
+    DIRECT_WRITE_OPEN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     platform::create_or_truncate_write_direct(path)
 }
 

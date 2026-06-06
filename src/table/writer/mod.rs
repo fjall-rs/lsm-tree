@@ -533,9 +533,10 @@ impl Writer {
         // Write fixed-size trailer
         // and flush & fsync the table file.
         //
-        // For direct-I/O writes, ChunkedWriter::finalize zero-pads the trailing block
-        // (which the kernel requires) and then truncates the file back to the real
-        // byte count before we sync.
+        // For direct-I/O writes, ChunkedWriter::finalize drains the buffered tail —
+        // emitting full aligned chunks through the O_DIRECT handle and the final
+        // sub-alignment tail through a separate buffered handle — so the file ends
+        // at exactly the real byte count (no zero padding persisted). We then fsync.
         let checksum_writer = self.file_writer.into_inner()?;
         let (chunked, checksum) = checksum_writer.into_inner();
         let file = chunked.finalize()?;

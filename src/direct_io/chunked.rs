@@ -27,20 +27,26 @@ use std::{
     path::Path,
 };
 
-/// Default buffer size for `BufWriter` used by the table writer pre-existing code path.
-/// `u16::MAX + 1` matches the value used before this module existed.
+/// Buffered-mode write buffer capacity for both table and blob file writers.
 const DEFAULT_BUF_CAPACITY: usize = u16::MAX as usize + 1;
 
-/// Default buffer capacity for `BufReader` used by the table scanner.
-/// Matches the prior literal `8 * 4_096` constant.
+/// Buffered-mode read buffer capacity for table and blob scanners.
 const DEFAULT_READER_CAPACITY: usize = 8 * 4_096;
 
 /// Returns `true` when the error indicates the platform's direct-I/O primitive
 /// is rejected by the underlying filesystem (commonly tmpfs / overlayfs / FUSE).
 /// Callers should silently fall back to buffered I/O on this error.
+///
+/// O_DIRECT-unsupported is reported as `EINVAL` by most filesystems (tmpfs,
+/// overlayfs), but some network/FUSE filesystems use `EOPNOTSUPP` (== `ENOTSUP`
+/// on Linux). Both are treated as "fall back to buffered" so a flush/compaction
+/// is never hard-failed by a filesystem that simply lacks O_DIRECT.
 #[cfg(target_os = "linux")]
 fn is_direct_io_unsupported(e: &io::Error) -> bool {
-    e.raw_os_error() == Some(libc::EINVAL)
+    matches!(
+        e.raw_os_error(),
+        Some(libc::EINVAL) | Some(libc::EOPNOTSUPP)
+    )
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -71,16 +77,42 @@ impl ChunkedWriter {
 
     /// Like [`Self::create_new`] but for paths where `File::create` (truncate)
     /// semantics are needed (blob file writer).
+    ///
+    /// `direct` requests `O_DIRECT` (Linux) or `F_NOCACHE` (macOS); a no-op on
+    /// other platforms. If the filesystem rejects the direct-I/O flag, this
+    /// transparently falls back to buffered I/O with a single `log::warn`.
     pub fn create_or_truncate(path: &Path, direct: bool) -> io::Result<Self> {
         Self::create_or_truncate_with_capacity(path, direct, DEFAULT_BUF_CAPACITY)
     }
 
-    fn create_new_with_capacity(path: &Path, direct: bool, capacity: usize) -> io::Result<Self> {
+    fn create_or_truncate_with_capacity(
+        path: &Path,
+        direct: bool,
+        capacity: usize,
+    ) -> io::Result<Self> {
         if direct {
-            match Self::open_direct_write(path, capacity, false) {
+            match Self::direct_write_attempt(path, capacity, true) {
                 Ok(w) => return Ok(w),
                 Err(e) if is_direct_io_unsupported(&e) => {
                     log_unsupported_once(path, &e);
+                    remove_orphan_after_unsupported_open(path);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Self::Buffered(BufWriter::with_capacity(
+            capacity,
+            File::create(path)?,
+        )))
+    }
+
+    fn create_new_with_capacity(path: &Path, direct: bool, capacity: usize) -> io::Result<Self> {
+        if direct {
+            match Self::direct_write_attempt(path, capacity, false) {
+                Ok(w) => return Ok(w),
+                Err(e) if is_direct_io_unsupported(&e) => {
+                    log_unsupported_once(path, &e);
+                    remove_orphan_after_unsupported_open(path);
                     // Fall through to buffered open below.
                 }
                 Err(e) => return Err(e),
@@ -92,24 +124,28 @@ impl ChunkedWriter {
         )))
     }
 
-    fn create_or_truncate_with_capacity(
-        path: &Path,
-        direct: bool,
-        capacity: usize,
-    ) -> io::Result<Self> {
-        if direct {
-            match Self::open_direct_write(path, capacity, true) {
-                Ok(w) => return Ok(w),
-                Err(e) if is_direct_io_unsupported(&e) => {
-                    log_unsupported_once(path, &e);
-                }
-                Err(e) => return Err(e),
-            }
+    /// Attempts the platform direct-write open, honoring the debug-only test hook
+    /// that simulates a filesystem rejecting `O_DIRECT` (see
+    /// [`should_force_unsupported_open`]).
+    fn direct_write_attempt(path: &Path, capacity: usize, truncate: bool) -> io::Result<Self> {
+        #[cfg(all(target_os = "linux", debug_assertions))]
+        if should_force_unsupported_open() {
+            // Faithfully reproduce the kernel behavior the fallback must survive:
+            // O_CREAT|O_EXCL|O_DIRECT (or O_CREAT|O_TRUNC|O_DIRECT) creates the
+            // file *before* the FS rejects O_DIRECT with EINVAL, leaving an
+            // orphan on disk. Returning EINVAL here exercises the orphan-cleanup
+            // path in the callers.
+            let created = if truncate {
+                File::create(path).map(drop)
+            } else {
+                File::create_new(path).map(drop)
+            };
+            return match created {
+                Ok(()) => Err(io::Error::from_raw_os_error(libc::EINVAL)),
+                Err(e) => Err(e),
+            };
         }
-        Ok(Self::Buffered(BufWriter::with_capacity(
-            capacity,
-            File::create(path)?,
-        )))
+        Self::open_direct_write(path, capacity, truncate)
     }
 
     #[cfg(target_os = "linux")]
@@ -283,6 +319,29 @@ impl Read for ChunkedReader {
     }
 }
 
+/// Removes a file left behind by a failed direct-I/O open before the buffered
+/// fallback re-creates it.
+///
+/// On Linux, `O_CREAT|O_EXCL|O_DIRECT` (and `O_CREAT|O_TRUNC|O_DIRECT`) can
+/// create the file *before* the kernel rejects `O_DIRECT` with `EINVAL`, so the
+/// subsequent buffered `File::create_new` would otherwise fail with
+/// `AlreadyExists`. The path is freshly generated and unique to this writer, so
+/// removing it is safe. Best-effort: a missing file (the common case on
+/// filesystems that reject before creating) is ignored.
+fn remove_orphan_after_unsupported_open(path: &Path) {
+    let _ = std::fs::remove_file(path);
+}
+
+/// Debug-only test hook: returns `true` when the
+/// `LSM_TREE_TEST_DIRECT_IO_FORCE_UNSUPPORTED` env var is set, forcing every
+/// direct-write open to simulate an `O_DIRECT`-rejecting filesystem. Lets the
+/// fallback path (and its orphan cleanup) be exercised deterministically on any
+/// filesystem. Never compiled into release builds.
+#[cfg(all(target_os = "linux", debug_assertions))]
+fn should_force_unsupported_open() -> bool {
+    std::env::var_os("LSM_TREE_TEST_DIRECT_IO_FORCE_UNSUPPORTED").is_some()
+}
+
 /// Emits a single `warn` per process when a filesystem rejects direct I/O.
 /// Subsequent fallbacks are silent so a tree on tmpfs doesn't flood logs.
 fn log_unsupported_once(path: &Path, e: &io::Error) {
@@ -404,6 +463,10 @@ mod tests {
         #[cfg(target_os = "linux")]
         {
             assert!(is_direct_io_unsupported(&einval));
+            // EOPNOTSUPP (== ENOTSUP on Linux) is also treated as "fall back".
+            assert!(is_direct_io_unsupported(&io::Error::from_raw_os_error(
+                libc::EOPNOTSUPP
+            )));
             assert!(!is_direct_io_unsupported(&other));
         }
         #[cfg(not(target_os = "linux"))]
@@ -411,6 +474,32 @@ mod tests {
             assert!(!is_direct_io_unsupported(&einval));
             assert!(!is_direct_io_unsupported(&other));
         }
+    }
+
+    /// Deterministically exercises the buffered fallback for a *new* table file
+    /// on a filesystem that rejects O_DIRECT, including the orphan left behind by
+    /// the kernel between file creation and the O_DIRECT rejection. Without the
+    /// orphan cleanup in `create_new_with_capacity`, the buffered
+    /// `File::create_new` would fail with `AlreadyExists`. Linux + debug only
+    /// (the fault-injection hook is compiled out of release builds).
+    #[cfg(all(target_os = "linux", debug_assertions))]
+    #[test]
+    fn create_new_falls_back_and_cleans_orphan_when_direct_io_rejected() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("orphan-fallback");
+
+        std::env::set_var("LSM_TREE_TEST_DIRECT_IO_FORCE_UNSUPPORTED", "1");
+        let result = ChunkedWriter::create_new(&path, true);
+        std::env::remove_var("LSM_TREE_TEST_DIRECT_IO_FORCE_UNSUPPORTED");
+
+        let mut w = result?;
+        w.write_all(b"fell back to buffered")?;
+        w.finalize()?.sync_all()?;
+
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut ChunkedReader::open(&path, false)?, &mut buf)?;
+        assert_eq!(buf, "fell back to buffered");
+        Ok(())
     }
 
     #[test]

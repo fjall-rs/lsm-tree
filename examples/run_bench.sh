@@ -27,6 +27,16 @@ export LSMT_DIO_WARMUP=${LSMT_DIO_WARMUP:-5}
 export LSMT_DIO_TARGET_SIZE=${LSMT_DIO_TARGET_SIZE:-4194304}
 export LSMT_DIO_WRITE_BPS=${LSMT_DIO_WRITE_BPS:-26214400}
 
+# Clean up the named volume and temp results dir on *any* exit (including a
+# failing docker/grep/python3 under `set -e`), so an aborted run doesn't leak
+# state. RESULTS_DIR is created later; the guard tolerates it being unset.
+RESULTS_DIR=""
+cleanup() {
+    docker volume rm "${VOL_NAME}" >/dev/null 2>&1 || true
+    [ -n "${RESULTS_DIR}" ] && rm -rf "${RESULTS_DIR}"
+}
+trap cleanup EXIT
+
 echo ">>> Phase 1: populate (no memory limit)"
 docker volume rm "${VOL_NAME}" >/dev/null 2>&1 || true
 docker volume create "${VOL_NAME}" >/dev/null
@@ -85,5 +95,4 @@ for r in data:
     done
 }
 
-docker volume rm "${VOL_NAME}" >/dev/null 2>&1 || true
-rm -rf "${RESULTS_DIR}"
+# Cleanup runs via the EXIT trap above.

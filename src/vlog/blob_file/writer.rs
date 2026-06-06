@@ -244,7 +244,8 @@ impl Writer {
         metadata.encode_into(&mut self.writer)?;
 
         // Drain sfa and ChecksummedWriter wrappers, then finalize the chunked writer
-        // (zero-pad + truncate for direct-I/O mode) before issuing the final fsync.
+        // (drains the buffered tail to the exact byte count in direct-I/O mode)
+        // before issuing the final fsync.
         let checksum_writer = self.writer.into_inner()?;
         let (chunked, checksum) = checksum_writer.into_inner();
         let file = chunked.finalize()?;

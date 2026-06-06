@@ -14,12 +14,13 @@ use std::{
     io,
     os::unix::io::AsRawFd,
     path::Path,
+    sync::OnceLock,
 };
 
 /// Opens an existing file for reading and enables `F_NOCACHE` on the descriptor.
 pub fn open_read_direct(path: &Path) -> io::Result<File> {
     let file = File::open(path)?;
-    apply_no_cache(&file)?;
+    apply_no_cache(&file);
     Ok(file)
 }
 
@@ -27,7 +28,7 @@ pub fn open_read_direct(path: &Path) -> io::Result<File> {
 /// Fails if the file already exists, matching `File::create_new`.
 pub fn create_write_direct(path: &Path) -> io::Result<File> {
     let file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    apply_no_cache(&file)?;
+    apply_no_cache(&file);
     Ok(file)
 }
 
@@ -38,11 +39,18 @@ pub fn create_or_truncate_write_direct(path: &Path) -> io::Result<File> {
         .create(true)
         .truncate(true)
         .open(path)?;
-    apply_no_cache(&file)?;
+    apply_no_cache(&file);
     Ok(file)
 }
 
-fn apply_no_cache(file: &File) -> io::Result<()> {
+/// Best-effort `F_NOCACHE` on the descriptor.
+///
+/// `F_NOCACHE` is an advisory cache hint: a descriptor without it is still fully
+/// correct, just cached (i.e. exactly the buffered fallback the module documents
+/// for filesystems that reject direct I/O). `fcntl(F_NOCACHE)` essentially never
+/// fails on a regular open fd, but if it does we keep the open file rather than
+/// hard-failing the flush/compaction, and warn once.
+fn apply_no_cache(file: &File) {
     let fd = file.as_raw_fd();
     // SAFETY: fcntl with F_NOCACHE on a valid fd is safe. We hold a reference to `file`
     // for the duration of the call so the fd is guaranteed open.
@@ -50,10 +58,19 @@ fn apply_no_cache(file: &File) -> io::Result<()> {
     let rc = unsafe { libc::fcntl(fd, libc::F_NOCACHE, 1) };
 
     if rc < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
+        log_f_nocache_unsupported_once(&io::Error::last_os_error());
     }
+}
+
+/// Warns a single time per process when `F_NOCACHE` could not be applied.
+fn log_f_nocache_unsupported_once(e: &io::Error) {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        log::warn!(
+            "F_NOCACHE not applied (first observed: {e}); proceeding with buffered I/O. \
+             The use_direct_io_for_* config flags will have no cache-bypass effect on this file.",
+        );
+    });
 }
 
 #[cfg(test)]
