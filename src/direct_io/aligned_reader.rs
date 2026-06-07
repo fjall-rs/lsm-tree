@@ -81,10 +81,25 @@ impl AlignedFileReader {
             .ok_or_else(|| {
                 io::Error::other("direct-I/O refill length exceeded aligned buffer capacity")
             })?;
+        // At most one runtime buffered-fallback attempt: a second rejection after
+        // O_DIRECT is already cleared is a genuine error (and avoids any loop).
+        let mut tried_buffered_fallback = false;
         let n = loop {
             match self.file.read(read_buf) {
                 Ok(n) => break n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e)
+                    if !tried_buffered_fallback && super::is_runtime_direct_io_unsupported(&e) =>
+                {
+                    // Filesystem accepted O_DIRECT at open but rejects the read
+                    // (some FUSE/overlay setups, or a device whose logical block
+                    // size exceeds our alignment). Drop O_DIRECT and retry
+                    // buffered from the same offset — the rejected read advanced
+                    // nothing. Mirrors the writer's runtime fallback.
+                    log_runtime_read_fallback_once(&e);
+                    disable_direct_io_for_remainder(&self.file)?;
+                    tried_buffered_fallback = true;
+                }
                 Err(e) => return Err(e),
             }
         };
@@ -138,6 +153,19 @@ fn disable_direct_io_for_remainder(file: &File) -> io::Result<()> {
 )]
 fn disable_direct_io_for_remainder(_file: &File) -> io::Result<()> {
     Ok(())
+}
+
+/// Warns a single time per process when a read falls back from direct to
+/// buffered I/O at runtime, so a misconfigured filesystem doesn't flood logs.
+fn log_runtime_read_fallback_once(e: &io::Error) {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        log::warn!(
+            "direct I/O read rejected at runtime (first observed: {e}); \
+             disabling O_DIRECT and continuing with buffered I/O for affected files.",
+        );
+    });
 }
 
 #[cfg(debug_assertions)]

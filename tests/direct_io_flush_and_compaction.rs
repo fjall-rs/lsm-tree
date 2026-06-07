@@ -356,6 +356,58 @@ fn direct_io_blob_tree_flush_and_compact() -> lsm_tree::Result<()> {
 }
 
 #[test]
+fn direct_io_blob_relocation_runs_scanner() -> lsm_tree::Result<()> {
+    // Overwriting a separated value makes its original blob file stale; the next
+    // major compaction relocates the *surviving* entries out of that file via
+    // `BlobFileScanner`. With both direct-I/O knobs on, this exercises the
+    // scanner's manual offset-summation (which replaced `stream_position`) under
+    // direct I/O — a path the no-overwrite blob test above never reaches.
+    // Mirrors `blob_tree_major_compact_relocation_simple`, which proves the
+    // sequence relocates; here we additionally assert values survive direct I/O.
+    let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let tree = Config::new(
+        folder.path(),
+        seqno.clone(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(KvSeparationOptions::default().age_cutoff(1.0)))
+    .use_direct_io_for_flush_and_compaction(true)
+    .use_direct_io_for_compaction_reads(true)
+    .open()?;
+
+    let big = b"neptune!".repeat(2_000); // ~16 KiB -> separated into a blob file
+    let new_big = b"winter!".repeat(2_000);
+
+    tree.insert("big", &big, seqno.next());
+    tree.insert("big2", &big, seqno.next());
+    tree.flush_active_memtable(0)?;
+    assert_eq!(tree.blob_file_count(), 1);
+
+    // Overwrite "big": its original blob entry becomes garbage, making the first
+    // blob file stale (1 of 2 entries dead = 50% >= default staleness threshold).
+    tree.insert("big", &new_big, seqno.next());
+    tree.flush_active_memtable(0)?;
+
+    tree.major_compact(64 * 1_024 * 1_024, seqno.next())?;
+    // First blob dropped; its live entry ("big2") relocated into a fresh blob,
+    // alongside the second-generation "big" blob => 2 blob files.
+    assert_eq!(tree.blob_file_count(), 2);
+
+    assert_eq!(
+        tree.get("big", SeqNo::MAX)?.as_deref(),
+        Some(new_big.as_slice()),
+        "overwritten value did not round-trip",
+    );
+    assert_eq!(
+        tree.get("big2", SeqNo::MAX)?.as_deref(),
+        Some(big.as_slice()),
+        "relocated value did not round-trip",
+    );
+    Ok(())
+}
+
+#[test]
 fn direct_io_minor_compaction_with_partial_block_tail() -> lsm_tree::Result<()> {
     // Stress the AlignedFileWriter's trailing-block padding+truncate path: write a
     // small enough payload that the on-disk file size is much less than the page

@@ -15,10 +15,14 @@ use test_log::test;
 
 /// Returns `true` if the error indicates the filesystem does not support direct I/O,
 /// in which case callers should skip the assertion (tmpfs/overlayfs/some FUSE FSes
-/// commonly reject `O_DIRECT` with `EINVAL`).
+/// reject `O_DIRECT` with `EINVAL`, some network/FUSE FSes with `EOPNOTSUPP`).
+///
+/// Matches the production classifier in `chunked::is_direct_io_unsupported` so the
+/// test skips exactly when production would fall back — never failing on a
+/// filesystem where production works.
 #[cfg(target_os = "linux")]
 fn is_unsupported(e: &std::io::Error) -> bool {
-    e.raw_os_error() == Some(libc::EINVAL)
+    matches!(e.raw_os_error(), Some(libc::EINVAL | libc::EOPNOTSUPP))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -33,6 +37,9 @@ fn is_unsupported_classifier_recognises_einval_on_linux_only() {
     #[cfg(target_os = "linux")]
     {
         assert!(is_unsupported(&einval));
+        assert!(is_unsupported(&std::io::Error::from_raw_os_error(
+            libc::EOPNOTSUPP
+        )));
         assert!(!is_unsupported(&other));
     }
     #[cfg(not(target_os = "linux"))]

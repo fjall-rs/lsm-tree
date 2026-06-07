@@ -237,8 +237,9 @@ pub struct Config {
     /// page cache.
     ///
     /// Silent no-op on other platforms (including Windows). On Linux, if the
-    /// filesystem rejects `O_DIRECT` at runtime (e.g. tmpfs / overlayfs / some
-    /// FUSE filesystems), opens transparently fall back to buffered I/O and log
+    /// filesystem rejects `O_DIRECT` (most filesystems that lack support reject it
+    /// at open — tmpfs / overlayfs / some FUSE — but a few reject it only on the
+    /// actual reads/writes), the I/O transparently falls back to buffered and logs
     /// a single `warn`.
     ///
     /// Defaults to `false`.
@@ -248,8 +249,9 @@ pub struct Config {
     /// are opened with direct I/O.
     ///
     /// Silent no-op on platforms without a direct-I/O mechanism (including
-    /// Windows). On Linux, if the filesystem rejects `O_DIRECT` at runtime,
-    /// opens transparently fall back to buffered I/O and log a single `warn`.
+    /// Windows). On Linux, if the filesystem rejects `O_DIRECT` (at open, or — for
+    /// the few filesystems that accept the open but reject the writes — at write
+    /// time), the I/O transparently falls back to buffered and logs a single `warn`.
     ///
     /// Defaults to `false`.
     pub(crate) use_direct_io_for_flush_and_compaction: bool,

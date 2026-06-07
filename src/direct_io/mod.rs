@@ -101,6 +101,22 @@ pub fn block_alignment_for(_path: &Path) -> usize {
     platform::block_alignment()
 }
 
+/// Classifies a *runtime* read/write error on an `O_DIRECT` fd as "the
+/// filesystem/device doesn't actually support direct I/O at this alignment",
+/// in which case the aligned reader/writer drop `O_DIRECT` and continue
+/// buffered. Same errno set as the open-time classifier in `chunked`. Shared by
+/// `aligned_reader` and `aligned_writer`.
+#[cfg(target_os = "linux")]
+fn is_runtime_direct_io_unsupported(e: &io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(libc::EINVAL | libc::EOPNOTSUPP))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_runtime_direct_io_unsupported(_e: &io::Error) -> bool {
+    // The aligned reader/writer are only wired up on Linux; never hit elsewhere.
+    false
+}
+
 /// Test-only helper: returns whether `O_DIRECT` is set on an open fd.
 ///
 /// Linux only: `fcntl(F_GETFL)` exposes the open flags. macOS (`F_NOCACHE`)

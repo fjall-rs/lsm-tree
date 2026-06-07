@@ -37,16 +37,13 @@ const DEFAULT_READER_CAPACITY: usize = 8 * 4_096;
 /// is rejected by the underlying filesystem (commonly tmpfs / overlayfs / FUSE).
 /// Callers should silently fall back to buffered I/O on this error.
 ///
-/// O_DIRECT-unsupported is reported as `EINVAL` by most filesystems (tmpfs,
+/// Lack of `O_DIRECT` support is reported as `EINVAL` by most filesystems (tmpfs,
 /// overlayfs), but some network/FUSE filesystems use `EOPNOTSUPP` (== `ENOTSUP`
 /// on Linux). Both are treated as "fall back to buffered" so a flush/compaction
-/// is never hard-failed by a filesystem that simply lacks O_DIRECT.
+/// is never hard-failed by a filesystem that simply lacks direct I/O.
 #[cfg(target_os = "linux")]
 fn is_direct_io_unsupported(e: &io::Error) -> bool {
-    matches!(
-        e.raw_os_error(),
-        Some(libc::EINVAL) | Some(libc::EOPNOTSUPP)
-    )
+    matches!(e.raw_os_error(), Some(libc::EINVAL | libc::EOPNOTSUPP))
 }
 
 #[cfg(not(target_os = "linux"))]

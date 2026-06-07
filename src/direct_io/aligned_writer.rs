@@ -5,8 +5,8 @@
 use super::{aligned_buffer::AlignedBuffer, BUFFER_BLOCKS};
 use std::{
     fs::File,
-    io::{self, Write},
-    path::PathBuf,
+    io::{self, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
 };
 
 /// Buffered writer that emits aligned, page-sized chunks to the underlying file.
@@ -20,6 +20,17 @@ use std::{
 /// handle (opened without `O_DIRECT`). The alternative — writing a zero-padded
 /// block + `ftruncate` — leaks a short window where the file is larger than its
 /// logical content.
+///
+/// ## Runtime fallback
+///
+/// The open-time probe in `chunked` catches filesystems that reject `O_DIRECT`
+/// at open (tmpfs / overlayfs / many FUSE). A few filesystems accept `O_DIRECT`
+/// at open but reject the actual writes (`EINVAL`/`EOPNOTSUPP`), and a device
+/// whose logical block size exceeds the page-size alignment would do the same.
+/// On such a runtime rejection the writer transparently drops `O_DIRECT` (via
+/// `fcntl`) and replays the write buffered from the last durable boundary, so
+/// the flush/compaction completes instead of hard-failing. This mirrors the
+/// reader's runtime fallback.
 ///
 /// ## Error semantics
 ///
@@ -59,6 +70,10 @@ impl AlignedFileWriter {
     /// for the trailing partial-block write.
     #[must_use]
     pub fn new(file: File, path: PathBuf, alignment: usize) -> Self {
+        debug_assert!(
+            alignment.is_power_of_two(),
+            "AlignedFileWriter alignment ({alignment}) must be a non-zero power of two",
+        );
         let capacity = alignment.saturating_mul(BUFFER_BLOCKS).max(alignment);
         Self {
             file: Some(file),
@@ -76,13 +91,58 @@ impl AlignedFileWriter {
     /// Best-effort truncate back to the last successful write boundary after a
     /// `write_all` partial-write failure. Logs and returns silently on failure;
     /// the writer is already poisoned at this point.
-    fn truncate_to_last_boundary(file: &File, path: &std::path::Path, target: u64) {
+    fn truncate_to_last_boundary(file: &File, path: &Path, target: u64) {
         if let Err(e) = file.set_len(target) {
             log::warn!(
                 "AlignedFileWriter: best-effort truncate of {} to {target} after I/O failure failed: {e:?}",
                 path.display(),
             );
         }
+    }
+
+    /// Writes `buf` through the (`O_DIRECT`) handle, transparently falling back to
+    /// buffered I/O if the kernel rejects the direct write at runtime with
+    /// `EINVAL`/`EOPNOTSUPP`.
+    ///
+    /// This covers filesystems that accept `O_DIRECT` at open but reject writes
+    /// (some FUSE/overlay configurations) and devices whose logical block size
+    /// exceeds the page-size alignment — cases the open-time probe cannot detect.
+    /// `boundary` is the last durable file length: on a direct-write rejection we
+    /// truncate back to it (undoing any partial write) and replay `buf` buffered
+    /// from that offset, so no bytes are lost or double-written. After this the
+    /// handle is no longer `O_DIRECT`, so later writes proceed buffered too.
+    ///
+    /// On the happy path (no rejection) this is exactly `file.write_all(buf)`.
+    fn write_all_direct_or_fallback(
+        file: &mut File,
+        path: &Path,
+        boundary: u64,
+        buf: &[u8],
+    ) -> io::Result<()> {
+        #[cfg(all(target_os = "linux", debug_assertions))]
+        let direct_result = if take_forced_write_einval() {
+            Err(io::Error::from_raw_os_error(libc::EINVAL))
+        } else {
+            file.write_all(buf)
+        };
+        #[cfg(not(all(target_os = "linux", debug_assertions)))]
+        let direct_result = file.write_all(buf);
+
+        match direct_result {
+            Ok(()) => return Ok(()),
+            Err(e) if super::is_runtime_direct_io_unsupported(&e) => {
+                log_runtime_fallback_once(path, &e);
+            }
+            Err(e) => return Err(e),
+        }
+
+        // Direct write rejected at runtime: undo any partial write, drop O_DIRECT,
+        // and replay the (already-aligned, but now alignment-irrelevant) buffer
+        // buffered from the last durable boundary.
+        file.set_len(boundary)?;
+        disable_direct_io_for_writer(file)?;
+        file.seek(SeekFrom::Start(boundary))?;
+        file.write_all(buf)
     }
 
     /// Returns an immutable reference to the underlying file, or `None` after
@@ -157,14 +217,26 @@ impl AlignedFileWriter {
         // below).
         let aligned_tail_len = (self.buffer_pos / self.alignment) * self.alignment;
         if aligned_tail_len > 0 {
+            // `file` is always `Some` here: the only paths that take it
+            // (`finalize`/`cancel`) set `finalized`, which short-circuits at the
+            // top of this function. Treat `None` as a hard error rather than
+            // silently dropping the tail (which would mismatch `finalize`'s take).
             let Some(file) = self.file.as_mut() else {
-                return Ok(());
+                self.poisoned = true;
+                return Err(io::Error::other(
+                    "AlignedFileWriter: file handle missing during finalize",
+                ));
             };
             #[expect(
                 clippy::indexing_slicing,
                 reason = "aligned_tail_len <= buffer_pos <= capacity"
             )]
-            if let Err(e) = file.write_all(&self.buffer.as_slice()[..aligned_tail_len]) {
+            if let Err(e) = Self::write_all_direct_or_fallback(
+                file,
+                &self.path,
+                self.bytes_on_disk,
+                &self.buffer.as_slice()[..aligned_tail_len],
+            ) {
                 Self::truncate_to_last_boundary(file, &self.path, self.bytes_on_disk);
                 self.poisoned = true;
                 return Err(e);
@@ -271,6 +343,11 @@ impl io::Write for AlignedFileWriter {
                 "AlignedFileWriter is poisoned from a previous I/O failure",
             ));
         }
+        if self.finalized {
+            // After finalize/cancel the buffer is drained and the file may be
+            // taken; nothing to flush. Mirrors the `finalized` guard in `write`.
+            return Ok(());
+        }
 
         let aligned_len = (self.buffer_pos / self.alignment) * self.alignment;
         if aligned_len == 0 {
@@ -284,7 +361,12 @@ impl io::Write for AlignedFileWriter {
             clippy::indexing_slicing,
             reason = "aligned_len <= buffer_pos <= capacity"
         )]
-        if let Err(e) = file.write_all(&self.buffer.as_slice()[..aligned_len]) {
+        if let Err(e) = Self::write_all_direct_or_fallback(
+            file,
+            &self.path,
+            self.bytes_on_disk,
+            &self.buffer.as_slice()[..aligned_len],
+        ) {
             Self::truncate_to_last_boundary(file, &self.path, self.bytes_on_disk);
             self.poisoned = true;
             return Err(e);
@@ -315,7 +397,12 @@ impl AlignedFileWriter {
             clippy::indexing_slicing,
             reason = "buffer_pos == capacity here per the debug_assert above"
         )]
-        if let Err(e) = file.write_all(&self.buffer.as_slice()[..self.buffer_pos]) {
+        if let Err(e) = Self::write_all_direct_or_fallback(
+            file,
+            &self.path,
+            self.bytes_on_disk,
+            &self.buffer.as_slice()[..self.buffer_pos],
+        ) {
             Self::truncate_to_last_boundary(file, &self.path, self.bytes_on_disk);
             return Err(e);
         }
@@ -323,6 +410,62 @@ impl AlignedFileWriter {
         self.buffer_pos = 0;
         Ok(())
     }
+}
+
+/// Clears `O_DIRECT` from the writer's fd so the rest of the file is written
+/// buffered. No-op on non-Linux (the aligned path is Linux-only).
+#[cfg(target_os = "linux")]
+fn disable_direct_io_for_writer(file: &File) -> io::Result<()> {
+    super::linux::disable_direct_io(file)
+}
+
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches the Linux helper signature so the write path has one call site"
+)]
+fn disable_direct_io_for_writer(_file: &File) -> io::Result<()> {
+    Ok(())
+}
+
+/// Warns a single time per process when a write falls back from direct to
+/// buffered I/O at runtime, so a misconfigured filesystem doesn't flood logs.
+fn log_runtime_fallback_once(path: &Path, e: &io::Error) {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        log::warn!(
+            "direct I/O write rejected at runtime (first observed at {}: {e}); \
+             disabling O_DIRECT and continuing with buffered I/O for affected files.",
+            path.display(),
+        );
+    });
+}
+
+// Debug-only (Linux) test hook: when armed via `arm_forced_write_einval`, the
+// next direct write simulates an `EINVAL` rejection so the runtime
+// buffered-fallback path can be exercised deterministically without a real
+// O_DIRECT-rejecting filesystem. One-shot per arming; never compiled into
+// release builds.
+#[cfg(all(target_os = "linux", debug_assertions))]
+thread_local! {
+    static FORCE_WRITE_EINVAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(all(target_os = "linux", debug_assertions))]
+fn take_forced_write_einval() -> bool {
+    FORCE_WRITE_EINVAL.with(|c| {
+        let armed = c.get();
+        if armed {
+            c.set(false);
+        }
+        armed
+    })
+}
+
+#[cfg(all(test, target_os = "linux", debug_assertions))]
+fn arm_forced_write_einval() {
+    FORCE_WRITE_EINVAL.with(|c| c.set(true));
 }
 
 impl Drop for AlignedFileWriter {
@@ -618,6 +761,39 @@ mod tests {
         // bytes_on_disk should still be 0 (no successful spill).
         // Indirectly: the file size must match.
         assert_eq!(std::fs::metadata(&path)?.len(), 0);
+        Ok(())
+    }
+
+    /// The runtime fallback: when a direct write is rejected mid-stream
+    /// (simulated via the debug-only injection), the writer drops `O_DIRECT` and
+    /// replays buffered from the last boundary, so the data still round-trips
+    /// intact and the file ends at exactly the real byte count. Linux + debug
+    /// only (the injection is compiled out otherwise).
+    #[cfg(all(target_os = "linux", debug_assertions))]
+    #[test]
+    fn aligned_writer_falls_back_to_buffered_on_runtime_einval() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("runtime-fallback");
+        let align = alignment_for_test();
+        let capacity = align * BUFFER_BLOCKS;
+        // Enough to force a spill (the first direct write, which the injection
+        // rejects) plus a sub-alignment tail.
+        let data: Vec<u8> = (0..(capacity + align + 7))
+            .map(|i| (i & 0xFF) as u8)
+            .collect();
+
+        let file = std::fs::File::create(&path)?;
+        let mut writer = AlignedFileWriter::new(file, path.to_path_buf(), align);
+        super::arm_forced_write_einval();
+        writer.write_all(&data)?;
+        writer.finalize()?.sync_all()?;
+
+        let mut roundtrip = vec![];
+        std::fs::File::open(&path)?.read_to_end(&mut roundtrip)?;
+        assert_eq!(
+            roundtrip, data,
+            "data must survive the runtime buffered fallback"
+        );
         Ok(())
     }
 }
