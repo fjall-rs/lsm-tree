@@ -8,13 +8,13 @@ on user-read tail latency under sustained compaction.
 
 Two-phase, RocksDB-PR-style workload:
 
-1. **Phase 1 (populate)** — outside the memory cgroup. Builds a source LSM tree
+1. **Phase 1 (populate)**, outside the memory cgroup. Builds a source LSM tree
    with `LSMT_DIO_TOTAL` keys × `LSMT_DIO_VALUE_SIZE` bytes of incompressible
    value bytes, flushes, and major-compacts to a stable shape. Copies it to a
    fresh scratch directory per config so each per-config run starts from the
    same on-disk layout.
 
-2. **Phase 2 (run)** — one fresh container per config, with `--memory=${MEMORY}`
+2. **Phase 2 (run)**, one fresh container per config, with `--memory=${MEMORY}`
    (`docker run --memory` corresponds 1:1 to a Linux cgroup memory limit). Each
    container exit releases its share of the kernel page cache, so configs
    measured later don't inherit pollution from earlier ones.
@@ -41,7 +41,7 @@ bash examples/run_bench.sh
 
 All knobs are environment variables; see the top of `run_bench.sh`.
 
-## Headline results — 4× cache oversubscription
+## Headline results (4× cache oversubscription)
 
 Host: Apple M4 Pro, 48 GiB RAM, Docker Desktop (Linux aarch64 VM). Container
 memory limit: 1 GiB. DB on disk: 4 034 MiB (1 M keys × 4 096 B incompressible).
@@ -59,9 +59,9 @@ Deltas vs the buffered baseline:
 
 | Config       | Throughput | P50    | P99    | P99.9  | P99.99 |
 |--------------|-----------:|-------:|-------:|-------:|-------:|
-| writes_only  | +6.8 %     | −2.2 % | −6.1 % | −27.9% | **−40.4%** |
-| reads_only   | +11.2 %    | −6.9 % | −12.2% | −30.6% | −17.0% |
-| **both**     | **+10.1%** | −7.3 % | −9.8 % | −27.6% | **−39.8%** |
+| writes_only  | +6.8 %     | -2.2 % | -6.1 % | -27.9% | **-40.4%** |
+| reads_only   | +11.2 %    | -6.9 % | -12.2% | -30.6% | -17.0% |
+| **both**     | **+10.1%** | -7.3 % | -9.8 % | -27.6% | **-39.8%** |
 
 ### Per-iteration raw data
 
@@ -86,11 +86,11 @@ The shape of the result matches RocksDB PR #14743's "larger hot set" scenario:
 
 - **Throughput is up across all direct configs** because the kernel no longer
   spends cycles managing compaction reads/writes through the page cache.
-- **P50 is essentially unchanged** (hot set fits in cache regardless of
-  config), so direct I/O is "free" on the median read path.
-- **Tail latency drops sharply.** At P99.99 — the percentile that captures
-  cache-miss read latency after the hot set has been partially evicted — the
-  `both` config gives a ~40 % reduction (237 µs → 143 µs).
+- **P50 barely moves** (the hot set fits in cache regardless of config), so
+  direct I/O is "free" on the median read path.
+- **Tail latency drops sharply.** At P99.99 (the percentile that captures
+  cache-miss read latency once the hot set is partially evicted), the `both`
+  config gives a ~40 % reduction, 237 µs to 143 µs.
 
 Why does `reads_only` give a smaller P99.99 win than `writes_only` here?
 RocksDB PR #14743 documents the same dynamic: direct compaction reads bypass
@@ -98,8 +98,8 @@ the kernel's readahead window, so compaction without an explicit prefetch in
 userspace runs slower per-byte. lsm-tree does not yet have a compaction-side
 prefetch (the equivalent of RocksDB's `compaction_readahead_size`), so
 `reads_only` has to win back via cache-protection what it loses on readahead.
-The `writes_only` knob has no such trade-off — flush/compaction-output
-write-back is purely a cache pollution avoidance with no readahead cost.
+The `writes_only` knob has no such trade-off: write-back just avoids cache
+pollution, with no readahead cost.
 
 ## Recommended production setting
 
@@ -117,22 +117,19 @@ and within noise in iterations 2 & 3).
   limit. Tail-latency gains on macOS were < 10 % in informal testing.
 - Linux O_DIRECT on filesystems that reject it (tmpfs, some FUSE, some
   Docker overlay configurations) is already covered by the open-time
-  fallback path in `src/direct_io/chunked.rs`; the benchmark transparently
-  falls back to buffered I/O in that case.
+  fallback path in `src/direct_io/chunked.rs`; the benchmark falls back to
+  buffered I/O in that case.
 
 ## Confirming direct I/O was actually used
 
 Because an O_DIRECT-rejecting filesystem silently downgrades to buffered I/O,
-it is possible to accidentally measure "buffered vs buffered" and see no delta.
-Before trusting the numbers, confirm direct I/O was actually in effect:
+you can accidentally measure "buffered vs buffered" and see no delta. Before
+trusting the numbers, make sure the data directory is on an O_DIRECT-capable
+filesystem: a real block-backed mount such as ext4 or xfs, not tmpfs, overlayfs,
+or many FUSE filesystems. The Docker volume `run_bench.sh` uses is backed by the
+host's overlay/volume driver, so if the deltas look flat, switch to a bind-mount
+on a real disk and re-run.
 
-- Watch the logs. The first fallback emits a single `log::warn` from
-  `log_unsupported_once` in `src/direct_io/chunked.rs`
-  ("direct I/O not supported by filesystem ... falling back to buffered I/O").
-  Run the container with `RUST_LOG=warn` (the bench uses `env_logger`/`test_log`);
-  if that line appears, the `writes_only` / `reads_only` / `both` configs are
-  *not* actually exercising direct I/O and the comparison is meaningless.
-- Verify the data directory lives on an O_DIRECT-capable filesystem (a real
-  block-backed mount such as ext4/xfs). The Docker volume used by
-  `run_bench.sh` is backed by the host's overlay/volume driver — prefer a
-  bind-mount to a real disk if you see the fallback warning, and re-run.
+The fallback in `src/direct_io/chunked.rs` logs one `log::warn` when it kicks in,
+but this example installs no logger, so that line won't show unless you add one
+(`env_logger::init()`).

@@ -351,7 +351,7 @@ impl Table {
     ///
     /// Will return `Err` if an IO error occurs.
     /// When `use_direct_io` is `true` the underlying file is opened with platform
-    /// direct I/O, bypassing the OS page cache for the entire scan — what
+    /// direct I/O, bypassing the OS page cache for the whole scan, which is what
     /// compaction wants when [`crate::Config::use_direct_io_for_compaction_reads`]
     /// is on.
     #[doc(hidden)]

@@ -382,11 +382,11 @@ impl Writer {
 
         self.spill_block()?;
 
-        // No items written! Just delete table file and return nothing.
-        // Drop the file_writer first via `cancel` so the AlignedFileWriter (if any)
-        // does not try to write a padded trailing block / set_len on a file we are
-        // about to remove (which would be wasted I/O on Unix and can fail with
-        // ERROR_ACCESS_DENIED on Windows when the file is already marked-for-deletion).
+        // No items written! Just delete the table file and return nothing.
+        // Release the file via `cancel` (not `finalize`) so the AlignedFileWriter
+        // (if any) does not write its trailing tail to a file we're about to
+        // remove. Wasted I/O on Unix; can fail on Windows with ERROR_ACCESS_DENIED
+        // when the file is already marked for deletion.
         if self.meta.item_count == 0 {
             let checksum_writer = self.file_writer.into_inner()?;
             let (chunked, _) = checksum_writer.into_inner();
@@ -530,13 +530,12 @@ impl Writer {
             )?;
         };
 
-        // Write fixed-size trailer
-        // and flush & fsync the table file.
+        // Write fixed-size trailer, then flush & fsync the table file.
         //
-        // For direct-I/O writes, ChunkedWriter::finalize drains the buffered tail —
-        // emitting full aligned chunks through the O_DIRECT handle and the final
-        // sub-alignment tail through a separate buffered handle — so the file ends
-        // at exactly the real byte count (no zero padding persisted). We then fsync.
+        // For direct-I/O writes, ChunkedWriter::finalize drains the buffered tail:
+        // full aligned chunks go through the O_DIRECT handle and the final
+        // sub-alignment tail through a separate buffered handle, so the file ends at
+        // exactly the real byte count (no zero padding persisted). We then fsync.
         let checksum_writer = self.file_writer.into_inner()?;
         let (chunked, checksum) = checksum_writer.into_inner();
         let file = chunked.finalize()?;

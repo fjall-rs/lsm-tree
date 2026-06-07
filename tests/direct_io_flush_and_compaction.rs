@@ -358,12 +358,11 @@ fn direct_io_blob_tree_flush_and_compact() -> lsm_tree::Result<()> {
 #[test]
 fn direct_io_blob_relocation_runs_scanner() -> lsm_tree::Result<()> {
     // Overwriting a separated value makes its original blob file stale; the next
-    // major compaction relocates the *surviving* entries out of that file via
-    // `BlobFileScanner`. With both direct-I/O knobs on, this exercises the
-    // scanner's manual offset-summation (which replaced `stream_position`) under
-    // direct I/O — a path the no-overwrite blob test above never reaches.
-    // Mirrors `blob_tree_major_compact_relocation_simple`, which proves the
-    // sequence relocates; here we additionally assert values survive direct I/O.
+    // major compaction relocates the surviving entries out of that file via
+    // BlobFileScanner. With both direct-I/O knobs on, this runs the scanner's
+    // manual offset-summation (which replaced stream_position) under direct I/O,
+    // which the no-overwrite blob test above never does. Mirrors
+    // blob_tree_major_compact_relocation_simple, plus a value round-trip check.
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
     let tree = Config::new(
@@ -463,7 +462,7 @@ fn direct_io_knob_compatible_with_drop_range() -> lsm_tree::Result<()> {
 
 #[test]
 fn direct_io_reopen_persists_data() -> lsm_tree::Result<()> {
-    // Direct I/O is purely a runtime knob — the on-disk format is identical. A
+    // Direct I/O is purely a runtime knob; the on-disk format is identical. A
     // database written with direct I/O on must be readable when reopened with the
     // knob off, and vice versa.
     let folder = get_tmp_folder();

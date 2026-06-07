@@ -17,7 +17,7 @@ VOL_NAME=${VOL_NAME:-lsm-tree-bench-data}
 MEMORY=${MEMORY:-1g}
 
 # Workload knobs. Defaults are tuned for a 1 GiB cgroup with a 200 MiB DB and
-# 25 MB/s write throttle — high enough to drive continuous compaction without
+# 25 MB/s write throttle, high enough to drive continuous compaction without
 # running the cgroup out of headroom for the bench's working memory.
 export LSMT_DIO_TOTAL=${LSMT_DIO_TOTAL:-50000}
 export LSMT_DIO_NUM=${LSMT_DIO_NUM:-1000}

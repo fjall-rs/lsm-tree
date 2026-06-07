@@ -119,7 +119,7 @@ pub(crate) fn fill_incompressible_value(value: &mut [u8], seed: u64) {
 /// so the per-config measurement starts from an identical on-disk state.
 ///
 /// Values are filled with deterministic pseudo-random bytes so compression doesn't
-/// shrink the on-disk footprint below the user-data size — otherwise the whole DB
+/// shrink the on-disk footprint below the user-data size. Otherwise the whole DB
 /// fits in RAM and the direct-I/O benefit is invisible.
 fn populate_source(
     settings: &Settings,
@@ -287,8 +287,8 @@ fn run_one(
 
     let seqno = SequenceNumberCounter::default();
     // Keep the block cache small (4 MiB instead of 16 MiB default) so the cgroup
-    // headroom is consumed by the kernel page cache — where direct I/O actually
-    // matters — rather than by lsm-tree's own block cache.
+    // headroom is consumed by the kernel page cache (where direct I/O actually
+    // matters) rather than by lsm-tree's own block cache.
     let block_cache = StdArc::new(Cache::with_capacity_bytes(4 * 1024 * 1024));
     let tree = Config::new(&scratch, seqno.clone(), SequenceNumberCounter::default())
         .use_cache(block_cache)
@@ -326,7 +326,7 @@ fn run_one(
             let mut seen: u64 = 0;
             let start = Instant::now();
             while !stop.load(Ordering::Relaxed) {
-                // xorshift64* — fast, deterministic, decent distribution for a key index.
+                // xorshift64*: fast, deterministic, decent distribution for a key index.
                 rng_state ^= rng_state >> 12;
                 rng_state ^= rng_state << 25;
                 rng_state ^= rng_state >> 27;
@@ -349,7 +349,7 @@ fn run_one(
                     // Algorithm R reservoir sampling: increment `seen` first so
                     // P(replace) = SAMPLE_CAP / seen, which goes to 0 as the stream
                     // grows (rather than 1, which would over-replace the earliest
-                    // samples — the bug in an earlier revision).
+                    // samples).
                     seen += 1;
                     if latencies.len() < SAMPLE_CAP {
                         latencies.push(dt);
@@ -577,9 +577,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Workdir layout:
-    //   /work/data/source/   — pre-populated DB, written once, mounted read-only
+    //   /work/data/source/   - pre-populated DB, written once, mounted read-only
     //                          for the per-config runs.
-    //   /work/data/scratch/  — per-config working copy.
+    //   /work/data/scratch/  - per-config working copy.
     //
     // LSMT_DIO_WORKDIR overrides the default tmp location so the populate step
     // can write to a host-mounted volume.

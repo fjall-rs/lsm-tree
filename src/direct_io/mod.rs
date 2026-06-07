@@ -25,10 +25,8 @@ mod aligned_reader;
 mod aligned_writer;
 mod chunked;
 
-/// Aligned-buffer capacity (in alignment units) for the read and write paths.
-///
-/// At 4 KiB alignment this is 64 KiB — the amortization sweet spot for
-/// compaction-grade sequential I/O.
+/// Aligned-buffer capacity, in alignment units, for the read and write paths.
+/// At 4 KiB alignment that's a 64 KiB buffer.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const BUFFER_BLOCKS: usize = 16;
 
@@ -101,11 +99,9 @@ pub fn block_alignment_for(_path: &Path) -> usize {
     platform::block_alignment()
 }
 
-/// Classifies a *runtime* read/write error on an `O_DIRECT` fd as "the
-/// filesystem/device doesn't actually support direct I/O at this alignment",
-/// in which case the aligned reader/writer drop `O_DIRECT` and continue
-/// buffered. Same errno set as the open-time classifier in `chunked`. Shared by
-/// `aligned_reader` and `aligned_writer`.
+/// True if a read/write failed because the filesystem or device doesn't support
+/// `O_DIRECT` at this alignment. The aligned reader and writer use this to drop
+/// `O_DIRECT` and fall back to buffered. Same errnos as the open-time check.
 #[cfg(target_os = "linux")]
 fn is_runtime_direct_io_unsupported(e: &io::Error) -> bool {
     matches!(e.raw_os_error(), Some(libc::EINVAL | libc::EOPNOTSUPP))

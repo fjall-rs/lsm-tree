@@ -9,36 +9,34 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Buffered writer that emits aligned, page-sized chunks to the underlying file.
+/// Writer that emits aligned, block-sized chunks to an `O_DIRECT` file.
 ///
 /// `O_DIRECT` requires the buffer pointer, file offset, and length to all be
-/// multiples of the device's logical block size. This writer accumulates incoming
-/// bytes into an aligned heap buffer and only emits full, aligned chunks until
+/// multiples of the device's logical block size. This writer accumulates bytes
+/// into an aligned heap buffer and only emits full, aligned chunks until
 /// `finalize` is called.
 ///
-/// `finalize` writes the (possibly partial) trailing block via a separate buffered
-/// handle (opened without `O_DIRECT`). The alternative — writing a zero-padded
-/// block + `ftruncate` — leaks a short window where the file is larger than its
-/// logical content.
+/// `finalize` writes the (possibly partial) trailing block through a separate
+/// buffered handle (no `O_DIRECT`). The alternative, a zero-padded block plus
+/// `ftruncate`, leaves a brief window where the file is larger than its content.
 ///
 /// ## Runtime fallback
 ///
 /// The open-time probe in `chunked` catches filesystems that reject `O_DIRECT`
-/// at open (tmpfs / overlayfs / many FUSE). A few filesystems accept `O_DIRECT`
-/// at open but reject the actual writes (`EINVAL`/`EOPNOTSUPP`), and a device
-/// whose logical block size exceeds the page-size alignment would do the same.
-/// On such a runtime rejection the writer transparently drops `O_DIRECT` (via
-/// `fcntl`) and replays the write buffered from the last durable boundary, so
-/// the flush/compaction completes instead of hard-failing. This mirrors the
-/// reader's runtime fallback.
+/// at open (tmpfs / overlayfs / many FUSE). A few accept the open but reject the
+/// writes (`EINVAL`/`EOPNOTSUPP`), and a device whose logical block size exceeds
+/// the page-size alignment would too. On such a runtime rejection the writer
+/// drops `O_DIRECT` (via `fcntl`) and replays the write buffered from the last
+/// durable boundary, so the flush/compaction finishes instead of failing. This
+/// mirrors the reader's runtime fallback.
 ///
 /// ## Error semantics
 ///
 /// If any `Write::write` or `Write::flush` call returns an error, the writer enters
 /// a *poisoned* state: all subsequent write/flush/finalize calls return an error
-/// without touching the file. The on-disk file is left containing exactly the bytes
-/// from the last successful aligned spill — never extended beyond what made it to
-/// disk. Drop in the poisoned state is a no-op.
+/// without touching the file. The on-disk file keeps exactly the bytes from the
+/// last successful aligned spill, never extended beyond what reached disk. Drop in
+/// the poisoned state is a no-op.
 pub struct AlignedFileWriter {
     /// `Option` so `finalize` / `cancel` can take ownership of the file out of the
     /// struct even though `AlignedFileWriter` implements `Drop`. `None` only between
@@ -51,7 +49,7 @@ pub struct AlignedFileWriter {
     /// Bytes currently buffered (between 0 and `buffer.capacity()`).
     buffer_pos: usize,
     /// Total real bytes written and accepted (never includes bytes from a failed
-    /// spill — see `Self::write`).
+    /// spill; see `Self::write`).
     bytes_written: u64,
     /// File size at the last successful write completion. On any `write_all`
     /// failure we best-effort `set_len(bytes_on_disk)` so the on-disk file does
@@ -100,19 +98,18 @@ impl AlignedFileWriter {
         }
     }
 
-    /// Writes `buf` through the (`O_DIRECT`) handle, transparently falling back to
-    /// buffered I/O if the kernel rejects the direct write at runtime with
-    /// `EINVAL`/`EOPNOTSUPP`.
+    /// Writes `buf` through the `O_DIRECT` handle, falling back to buffered I/O
+    /// if the kernel rejects the direct write at runtime with `EINVAL`/`EOPNOTSUPP`.
     ///
     /// This covers filesystems that accept `O_DIRECT` at open but reject writes
-    /// (some FUSE/overlay configurations) and devices whose logical block size
-    /// exceeds the page-size alignment — cases the open-time probe cannot detect.
-    /// `boundary` is the last durable file length: on a direct-write rejection we
-    /// truncate back to it (undoing any partial write) and replay `buf` buffered
-    /// from that offset, so no bytes are lost or double-written. After this the
-    /// handle is no longer `O_DIRECT`, so later writes proceed buffered too.
+    /// (some FUSE/overlay setups) and devices whose logical block size exceeds the
+    /// page-size alignment, cases the open-time probe cannot detect. `boundary` is
+    /// the last durable file length: on a rejection we truncate back to it (undoing
+    /// any partial write) and replay `buf` buffered from that offset, so nothing is
+    /// lost or double-written. The handle is no longer `O_DIRECT` afterwards, so
+    /// later writes stay buffered too.
     ///
-    /// On the happy path (no rejection) this is exactly `file.write_all(buf)`.
+    /// On the happy path (no rejection) this is just `file.write_all(buf)`.
     fn write_all_direct_or_fallback(
         file: &mut File,
         path: &Path,
@@ -154,8 +151,8 @@ impl AlignedFileWriter {
         self.file.as_ref()
     }
 
-    /// Returns the total number of real bytes that have been successfully accepted
-    /// (excluding any padding that will be emitted by `finalize`).
+    /// Returns the total real bytes accepted so far, which equals the final file
+    /// size (some may still be buffered, not yet on disk).
     #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.bytes_written
@@ -164,10 +161,9 @@ impl AlignedFileWriter {
     /// Drains the trailing partial block and returns the inner `File`.
     ///
     /// Any complete aligned chunks still buffered are written via the direct
-    /// handle; the final sub-alignment tail (if any) is written through a
-    /// separate buffered (non-`O_DIRECT`) handle so the file ends at exactly the
-    /// real byte count — no zero padding is ever persisted and no `set_len` is
-    /// needed.
+    /// handle; the final sub-alignment tail (if any) goes through a separate
+    /// buffered (non-`O_DIRECT`) handle, so the file ends at exactly the real
+    /// byte count. No zero padding is persisted and no `set_len` is needed.
     pub fn finalize(mut self) -> io::Result<File> {
         self.finalize_in_place()?;
         #[expect(
@@ -210,11 +206,10 @@ impl AlignedFileWriter {
             return Ok(());
         }
 
-        // All complete aligned chunks have already been spilled to disk via the
-        // direct handle. What remains in the buffer is a single sub-alignment tail
-        // (0 < buffer_pos < alignment in practice, or possibly buffer_pos exactly
-        // == some multiple of alignment if the last spill was deferred — handled
-        // below).
+        // All complete aligned chunks have already spilled to disk via the direct
+        // handle. What's left in the buffer is the sub-alignment tail (usually
+        // 0 < buffer_pos < alignment, but possibly a multiple of alignment if the
+        // last spill was deferred; both are handled below).
         let aligned_tail_len = (self.buffer_pos / self.alignment) * self.alignment;
         if aligned_tail_len > 0 {
             // `file` is always `Some` here: the only paths that take it
@@ -251,7 +246,7 @@ impl AlignedFileWriter {
             drop(self.file.take());
 
             // Open a buffered handle (no O_DIRECT) in append mode so the write
-            // lands at the current end-of-file — exactly the aligned boundary
+            // lands at the current end-of-file, which is the aligned boundary
             // the direct handle stopped at.
             let mut buffered = match std::fs::OpenOptions::new().append(true).open(&self.path) {
                 Ok(f) => f,
@@ -470,12 +465,11 @@ fn arm_forced_write_einval() {
 
 impl Drop for AlignedFileWriter {
     fn drop(&mut self) {
-        // If the caller didn't finalize/cancel and we're not poisoned, try to drain
-        // the tail. A failure here means the file may be left missing up to one
-        // alignment unit of trailing bytes (the unwritten sub-alignment tail); log
-        // loudly because data integrity is at stake and the caller has lost the
-        // ability to react. Note: Drop-time finalization is best-effort and does
-        // not fsync — production paths must call `finalize()` explicitly.
+        // If the caller didn't finalize/cancel and we're not poisoned, drain the
+        // tail. A failure here can leave the file missing its sub-alignment tail
+        // (up to one alignment unit), so log loudly: data integrity is at stake
+        // and the caller can't react. Drop-time finalization is best-effort and
+        // does not fsync; production paths must call `finalize()` explicitly.
         if !self.finalized && !self.poisoned {
             if let Err(e) = self.finalize_in_place() {
                 log::error!(
@@ -501,9 +495,9 @@ mod tests {
     }
 
     fn write_via_aligned(path: &std::path::Path, data: &[u8], alignment: usize) -> io::Result<()> {
-        // Open without direct-I/O for the test (the writer logic does not require it
-        // — direct I/O only adds *kernel-level* alignment enforcement, which we don't
-        // need to verify the buffering logic).
+        // Open without direct I/O for the test. The writer logic doesn't require
+        // it; O_DIRECT only adds kernel-level alignment enforcement, which we
+        // don't need to verify the buffering logic.
         let file = std::fs::File::create(path)?;
         let mut writer = AlignedFileWriter::new(file, path.to_path_buf(), alignment);
         writer.write_all(data)?;

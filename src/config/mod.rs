@@ -237,10 +237,9 @@ pub struct Config {
     /// page cache.
     ///
     /// Silent no-op on other platforms (including Windows). On Linux, if the
-    /// filesystem rejects `O_DIRECT` (most filesystems that lack support reject it
-    /// at open — tmpfs / overlayfs / some FUSE — but a few reject it only on the
-    /// actual reads/writes), the I/O transparently falls back to buffered and logs
-    /// a single `warn`.
+    /// filesystem rejects `O_DIRECT` (most reject it at open: tmpfs, overlayfs,
+    /// some FUSE; a few only on the reads/writes), the I/O falls back to buffered
+    /// and logs a single `warn`.
     ///
     /// Defaults to `false`.
     pub(crate) use_direct_io_for_compaction_reads: bool,
@@ -249,9 +248,9 @@ pub struct Config {
     /// are opened with direct I/O.
     ///
     /// Silent no-op on platforms without a direct-I/O mechanism (including
-    /// Windows). On Linux, if the filesystem rejects `O_DIRECT` (at open, or — for
-    /// the few filesystems that accept the open but reject the writes — at write
-    /// time), the I/O transparently falls back to buffered and logs a single `warn`.
+    /// Windows). On Linux, if the filesystem rejects `O_DIRECT` (at open, or at
+    /// write time for the few filesystems that accept the open but reject the
+    /// writes), the I/O falls back to buffered and logs a single `warn`.
     ///
     /// Defaults to `false`.
     pub(crate) use_direct_io_for_flush_and_compaction: bool,
@@ -495,9 +494,8 @@ impl Config {
     /// compaction data, protecting user-read tail latency on cache-pressured
     /// workloads.
     ///
-    /// Silent no-op on other platforms (including Windows). On Linux where the
-    /// filesystem rejects `O_DIRECT` at runtime, transparently falls back to
-    /// buffered I/O.
+    /// Silent no-op on other platforms (including Windows). On Linux, if the
+    /// filesystem rejects `O_DIRECT`, falls back to buffered I/O.
     ///
     /// For best results, pair with [`Config::use_direct_io_for_flush_and_compaction`].
     ///
@@ -514,9 +512,8 @@ impl Config {
     /// compaction) are opened with `O_DIRECT` (Linux) or `F_NOCACHE` (macOS).
     /// This avoids polluting the OS page cache with write-once data.
     ///
-    /// Silent no-op on other platforms (including Windows). On Linux where the
-    /// filesystem rejects `O_DIRECT` at runtime, transparently falls back to
-    /// buffered I/O.
+    /// Silent no-op on other platforms (including Windows). On Linux, if the
+    /// filesystem rejects `O_DIRECT`, falls back to buffered I/O.
     ///
     /// Defaults to `false`.
     #[must_use]

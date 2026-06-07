@@ -17,8 +17,8 @@ use test_log::test;
 /// in which case callers should skip the assertion (tmpfs/overlayfs/some FUSE FSes
 /// reject `O_DIRECT` with `EINVAL`, some network/FUSE FSes with `EOPNOTSUPP`).
 ///
-/// Matches the production classifier in `chunked::is_direct_io_unsupported` so the
-/// test skips exactly when production would fall back — never failing on a
+/// Matches the production classifier in `chunked::is_direct_io_unsupported`, so the
+/// test skips exactly when production would fall back and never fails on a
 /// filesystem where production works.
 #[cfg(target_os = "linux")]
 fn is_unsupported(e: &std::io::Error) -> bool {
@@ -96,7 +96,7 @@ fn open_read_direct_actually_sets_flag() -> std::io::Result<()> {
 /// End-to-end: drive a tree flush + compaction with direct I/O enabled and snoop
 /// the syscall-level flag on every opened table file.
 ///
-/// Only Linux can assert syscall-level — see module docs.
+/// Only Linux can assert at the syscall level; see module docs.
 #[test]
 fn integration_flush_and_compact_uses_direct_io_at_syscall_level() -> crate::Result<()> {
     use crate::{direct_io, file::TABLES_FOLDER, AbstractTree, Config, SequenceNumberCounter};
@@ -134,14 +134,13 @@ fn integration_flush_and_compact_uses_direct_io_at_syscall_level() -> crate::Res
     use std::sync::atomic::Ordering;
 
     // Two flushes of the *same* key range produce two overlapping tables, so the
-    // subsequent major compaction must rewrite a merged output (it cannot be a
-    // trivial manifest-only move) — guaranteeing the compaction-output write path
-    // is exercised.
+    // major compaction below must rewrite a merged output (it can't be a trivial
+    // manifest-only move). That guarantees the compaction-output write path runs.
     for i in 0..1_000 {
         tree.insert(format!("k{i:08}").as_bytes(), b"payload-v1", seqno.next());
     }
 
-    // Prove the *write* path itself requested direct I/O — not just that the
+    // Prove the *write* path itself requested direct I/O, not just that the
     // finished files happen to be re-openable with O_DIRECT below. Without this,
     // the read-back assertions would still pass even if flush/compaction silently
     // stopped routing writes through the direct-I/O writer.

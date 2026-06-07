@@ -85,8 +85,8 @@ impl<W: std::io::Write> ChecksummedWriter<W> {
 
     /// Consumes the wrapper and returns the inner writer plus the accumulated checksum.
     ///
-    /// Used at finalization to take ownership of the underlying file for the platform
-    /// `set_len` + `sync_all` step required by direct-I/O writers.
+    /// Called at finalization to take back the inner writer so it can be drained
+    /// and `sync_all`'d.
     pub fn into_inner(self) -> (W, Checksum) {
         let checksum = Checksum::from_raw(self.hasher.digest128());
         (self.inner, checksum)

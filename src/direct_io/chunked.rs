@@ -13,9 +13,9 @@
 //!
 //! - **Linux**: aligned-buffer backend with `O_DIRECT` at open time. If the
 //!   filesystem rejects `O_DIRECT` (`EINVAL` on tmpfs / overlayfs / some FUSE),
-//!   the open transparently falls back to buffered with a single `log::warn`.
+//!   the open falls back to buffered with a single `log::warn`.
 //! - **macOS**: regular `BufWriter`/`BufReader` over a file with `F_NOCACHE`
-//!   applied — `F_NOCACHE` has no alignment requirement, so the aligned-buffer
+//!   applied. `F_NOCACHE` has no alignment requirement, so the aligned-buffer
 //!   machinery is not needed.
 //! - **Other** (including Windows): regular buffered I/O; the flag is a no-op.
 
@@ -51,12 +51,12 @@ fn is_direct_io_unsupported(_e: &io::Error) -> bool {
     false
 }
 
-/// Buffered writer that transparently uses direct I/O when requested.
+/// Writer that uses direct I/O when requested, buffered otherwise.
 pub enum ChunkedWriter {
     /// Standard buffered path: `BufWriter<File>` exactly as before.
     Buffered(BufWriter<File>),
 
-    /// Aligned-buffer direct I/O path. Linux only — macOS uses `F_NOCACHE`
+    /// Aligned-buffer direct I/O path. Linux only; macOS uses `F_NOCACHE`,
     /// which needs no alignment, so it stays on the buffered variant.
     #[cfg(target_os = "linux")]
     Aligned(AlignedFileWriter),
@@ -66,18 +66,14 @@ impl ChunkedWriter {
     /// Opens (creates new) a file for writing.
     ///
     /// `direct` requests `O_DIRECT` (Linux) or `F_NOCACHE` (macOS); a no-op on
-    /// other platforms. If the filesystem rejects the direct-I/O flag, this
-    /// transparently falls back to buffered I/O with a single `log::warn`.
+    /// other platforms. If the filesystem rejects direct I/O, the open falls
+    /// back to buffered with a single `log::warn`.
     pub fn create_new(path: &Path, direct: bool) -> io::Result<Self> {
         Self::create_new_with_capacity(path, direct, DEFAULT_BUF_CAPACITY)
     }
 
-    /// Like [`Self::create_new`] but for paths where `File::create` (truncate)
-    /// semantics are needed (blob file writer).
-    ///
-    /// `direct` requests `O_DIRECT` (Linux) or `F_NOCACHE` (macOS); a no-op on
-    /// other platforms. If the filesystem rejects the direct-I/O flag, this
-    /// transparently falls back to buffered I/O with a single `log::warn`.
+    /// Like [`Self::create_new`] but with `File::create` (truncate) semantics,
+    /// for the blob file writer. Same direct-I/O fallback behavior.
     pub fn create_or_truncate(path: &Path, direct: bool) -> io::Result<Self> {
         Self::create_or_truncate_with_capacity(path, direct, DEFAULT_BUF_CAPACITY)
     }
@@ -163,8 +159,8 @@ impl ChunkedWriter {
     #[cfg(not(target_os = "linux"))]
     fn open_direct_write(path: &Path, capacity: usize, truncate: bool) -> io::Result<Self> {
         // macOS / fallback: the platform open applies F_NOCACHE post-open (macOS)
-        // or is a plain buffered open (fallback). Both work fine wrapped in a
-        // regular BufWriter — no alignment requirement.
+        // or is a plain buffered open (fallback). Both work in a regular
+        // BufWriter; no alignment requirement.
         let file = if truncate {
             super::create_or_truncate_write_direct(path)?
         } else {
@@ -254,7 +250,7 @@ impl Seek for ChunkedWriter {
     }
 }
 
-/// Buffered reader that transparently uses direct I/O when requested.
+/// Reader that uses direct I/O when requested, buffered otherwise.
 pub enum ChunkedReader {
     Buffered(BufReader<File>),
 
@@ -265,8 +261,8 @@ pub enum ChunkedReader {
 impl ChunkedReader {
     /// Opens an existing file for reading.
     ///
-    /// If `direct` is true but the filesystem rejects the direct-I/O flag, this
-    /// transparently falls back to buffered I/O with a single `log::warn`.
+    /// If `direct` is set but the filesystem rejects direct I/O, the open falls
+    /// back to buffered with a single `log::warn`.
     pub fn open(path: &Path, direct: bool) -> io::Result<Self> {
         Self::open_with_capacity(path, direct, DEFAULT_READER_CAPACITY)
     }
@@ -376,9 +372,8 @@ mod tests {
     fn chunked_writer_roundtrip_direct() -> io::Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("a");
-        // With the fallback in place this should always succeed: direct I/O is
-        // attempted first, and if EINVAL/ERROR_INVALID_PARAMETER is returned the
-        // open transparently falls back to buffered.
+        // With the fallback in place this always succeeds: direct I/O is tried
+        // first, and if the filesystem rejects it the open falls back to buffered.
         let mut w = ChunkedWriter::create_new(&path, true)?;
         w.write_all(b"hello")?;
         w.finalize()?.sync_all()?;

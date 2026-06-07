@@ -23,7 +23,7 @@ pub struct Scanner {
 
 impl Scanner {
     /// Initializes a new blob file reader. When `use_direct_io` is `true` the
-    /// underlying file is opened with platform direct I/O — what the compaction
+    /// underlying file is opened with platform direct I/O, which the compaction
     /// worker passes when [`crate::Config::use_direct_io_for_compaction_reads`]
     /// is on during blob relocation.
     ///
@@ -64,9 +64,8 @@ impl Iterator for Scanner {
 
         // Track bytes consumed locally; commit to `self.pos` only after the entire
         // entry parses cleanly. Partial increments on a parse failure would leave
-        // `self.pos` inconsistent with the kernel's file position and break the
-        // recorded `offset` of any future entry (mostly defensive — callers do not
-        // iterate past errors today).
+        // `self.pos` inconsistent and break the recorded `offset` of any later
+        // entry. Mostly defensive: callers do not iterate past errors today.
         let offset = self.pos;
         let mut delta: u64 = 0;
 

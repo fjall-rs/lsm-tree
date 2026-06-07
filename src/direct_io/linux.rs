@@ -139,8 +139,8 @@ pub fn disable_direct_io(file: &File) -> io::Result<()> {
     Ok(())
 }
 
-// Thin wrapper around `sysconf(_SC_PAGESIZE)`. Returns `c_long` (the libc signature
-// — `i32` on 32-bit targets, `i64` on 64-bit). sysconf returns -1 on error.
+// Thin wrapper around `sysconf(_SC_PAGESIZE)`. Returns `c_long` (the libc
+// signature: `i32` on 32-bit targets, `i64` on 64-bit). Returns -1 on error.
 #[expect(unsafe_code, reason = "libc FFI")]
 unsafe fn libc_sysconf_pagesize() -> libc::c_long {
     libc::sysconf(libc::_SC_PAGESIZE)

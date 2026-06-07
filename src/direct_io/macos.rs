@@ -45,11 +45,9 @@ pub fn create_or_truncate_write_direct(path: &Path) -> io::Result<File> {
 
 /// Best-effort `F_NOCACHE` on the descriptor.
 ///
-/// `F_NOCACHE` is an advisory cache hint: a descriptor without it is still fully
-/// correct, just cached (i.e. exactly the buffered fallback the module documents
-/// for filesystems that reject direct I/O). `fcntl(F_NOCACHE)` essentially never
-/// fails on a regular open fd, but if it does we keep the open file rather than
-/// hard-failing the flush/compaction, and warn once.
+/// `F_NOCACHE` is only a cache hint: without it the file is still correct, just
+/// cached. It rarely fails on an open fd, but if it does we keep the file and
+/// warn once rather than failing the flush/compaction.
 fn apply_no_cache(file: &File) {
     let fd = file.as_raw_fd();
     // SAFETY: fcntl with F_NOCACHE on a valid fd is safe. We hold a reference to `file`

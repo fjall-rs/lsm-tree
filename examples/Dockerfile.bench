@@ -1,4 +1,4 @@
-# Linux benchmark container for direct I/O — mirrors the RocksDB PR's
+# Linux benchmark container for direct I/O. Mirrors the RocksDB PR's
 # cgroup-constrained methodology so the page-cache pressure scenario is real.
 #
 # Build:   docker build -f examples/Dockerfile.bench -t lsm-tree-bench:latest .

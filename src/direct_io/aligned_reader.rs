@@ -94,7 +94,7 @@ impl AlignedFileReader {
                     // Filesystem accepted O_DIRECT at open but rejects the read
                     // (some FUSE/overlay setups, or a device whose logical block
                     // size exceeds our alignment). Drop O_DIRECT and retry
-                    // buffered from the same offset — the rejected read advanced
+                    // buffered from the same offset; the rejected read advanced
                     // nothing. Mirrors the writer's runtime fallback.
                     log_runtime_read_fallback_once(&e);
                     disable_direct_io_for_remainder(&self.file)?;
