@@ -234,7 +234,8 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         let key_len_i64 = key_len as i64;
         unwrap!(reader.seek_relative(key_len_i64));
 
-        data.get(key_start..(key_start + key_len))
+        data.get(key_start..)
+            .and_then(|s| s.get(..key_len))
             .map(|k| (k, seqno))
     }
 
