@@ -262,6 +262,10 @@ impl AbstractTree for Tree {
     }
 
     fn clear(&self) -> crate::Result<()> {
+        self.clear_at_seqno(None)
+    }
+
+    fn clear_at_seqno(&self, seqno: Option<SeqNo>) -> crate::Result<()> {
         let config = self.tree_config();
         let mut versions = self.get_version_history_lock();
 
@@ -271,7 +275,11 @@ impl AbstractTree for Tree {
                 let mut copy = v.clone();
                 copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
                 copy.sealed_memtables = Arc::default();
-                copy.version = Version::new(v.version.id() + 1, self.tree_type());
+                copy.version = Version::new_cleared(
+                    v.version.id() + 1,
+                    self.tree_type(),
+                    copy.version.cleared_seqno.max(seqno),
+                );
                 Ok(copy)
             },
             &config.seqno,
@@ -630,10 +638,14 @@ impl AbstractTree for Tree {
     }
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        self.current_version()
+        let current_version = self.current_version();
+
+        let from_table = current_version
             .iter_tables()
             .map(Table::get_highest_seqno)
-            .max()
+            .max();
+
+        current_version.cleared_seqno.max(from_table)
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>> {
