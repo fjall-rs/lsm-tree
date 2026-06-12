@@ -28,7 +28,7 @@ impl Slice {
     #[doc(hidden)]
     #[must_use]
     pub fn empty() -> Self {
-        Self(ByteView::new(&[]))
+        Self::default()
     }
 
     #[doc(hidden)]

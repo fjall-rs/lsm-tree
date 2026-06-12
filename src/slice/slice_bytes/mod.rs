@@ -28,7 +28,7 @@ impl Slice {
     #[doc(hidden)]
     #[must_use]
     pub fn empty() -> Self {
-        Self(Bytes::from_static(&[]))
+        Self::default()
     }
 
     #[doc(hidden)]
