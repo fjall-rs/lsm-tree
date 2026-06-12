@@ -9,7 +9,7 @@ pub use byteview::Builder;
 /// An immutable byte slice that can be cloned without additional heap allocation
 ///
 /// There is no guarantee of any sort of alignment for zero-copy (de)serialization.
-#[derive(Debug, Clone, Eq, Hash, Ord)]
+#[derive(Debug, Default, Clone, Eq, Hash, Ord)]
 pub struct Slice(pub(super) ByteView);
 
 impl Slice {
@@ -28,7 +28,7 @@ impl Slice {
     #[doc(hidden)]
     #[must_use]
     pub fn empty() -> Self {
-        Self(ByteView::new(&[]))
+        Self::default()
     }
 
     #[doc(hidden)]
