@@ -10,6 +10,8 @@ fn tree_clear() -> lsm_tree::Result<()> {
 
     let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
 
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(0));
+
     assert_eq!(0, tree.len(visible_seqno.get(), None)?);
 
     {
@@ -17,6 +19,7 @@ fn tree_clear() -> lsm_tree::Result<()> {
         tree.insert("a", "a", seqno);
         visible_seqno.fetch_max(seqno + 1);
     }
+    assert_eq!(tree.get_highest_persisted_seqno(), None);
 
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert_eq!(1, tree.len(visible_seqno.get(), None)?);
@@ -24,6 +27,7 @@ fn tree_clear() -> lsm_tree::Result<()> {
     tree.clear()?;
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert_eq!(0, tree.len(visible_seqno.get(), None)?);
+    assert!(tree.get_highest_persisted_seqno().is_some());
 
     {
         let seqno = seqno.next();
@@ -38,6 +42,12 @@ fn tree_clear() -> lsm_tree::Result<()> {
     tree.clear()?;
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert_eq!(0, tree.len(visible_seqno.get(), None)?);
+    let previous = tree.get_highest_persisted_seqno();
+    assert!(previous.is_some());
+
+    // re-open the tree to ensure that the seqno is persisted
+    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+    assert_eq!(tree.get_highest_persisted_seqno(), previous);
 
     Ok(())
 }

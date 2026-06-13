@@ -271,7 +271,11 @@ impl AbstractTree for Tree {
                 let mut copy = v.clone();
                 copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
                 copy.sealed_memtables = Arc::default();
-                copy.version = Version::new(v.version.id() + 1, self.tree_type());
+                copy.version = Version::new_at_seqno(
+                    v.version.id() + 1,
+                    self.tree_type(),
+                    Some(config.seqno.get()),
+                );
                 Ok(copy)
             },
             &config.seqno,
@@ -630,10 +634,21 @@ impl AbstractTree for Tree {
     }
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        self.current_version()
-            .iter_tables()
-            .map(Table::get_highest_seqno)
-            .max()
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version();
+        if super_version.is_empty() {
+            super_version.version.created_seqno
+        } else {
+            super_version
+                .version
+                .iter_tables()
+                .map(Table::get_highest_seqno)
+                .max()
+        }
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>> {

@@ -26,6 +26,14 @@ pub struct SuperVersion {
     pub(crate) seqno: SeqNo,
 }
 
+impl SuperVersion {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.active_memtable.is_empty()
+            && self.sealed_memtables.iter().all(|t| t.is_empty())
+            && self.version.table_count() == 0
+    }
+}
+
 pub struct SuperVersions(VecDeque<SuperVersion>);
 
 impl SuperVersions {
