@@ -128,6 +128,25 @@ impl<'a> StandardBloomFilterReader<'a> {
         self.contains_hash(Self::get_hash(key))
     }
 
+    /// Returns `Some(true)` if the key's first extracted prefix may be
+    /// contained, `Some(false)` if it is definitively absent, or `None`
+    /// if the key is out of the extractor's domain (`extract_first`
+    /// returns None).
+    ///
+    /// Note: only the first extracted prefix is consulted. For multi-prefix
+    /// extractors, this is a coarse pruning probe — callers that need to
+    /// check the most-specific prefix should compute that prefix's hash
+    /// themselves and use a hash-based probe path on `Table`.
+    #[must_use]
+    pub fn contains_prefix(
+        &self,
+        key: &[u8],
+        extractor: &dyn crate::prefix::PrefixExtractor,
+    ) -> Option<bool> {
+        let prefix = extractor.extract_first(key)?;
+        Some(self.contains_hash(Self::get_hash(prefix)))
+    }
+
     /// Returns `true` if the bit at `idx` is `1`.
     fn has_bit(&self, idx: usize) -> bool {
         self.inner.get(idx)
