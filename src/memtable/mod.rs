@@ -2,12 +2,15 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::key::InternalKey;
+#[expect(unsafe_code)]
+mod skiplist;
+
+use crate::key::{InternalKey, InternalKeyRef};
 use crate::{
     value::{InternalValue, SeqNo, UserValue},
     ValueType,
 };
-use crossbeam_skiplist::SkipMap;
+use skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 
@@ -38,6 +41,14 @@ pub struct Memtable {
 }
 
 impl Memtable {
+    /// Clears the memtable.
+    pub fn clear(&mut self) {
+        self.items = SkipMap::default();
+        self.highest_seqno = AtomicU64::new(0);
+        self.approximate_size
+            .store(0, std::sync::atomic::Ordering::Release);
+    }
+
     /// Returns the memtable ID.
     pub fn id(&self) -> MemtableId {
         self.id
@@ -111,7 +122,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(key, seqno - 1, ValueType::Value);
+        let lower_bound = InternalKeyRef::new(key, seqno - 1, ValueType::Value);
 
         let mut iter = self
             .items
@@ -158,7 +169,11 @@ impl Memtable {
             .fetch_add(item_size, std::sync::atomic::Ordering::AcqRel);
 
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
-        self.items.insert(key, item.value);
+        // TODO(ajwerner): Decide what we want to do here. The panic is sort of
+        // extreme, but also seems right given the invariants.
+        if let Err((key, _value)) = self.items.insert(key, item.value) {
+            panic!("duplicate insert of {key:?} into memtable")
+        }
 
         self.highest_seqno
             .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
