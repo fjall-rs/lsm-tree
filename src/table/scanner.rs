@@ -4,14 +4,15 @@
 
 use super::{Block, DataBlock};
 use crate::{
+    direct_io::ChunkedReader,
     table::{block::BlockType, iter::OwnedDataBlockIter},
     CompressionType, InternalValue, SeqNo,
 };
-use std::{fs::File, io::BufReader, path::Path};
+use std::path::Path;
 
 /// Table reader that is optimized for consuming an entire table
 pub struct Scanner {
-    reader: BufReader<File>,
+    reader: ChunkedReader,
     iter: OwnedDataBlockIter,
 
     compression: CompressionType,
@@ -22,15 +23,17 @@ pub struct Scanner {
 }
 
 impl Scanner {
+    /// Opens a table file for sequential scanning. When `use_direct_io` is
+    /// `true` the underlying file is opened with platform direct I/O; the
+    /// compaction worker passes [`crate::Config::use_direct_io_for_compaction_reads`].
     pub fn new(
         path: &Path,
         block_count: usize,
         compression: CompressionType,
         global_seqno: SeqNo,
+        use_direct_io: bool,
     ) -> crate::Result<Self> {
-        // TODO: a larger buffer size may be better for HDD, maybe make this configurable
-        // TODO: benchmarks were inconclusive on SSD, not much difference between 4KB - 2MB
-        let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
+        let mut reader = ChunkedReader::open(path, use_direct_io)?;
 
         let block = Self::fetch_next_block(&mut reader, compression)?;
         let iter = OwnedDataBlockIter::new(block, DataBlock::iter);
@@ -48,7 +51,7 @@ impl Scanner {
     }
 
     fn fetch_next_block(
-        reader: &mut BufReader<File>,
+        reader: &mut ChunkedReader,
         compression: CompressionType,
     ) -> crate::Result<DataBlock> {
         let block = Block::from_reader(reader, compression);

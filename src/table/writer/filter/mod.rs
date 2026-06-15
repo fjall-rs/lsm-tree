@@ -9,9 +9,9 @@ pub use full::FullFilterWriter;
 pub use partitioned::PartitionedFilterWriter;
 
 use crate::{
-    checksum::ChecksummedWriter, config::BloomConstructionPolicy, CompressionType, UserKey,
+    checksum::ChecksummedWriter, config::BloomConstructionPolicy, direct_io::ChunkedWriter,
+    CompressionType, UserKey,
 };
-use std::{fs::File, io::BufWriter};
 
 pub trait FilterWriter<W: std::io::Write> {
     // NOTE: We purposefully use a UserKey instead of &[u8]
@@ -24,7 +24,7 @@ pub trait FilterWriter<W: std::io::Write> {
     /// Returns the number of filter blocks written (always 1 in case of full filter block).
     fn finish(
         self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<ChunkedWriter>>,
     ) -> crate::Result<usize>;
 
     fn set_filter_policy(

@@ -384,6 +384,7 @@ impl AbstractTree for BlobTree {
             self.index.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
+            self.index.config.use_direct_io_for_flush_and_compaction,
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
@@ -424,6 +425,7 @@ impl AbstractTree for BlobTree {
             self.index.config.path.join(BLOBS_FOLDER),
             self.id(),
             self.index.config.descriptor_table.clone(),
+            self.index.config.use_direct_io_for_flush_and_compaction,
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);

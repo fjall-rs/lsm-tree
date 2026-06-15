@@ -46,11 +46,14 @@ impl<'a> Ingestion<'a> {
             .get(INITIAL_CANONICAL_LEVEL);
 
         // TODO: maybe create a PrepareMultiWriter that can be used by flush, ingest and compaction worker
+        // Ingest is write-once just like flush and compaction-output, so it honors the
+        // same direct-I/O knob (`use_direct_io_for_flush_and_compaction`).
         let mut writer = MultiWriter::new(
             folder.clone(),
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             6,
+            tree.config.use_direct_io_for_flush_and_compaction,
         )?
         .use_bloom_policy({
             if tree.config.expect_point_read_hits {

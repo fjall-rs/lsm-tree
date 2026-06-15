@@ -350,8 +350,12 @@ impl Table {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    /// When `use_direct_io` is `true` the underlying file is opened with platform
+    /// direct I/O, bypassing the OS page cache for the whole scan, which is what
+    /// compaction wants when [`crate::Config::use_direct_io_for_compaction_reads`]
+    /// is on.
     #[doc(hidden)]
-    pub fn scan(&self) -> crate::Result<Scanner> {
+    pub fn scan(&self, use_direct_io: bool) -> crate::Result<Scanner> {
         #[expect(
             clippy::expect_used,
             reason = "there shouldn't be 4 billion data blocks in a single table"
@@ -367,6 +371,7 @@ impl Table {
             block_count,
             self.metadata.data_block_compression,
             self.global_seqno(),
+            use_direct_io,
         )
     }
 

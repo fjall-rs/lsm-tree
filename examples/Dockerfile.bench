@@ -1,0 +1,19 @@
+# Linux benchmark container for direct I/O. Mirrors the RocksDB PR's
+# cgroup-constrained methodology so the page-cache pressure scenario is real.
+#
+# Build:   docker build -f examples/Dockerfile.bench -t lsm-tree-bench:latest .
+# Usage:   see examples/run_bench.sh
+FROM rust:1.90-slim-bookworm
+
+WORKDIR /work
+COPY Cargo.toml /work/
+COPY src /work/src
+COPY examples /work/examples
+COPY benches /work/benches
+COPY tests /work/tests
+
+# Cargo fetches deps during the build. Cargo.lock, .cargo/, and vendor/ are
+# .gitignored, so requiring `--offline` would break clean checkouts.
+RUN cargo build --release --features lz4 --example direct_io_bench
+
+ENTRYPOINT ["target/release/examples/direct_io_bench"]

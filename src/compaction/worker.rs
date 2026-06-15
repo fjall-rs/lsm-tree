@@ -150,6 +150,7 @@ fn create_compaction_stream<'a>(
     version: &Version,
     to_compact: &[TableId],
     eviction_seqno: SeqNo,
+    use_direct_io: bool,
 ) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
@@ -163,13 +164,14 @@ fn create_compaction_stream<'a>(
             readers.push(Box::new(RunScanner::culled(
                 run.clone(),
                 (Some(lo), Some(hi)),
+                use_direct_io,
             )?));
 
             found += hi - lo + 1;
         } else {
             for table in run.iter().filter(|x| to_compact.contains(&x.metadata.id)) {
                 found += 1;
-                readers.push(Box::new(table.scan()?));
+                readers.push(Box::new(table.scan(use_direct_io)?));
             }
         }
     }
@@ -370,6 +372,7 @@ fn merge_tables(
         &current_super_version.version,
         &payload.table_ids.iter().copied().collect::<Vec<_>>(),
         opts.mvcc_gc_watermark,
+        opts.config.use_direct_io_for_compaction_reads,
     )?
     else {
         log::warn!(
@@ -444,7 +447,13 @@ fn merge_tables(
                 let scanner = BlobFileMergeScanner::new(
                     blob_files_to_rewrite
                         .iter()
-                        .map(|bf| BlobFileScanner::new(&bf.0.path, bf.id()))
+                        .map(|bf| {
+                            BlobFileScanner::new(
+                                &bf.0.path,
+                                bf.id(),
+                                opts.config.use_direct_io_for_compaction_reads,
+                            )
+                        })
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
@@ -453,6 +462,7 @@ fn merge_tables(
                     &blobs_folder,
                     opts.tree_id,
                     opts.config.descriptor_table.clone(),
+                    opts.config.use_direct_io_for_flush_and_compaction,
                 )?
                 .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);
@@ -673,7 +683,7 @@ mod tests {
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
 
-        assert!(create_compaction_stream(&tree.current_version(), &[666], 0)?.is_none());
+        assert!(create_compaction_stream(&tree.current_version(), &[666], 0, false)?.is_none());
 
         Ok(())
     }
