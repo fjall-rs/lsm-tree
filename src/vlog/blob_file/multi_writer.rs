@@ -84,6 +84,7 @@ impl MultiWriter {
     pub(crate) fn use_passthrough_compression(mut self, compression: CompressionType) -> Self {
         assert_eq!(self.compression, CompressionType::None);
         self.passthrough_compression = compression;
+        self.active_writer.passthrough_compression = compression;
         self
     }
 
@@ -104,14 +105,11 @@ impl MultiWriter {
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
         let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
-            .use_compression(self.compression);
+            .use_compression(self.compression)
+            .use_passthrough_compression(self.passthrough_compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
-        let blob_file = Self::consume_writer(
-            old_writer,
-            self.passthrough_compression,
-            self.descriptor_table.clone(),
-        )?;
+        let blob_file = Self::consume_writer(old_writer, self.descriptor_table.clone())?;
         self.results.extend(blob_file);
 
         Ok(())
@@ -119,7 +117,6 @@ impl MultiWriter {
 
     fn consume_writer(
         writer: Writer,
-        passthrough_compression: CompressionType,
         descriptor_table: Option<Arc<DescriptorTable>>,
     ) -> crate::Result<Option<BlobFile>> {
         if writer.item_count > 0 {
@@ -156,12 +153,7 @@ impl MultiWriter {
                     total_compressed_bytes: metadata.total_compressed_bytes,
                     total_uncompressed_bytes: metadata.total_uncompressed_bytes,
                     key_range: metadata.key_range.clone(),
-
-                    compression: if passthrough_compression == CompressionType::None {
-                        metadata.compression
-                    } else {
-                        passthrough_compression
-                    },
+                    compression: metadata.compression,
                 },
             }));
 
@@ -243,11 +235,7 @@ impl MultiWriter {
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
-        let blob_file = Self::consume_writer(
-            self.active_writer,
-            self.passthrough_compression,
-            self.descriptor_table.clone(),
-        )?;
+        let blob_file = Self::consume_writer(self.active_writer, self.descriptor_table.clone())?;
         self.results.extend(blob_file);
         Ok(self.results)
     }

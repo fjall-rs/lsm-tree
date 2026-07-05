@@ -42,6 +42,7 @@ pub struct Writer {
     pub(crate) last_key: Option<UserKey>,
 
     pub(crate) compression: CompressionType,
+    pub(crate) passthrough_compression: CompressionType,
 }
 
 impl Writer {
@@ -79,11 +80,17 @@ impl Writer {
             last_key: None,
 
             compression: CompressionType::None,
+            passthrough_compression: CompressionType::None,
         })
     }
 
     pub fn use_compression(mut self, compressor: CompressionType) -> Self {
         self.compression = compressor;
+        self
+    }
+
+    pub(crate) fn use_passthrough_compression(mut self, compressor: CompressionType) -> Self {
+        self.passthrough_compression = compressor;
         self
     }
 
@@ -223,7 +230,11 @@ impl Writer {
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
-            compression: self.compression,
+            compression: if self.passthrough_compression == CompressionType::None {
+                self.compression
+            } else {
+                self.passthrough_compression
+            },
         };
         metadata.encode_into(&mut self.writer)?;
 
