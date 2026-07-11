@@ -92,7 +92,7 @@ impl SuperVersions {
 
                 let path = folder.join(format!("v{}", head.version.id()));
                 if path.try_exists()? {
-                    std::fs::remove_file(path)?;
+                    crate::file::retry_transient_io(|| std::fs::remove_file(&path))?;
                 }
 
                 self.0.pop_front();
