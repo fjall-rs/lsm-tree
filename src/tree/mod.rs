@@ -450,6 +450,15 @@ impl AbstractTree for Tree {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
+        // NOTE: Check for race condition
+        if sealed_memtables_to_delete
+            .iter()
+            .any(|id| !version_lock.latest_version().sealed_memtables.contains(id))
+        {
+            log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
+            return Ok(());
+        }
+
         version_lock.upgrade_version(
             &self.config.path,
             |current| {
