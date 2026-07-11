@@ -451,6 +451,7 @@ impl AbstractTree for Tree {
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
         // NOTE: Check for race condition
+        // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
         if sealed_memtables_to_delete
             .iter()
             .any(|id| !version_lock.latest_version().sealed_memtables.contains(id))
