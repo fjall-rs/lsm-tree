@@ -91,6 +91,8 @@ pub trait AbstractTree {
             .map(|mt| mt.id)
             .collect::<Vec<_>>();
 
+        log::debug!("Flushing sealed memtables {sealed_ids:?} to table(s)");
+
         let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
 
         let merger = Merger::new(
