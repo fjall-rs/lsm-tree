@@ -504,7 +504,7 @@ impl AbstractTree for Tree {
         copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
         copy.sealed_memtables = Arc::new(SealedMemtables::default());
 
-        // Rotate does not modify the memtable, so it cannot break snapshots
+        // Clear active is only used for recovery where snapshots do not exist yet
         copy.seqno = super_version.seqno;
 
         version_history_lock.replace_latest_version(copy);
