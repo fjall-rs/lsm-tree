@@ -75,17 +75,6 @@ impl MultiWriter {
         self
     }
 
-    /* /// Sets the compression method in blob file writer metadata, but does not actually compress blobs.
-    ///
-    /// This is used in garbage collection to pass through already-compressed blobs, but correctly
-    /// set the compression type in the metadata.
-    pub(crate) fn use_passthrough_compression(mut self, compression: CompressionType) -> Self {
-        assert_eq!(self.compression, CompressionType::None);
-        self.passthrough_compression = compression;
-        self.active_writer.passthrough_compression = compression;
-        self
-    } */
-
     /// Sets the compression method.
     #[must_use]
     #[doc(hidden)]
