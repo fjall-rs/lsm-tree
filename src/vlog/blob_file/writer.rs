@@ -237,9 +237,12 @@ impl Writer {
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
-            compression: match self.blob_compression {
-                BlobCompression::Standard(ct) => ct,
-                BlobCompression::Passthrough(ct) => ct,
+            compression: {
+                use BlobCompression::{Passthrough, Standard};
+
+                match self.blob_compression {
+                    Standard(ct) | Passthrough(ct) => ct,
+                }
             },
         };
         metadata.encode_into(&mut self.writer)?;

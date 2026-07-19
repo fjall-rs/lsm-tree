@@ -90,7 +90,7 @@ impl MultiWriter {
     #[must_use]
     #[doc(hidden)]
     pub fn use_compression(mut self, compression: BlobCompression) -> Self {
-        self.blob_compression.clone_from(&compression);
+        self.blob_compression = compression;
         self.active_writer.blob_compression = compression;
         self
     }
