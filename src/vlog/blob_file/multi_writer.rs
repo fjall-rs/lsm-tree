@@ -6,10 +6,10 @@ use super::writer::Writer;
 use crate::{
     file_accessor::FileAccessor,
     vlog::{
-        blob_file::{Inner as BlobFileInner, Metadata},
+        blob_file::{writer::BlobCompression, Inner as BlobFileInner, Metadata},
         ValueHandle,
     },
-    BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
+    BlobFile, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
 use std::{
     fs::File,
@@ -28,8 +28,7 @@ pub struct MultiWriter {
 
     id_generator: SequenceNumberCounter,
 
-    compression: CompressionType,
-    passthrough_compression: CompressionType,
+    blob_compression: BlobCompression,
 
     tree_id: TreeId,
     descriptor_table: Option<Arc<DescriptorTable>>,
@@ -62,8 +61,7 @@ impl MultiWriter {
 
             results: Vec::new(),
 
-            compression: CompressionType::None,
-            passthrough_compression: CompressionType::None,
+            blob_compression: BlobCompression::default(),
 
             tree_id,
             descriptor_table,
@@ -77,7 +75,7 @@ impl MultiWriter {
         self
     }
 
-    /// Sets the compression method in blob file writer metadata, but does not actually compress blobs.
+    /* /// Sets the compression method in blob file writer metadata, but does not actually compress blobs.
     ///
     /// This is used in garbage collection to pass through already-compressed blobs, but correctly
     /// set the compression type in the metadata.
@@ -86,14 +84,14 @@ impl MultiWriter {
         self.passthrough_compression = compression;
         self.active_writer.passthrough_compression = compression;
         self
-    }
+    } */
 
     /// Sets the compression method.
     #[must_use]
     #[doc(hidden)]
-    pub fn use_compression(mut self, compression: CompressionType) -> Self {
-        self.compression.clone_from(&compression);
-        self.active_writer.compression = compression;
+    pub fn use_compression(mut self, compression: BlobCompression) -> Self {
+        self.blob_compression.clone_from(&compression);
+        self.active_writer.blob_compression = compression;
         self
     }
 
@@ -105,8 +103,7 @@ impl MultiWriter {
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
         let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
-            .use_compression(self.compression)
-            .use_passthrough_compression(self.passthrough_compression);
+            .use_compression(self.blob_compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
         let blob_file = Self::consume_writer(old_writer, self.descriptor_table.clone())?;
