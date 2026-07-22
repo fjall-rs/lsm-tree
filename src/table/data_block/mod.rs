@@ -407,7 +407,6 @@ impl DataBlock {
             .map(|reader| reader.bucket_count())
     }
 
-    // TODO: handle seqno more nicely (make Key generic, so we can do binary search over (key, seqno))
     #[must_use]
     pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
         let iter = if let Some(hash_index_reader) = self.get_hash_index_reader() {
@@ -416,10 +415,10 @@ impl DataBlock {
                     return None;
                 }
                 MARKER_CONFLICT => {
-                    // NOTE: Fallback to binary search
+                    // NOTE: Fallback to seqno-aware binary search
                     let mut iter = self.iter();
 
-                    if !iter.seek(needle) {
+                    if !iter.seek_to_key_seqno(needle, seqno) {
                         return None;
                     }
 
@@ -437,8 +436,9 @@ impl DataBlock {
         } else {
             let mut iter = self.iter();
 
-            // NOTE: Fallback to binary search
-            if !iter.seek(needle) {
+            // NOTE: Seqno-aware binary search reduces linear scanning by skipping most
+            // restart intervals that contain only versions newer than the target seqno
+            if !iter.seek_to_key_seqno(needle, seqno) {
                 return None;
             }
 
@@ -449,14 +449,14 @@ impl DataBlock {
         for item in iter {
             match item.compare_key(needle, &self.inner.data) {
                 std::cmp::Ordering::Greater => {
-                    // We are before our searched key/seqno
+                    // We are past our searched key
                     return None;
                 }
                 std::cmp::Ordering::Equal => {
                     // If key is same as needle, check sequence number
                 }
                 std::cmp::Ordering::Less => {
-                    // We are past our searched key
+                    // We are before our searched key
                     continue;
                 }
             }
@@ -1230,6 +1230,196 @@ mod tests {
         }
 
         assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+
+        Ok(())
+    }
+
+    #[test]
+    fn data_block_point_read_seqno_aware_seek() -> crate::Result<()> {
+        // Key "a" with seqno 5,4,3,2,1 — point_read("a", seqno=3)
+        // returns the first version with seqno < 3, i.e., v2 ("a2")
+        let items = [
+            InternalValue::from_components(b"a", b"a5", 5, Value),
+            InternalValue::from_components(b"a", b"a4", 4, Value),
+            InternalValue::from_components(b"a", b"a3", 3, Value),
+            InternalValue::from_components(b"a", b"a2", 2, Value),
+            InternalValue::from_components(b"a", b"a1", 1, Value),
+        ];
+
+        // Test across various restart intervals: at restart_interval=1 every item
+        // is a restart head so binary search lands exactly; at larger intervals it
+        // may scan within the restart range but must still return the correct version.
+        for restart_interval in 1..=4 {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            // seqno=4 → should see version with seqno=3 (first with seqno < 4)
+            assert_eq!(
+                Some(items[2].clone()),
+                data_block.point_read(b"a", 4),
+                "restart_interval={restart_interval}: seqno=4 should return v3",
+            );
+
+            // seqno=3 → should see version with seqno=2
+            assert_eq!(
+                Some(items[3].clone()),
+                data_block.point_read(b"a", 3),
+                "restart_interval={restart_interval}: seqno=3 should return v2",
+            );
+
+            // seqno=6 → should see latest version (seqno=5)
+            assert_eq!(
+                Some(items[0].clone()),
+                data_block.point_read(b"a", 6),
+                "restart_interval={restart_interval}: seqno=6 should return v5",
+            );
+
+            // seqno=1 → no visible version (all seqno >= 1)
+            assert!(
+                data_block.point_read(b"a", 1).is_none(),
+                "restart_interval={restart_interval}: seqno=1 should return None",
+            );
+
+            // Non-existent key
+            assert!(
+                data_block.point_read(b"b", SeqNo::MAX).is_none(),
+                "restart_interval={restart_interval}: key 'b' should not exist",
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn data_block_point_read_seqno_aware_seek_mixed_keys() -> crate::Result<()> {
+        // Multiple keys with multiple versions
+        let items = [
+            InternalValue::from_components(b"a", b"a3", 3, Value),
+            InternalValue::from_components(b"a", b"a2", 2, Value),
+            InternalValue::from_components(b"a", b"a1", 1, Value),
+            InternalValue::from_components(b"b", b"b5", 5, Value),
+            InternalValue::from_components(b"b", b"b4", 4, Value),
+            InternalValue::from_components(b"b", b"b3", 3, Value),
+            InternalValue::from_components(b"b", b"b2", 2, Value),
+            InternalValue::from_components(b"b", b"b1", 1, Value),
+            InternalValue::from_components(b"c", b"c1", 1, Value),
+        ];
+
+        for restart_interval in 1..=4 {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            // Read "b" at seqno=4 → should return version with seqno=3
+            assert_eq!(
+                Some(items[5].clone()),
+                data_block.point_read(b"b", 4),
+                "restart_interval={restart_interval}: b@4 should return b3",
+            );
+
+            // Read "a" at seqno=2 → should return version with seqno=1
+            assert_eq!(
+                Some(items[2].clone()),
+                data_block.point_read(b"a", 2),
+                "restart_interval={restart_interval}: a@2 should return a1",
+            );
+
+            // Read "c" at seqno=2 → should return version with seqno=1
+            assert_eq!(
+                Some(items[8].clone()),
+                data_block.point_read(b"c", 2),
+                "restart_interval={restart_interval}: c@2 should return c1",
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn data_block_point_read_seqno_aware_seek_hash_conflict() -> crate::Result<()> {
+        // Multiple versions of the same key with a hash index enabled.
+        // Duplicate user keys hash to the same bucket, producing MARKER_CONFLICT,
+        // which forces point_read through the seek_to_key_seqno fallback path.
+        let items = [
+            InternalValue::from_components(b"a", b"a5", 5, Value),
+            InternalValue::from_components(b"a", b"a4", 4, Value),
+            InternalValue::from_components(b"a", b"a3", 3, Value),
+            InternalValue::from_components(b"a", b"a2", 2, Value),
+            InternalValue::from_components(b"a", b"a1", 1, Value),
+        ];
+
+        for restart_interval in 1..=4 {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            // Verify hash index is present and the duplicate key triggers conflict
+            assert!(
+                data_block
+                    .hash_bucket_count()
+                    .expect("should have built hash index")
+                    > 0,
+                "restart_interval={restart_interval}: hash index should be built",
+            );
+
+            // seqno=4 -> first version with seqno < 4, i.e. seqno=3
+            assert_eq!(
+                Some(items[2].clone()),
+                data_block.point_read(b"a", 4),
+                "restart_interval={restart_interval}: seqno=4 should return v3 via conflict fallback",
+            );
+
+            // seqno=3 -> seqno=2
+            assert_eq!(
+                Some(items[3].clone()),
+                data_block.point_read(b"a", 3),
+                "restart_interval={restart_interval}: seqno=3 should return v2 via conflict fallback",
+            );
+
+            // seqno=6 -> latest (seqno=5)
+            assert_eq!(
+                Some(items[0].clone()),
+                data_block.point_read(b"a", 6),
+                "restart_interval={restart_interval}: seqno=6 should return v5 via conflict fallback",
+            );
+
+            // seqno=1 -> no visible version
+            assert!(
+                data_block.point_read(b"a", 1).is_none(),
+                "restart_interval={restart_interval}: seqno=1 should return None via conflict fallback",
+            );
+
+            // Non-existent key
+            assert!(
+                data_block.point_read(b"z", SeqNo::MAX).is_none(),
+                "restart_interval={restart_interval}: key 'z' should not exist",
+            );
+        }
 
         Ok(())
     }
