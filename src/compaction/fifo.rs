@@ -112,8 +112,7 @@ impl CompactionStrategy for Strategy {
             if expired {
                 ids_to_drop.insert(table.id());
                 let linked_blob_file_bytes = table.referenced_blob_bytes().unwrap_or_default();
-                ttl_dropped_bytes =
-                    ttl_dropped_bytes.saturating_add(table.file_size() + linked_blob_file_bytes);
+                ttl_dropped_bytes += table.file_size() + linked_blob_file_bytes;
             } else {
                 alive.push(table);
             }
@@ -139,8 +138,7 @@ impl CompactionStrategy for Strategy {
                 ids_to_drop.insert(table.id());
 
                 let linked_blob_file_bytes = table.referenced_blob_bytes().unwrap_or_default();
-                collected_bytes =
-                    collected_bytes.saturating_add(table.file_size() + linked_blob_file_bytes);
+                collected_bytes += table.file_size() + linked_blob_file_bytes;
             }
         }
 
