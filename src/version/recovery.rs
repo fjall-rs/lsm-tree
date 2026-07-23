@@ -29,6 +29,7 @@ pub struct Recovery {
     pub table_ids: Vec<Vec<Vec<RecoveredTable>>>,
     pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
+    pub created_seqno: Option<SeqNo>,
 }
 
 pub fn recover(folder: &Path) -> crate::Result<Recovery> {
@@ -139,6 +140,13 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
         crate::blob_tree::FragmentationMap::decode_from(&mut reader)?
     };
 
+    let created_seqno = if let Some(section) = toc.section(b"created_seqno") {
+        let mut reader = section.buf_reader(&version_file_path)?;
+        Some(reader.read_u64::<LittleEndian>()?)
+    } else {
+        None
+    };
+
     Ok(Recovery {
         tree_type: {
             let byte = toc.section(b"tree_type").ok_or(crate::Error::Unrecoverable)
@@ -156,5 +164,6 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
         table_ids: levels,
         blob_file_ids,
         gc_stats,
+        created_seqno,
     })
 }
