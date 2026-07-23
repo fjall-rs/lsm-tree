@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{InternalValue, Memtable};
+use lsm_tree::{InternalValue, Memtable, SeqNo};
 use nanoid::nanoid;
 
 fn memtable_get_hit(c: &mut Criterion) {
@@ -25,7 +25,10 @@ fn memtable_get_hit(c: &mut Criterion) {
         b.iter(|| {
             assert_eq!(
                 [1, 2, 3],
-                &*memtable.get(b"abc_w5wa35aw35naw", None).unwrap().value,
+                &*memtable
+                    .get(b"abc_w5wa35aw35naw", SeqNo::MAX)
+                    .unwrap()
+                    .value,
             )
         });
     });
@@ -60,7 +63,10 @@ fn memtable_get_snapshot(c: &mut Criterion) {
         b.iter(|| {
             assert_eq!(
                 [1, 2, 3],
-                &*memtable.get(b"abc_w5wa35aw35naw", Some(1)).unwrap().value,
+                &*memtable
+                    .get(b"abc_w5wa35aw35naw", SeqNo::MAX)
+                    .unwrap()
+                    .value,
             );
         });
     });
@@ -79,7 +85,7 @@ fn memtable_get_miss(c: &mut Criterion) {
     }
 
     c.bench_function("memtable get miss", |b| {
-        b.iter(|| assert!(memtable.get(b"abc_564321", None).is_none()));
+        b.iter(|| assert!(memtable.get(b"abc_564321", SeqNo::MAX).is_none()));
     });
 }
 
