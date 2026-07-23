@@ -11,7 +11,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
 
 /// Nanosecond timestamp.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Timestamp(u128);
 
 impl Deref for Timestamp {

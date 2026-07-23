@@ -15,6 +15,7 @@ use crate::{
     coding::Encode,
     file::fsync_directory,
     table::{
+        meta::Timestamp,
         writer::{
             filter::{FilterWriter, FullFilterWriter},
             index::FullIndexWriter,
@@ -92,6 +93,8 @@ pub struct Writer {
     linked_blob_files: Vec<LinkedFile>,
 
     initial_level: u8,
+
+    table_creation_timestamp: Option<Timestamp>,
 }
 
 impl Writer {
@@ -140,6 +143,8 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+
+            table_creation_timestamp: None,
         })
     }
 
@@ -156,6 +161,12 @@ impl Writer {
             on_disk_bytes,
             len,
         });
+    }
+
+    #[must_use]
+    pub fn use_table_creation_timestamp(mut self, ts: Timestamp) -> Self {
+        self.table_creation_timestamp = Some(ts);
+        self
     }
 
     #[must_use]
@@ -441,7 +452,13 @@ impl Writer {
                     &self.index_block_compression.encode_into_vec(),
                 ),
                 meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
-                meta("created_at", &unix_timestamp().as_nanos().to_le_bytes()),
+                meta(
+                    "created_at",
+                    &self
+                        .table_creation_timestamp
+                        .unwrap_or_else(|| unix_timestamp().as_nanos().into())
+                        .to_le_bytes(),
+                ),
                 meta(
                     "data_block_hash_ratio",
                     &self.data_block_hash_ratio.to_le_bytes(),
