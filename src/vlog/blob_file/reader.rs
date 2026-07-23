@@ -137,12 +137,14 @@ mod tests {
     #[test]
     #[cfg(feature = "lz4")]
     fn blob_reader_roundtrip_lz4() -> crate::Result<()> {
+        use crate::vlog::blob_file::writer::BlobCompression;
+
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
         let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
             .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+            .use_compression(BlobCompression::Standard(CompressionType::Lz4));
 
         let handle0 = writer.write(b"a", 0, b"abcdef")?;
         let handle1 = writer.write(b"b", 0, b"ghi")?;
