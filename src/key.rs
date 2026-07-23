@@ -3,7 +3,6 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{SeqNo, UserKey, ValueType};
-use std::cmp::Reverse;
 
 #[derive(Clone, Eq)]
 pub struct InternalKey {
@@ -63,11 +62,46 @@ impl PartialOrd for InternalKey {
     }
 }
 
-// Order by user key, THEN by sequence number
+// Order by user key ascending, THEN by sequence number descending
 // This is one of the most important functions
 // Otherwise queries will not match expected behaviour
 impl Ord for InternalKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+        (&self.user_key, other.seqno).cmp(&(&other.user_key, self.seqno))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn key_order_smoke_test() {
+        use ValueType::Value as V;
+
+        let mut keys = [
+            InternalKey::new(b"d", 3, V),
+            InternalKey::new(b"a", 0, V),
+            InternalKey::new(b"b", 0, V),
+            InternalKey::new(b"a", 2, V),
+            InternalKey::new(b"b", 1, V),
+            InternalKey::new(b"a", 1, V),
+            InternalKey::new(b"c", 3, V),
+        ];
+        keys.sort();
+
+        assert_eq!(
+            [
+                InternalKey::new(b"a", 2, V),
+                InternalKey::new(b"a", 1, V),
+                InternalKey::new(b"a", 0, V),
+                InternalKey::new(b"b", 1, V),
+                InternalKey::new(b"b", 0, V),
+                InternalKey::new(b"c", 3, V),
+                InternalKey::new(b"d", 3, V),
+            ],
+            keys,
+        );
     }
 }
