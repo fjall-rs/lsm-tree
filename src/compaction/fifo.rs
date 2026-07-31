@@ -191,7 +191,9 @@ impl CompactionStrategy for Strategy {
 mod tests {
     use super::Strategy;
     use crate::{AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+
+    static TIME_OVERRIDE_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn fifo_empty_levels() -> crate::Result<()> {
@@ -211,19 +213,21 @@ mod tests {
     }
 
     #[test]
-    fn fifo_zero_level_config_is_noop() -> crate::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let mut config = Config::new(
-            dir.path(),
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        );
-        config.level_count = 0;
-        let tree = config.open()?;
+    fn fifo_invalid_level_config_is_noop() -> crate::Result<()> {
+        for level_count in [0, 8] {
+            let dir = tempfile::tempdir()?;
+            let mut config = Config::new(
+                dir.path(),
+                SequenceNumberCounter::default(),
+                SequenceNumberCounter::default(),
+            );
+            config.level_count = level_count;
+            let tree = config.open()?;
 
-        tree.compact(Arc::new(Strategy::new(1, None)), 0)?;
+            tree.compact(Arc::new(Strategy::new(1, None)), 0)?;
 
-        assert_eq!(0, tree.table_count());
+            assert_eq!(0, tree.table_count());
+        }
         Ok(())
     }
 
@@ -302,6 +306,9 @@ mod tests {
 
     #[test]
     fn fifo_ttl() -> crate::Result<()> {
+        let _time_lock = TIME_OVERRIDE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = tempfile::tempdir()?;
         let tree = Config::new(
             dir.path(),
@@ -338,6 +345,9 @@ mod tests {
 
     #[test]
     fn fifo_ttl_then_limit_additional_drops_blob_unit() -> crate::Result<()> {
+        let _time_lock = TIME_OVERRIDE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = tempfile::tempdir()?;
         let tree = Config::new(
             dir.path(),
@@ -347,16 +357,18 @@ mod tests {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
-        // Create two tables; we will expire them via time override and force additional drops via limit.
+        crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(1_000)));
         tree.insert("a", "$", 0);
         tree.flush_active_memtable(0)?;
+
+        crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(1_005)));
         tree.insert("b", "$", 1);
         tree.flush_active_memtable(1)?;
 
-        crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(10_000_000)));
+        crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(1_011)));
 
-        // TTL=1s will mark both expired; very small limit ensures size-based collection path is also exercised.
-        let fifo = Arc::new(Strategy::new(1, Some(1)));
+        // TTL drops the first table; the small limit drops the second.
+        let fifo = Arc::new(Strategy::new(1, Some(10)));
         tree.compact(fifo.clone(), 2)?;
         tree.compact(fifo, 2)?;
 
