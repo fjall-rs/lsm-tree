@@ -2,10 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{Choice, CompactionStrategy};
+use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
-    compaction::state::CompactionState, config::Config, time::unix_timestamp, version::Version,
-    HashSet, KvPair,
+    compaction::state::CompactionState, config::Config, table::Table, time::unix_timestamp,
+    version::Version, HashSet, KvPair,
 };
 
 #[doc(hidden)]
@@ -16,8 +16,8 @@ pub const NAME: &str = "FifoCompaction";
 /// Limits the tree size to roughly `limit` bytes, deleting the oldest table(s)
 /// when the threshold is reached.
 ///
-/// Will also merge tables if the number of tables in level 0 grows too much, which
-/// could cause write stalls.
+/// Newly flushed tables are moved from level 0 into the last level, and merged
+/// with overlapping tables when necessary.
 ///
 /// Additionally, a (lazy) TTL can be configured to drop old tables.
 ///
@@ -71,23 +71,58 @@ impl CompactionStrategy for Strategy {
         ]
     }
 
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice {
         let first_level = version.l0();
+        let last_level_idx = config.level_count - 1;
+
+        let Some(last_level) = version.level(usize::from(last_level_idx)) else {
+            return Choice::DoNothing;
+        };
+
+        if !first_level.is_empty() {
+            if version.level_is_busy(0, state.hidden_set())
+                || version.level_is_busy(usize::from(last_level_idx), state.hidden_set())
+            {
+                return Choice::DoNothing;
+            }
+
+            assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
+
+            let mut table_ids = first_level.list_ids();
+            let key_range = first_level.aggregate_key_range();
+            let overlapping_table_ids: Vec<_> = last_level
+                .iter()
+                .flat_map(|run| run.get_overlapping(&key_range))
+                .map(Table::id)
+                .collect();
+
+            table_ids.extend(&overlapping_table_ids);
+
+            let input = CompactionInput {
+                table_ids,
+                dest_level: last_level_idx,
+                canonical_level: last_level_idx,
+                target_size: u64::MAX,
+            };
+
+            return if overlapping_table_ids.is_empty() {
+                Choice::Move(input)
+            } else {
+                Choice::Merge(input)
+            };
+        }
 
         // Early return avoids unnecessary work and keeps FIFO a no-op when there is nothing to do.
-        if first_level.is_empty() {
+        if last_level.is_empty()
+            || version.level_is_busy(usize::from(last_level_idx), state.hidden_set())
+        {
             return Choice::DoNothing;
         }
 
-        assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
-
-        assert!(
-            !version.level_is_busy(0, state.hidden_set()),
-            "FIFO compaction never compacts",
-        );
+        assert!(last_level.is_disjoint(), "Lmax needs to be disjoint");
 
         // Account for both table file bytes and value-log (blob) bytes to enforce the true space limit.
-        let db_size = first_level.size() + version.blob_files.on_disk_size();
+        let db_size = last_level.size() + version.blob_files.on_disk_size();
 
         let mut ids_to_drop = HashSet::default();
 
@@ -105,7 +140,7 @@ impl CompactionStrategy for Strategy {
         let mut ttl_dropped_bytes = 0u64;
         let mut alive = Vec::new();
 
-        for table in first_level.iter().flat_map(|run| run.iter()) {
+        for table in last_level.iter().flat_map(|run| run.iter()) {
             let expired =
                 ttl_cutoff.is_some_and(|cutoff| u128::from(table.metadata.created_at) <= cutoff);
 
@@ -214,6 +249,7 @@ mod tests {
         let before = tree.table_count();
         // Very small limit forces dropping oldest tables
         let fifo = Arc::new(Strategy::new(1, None));
+        tree.compact(fifo.clone(), 4)?;
         tree.compact(fifo, 4)?;
 
         assert!(tree.table_count() < before);
@@ -238,6 +274,7 @@ mod tests {
 
         let before = tree.table_count();
         let fifo = Arc::new(Strategy::new(1, None));
+        tree.compact(fifo.clone(), 3)?;
         tree.compact(fifo, 3)?;
 
         assert!(tree.table_count() < before);
@@ -270,6 +307,7 @@ mod tests {
         assert_eq!(2, tree.table_count());
 
         let fifo = Arc::new(Strategy::new(u64::MAX, Some(10)));
+        tree.compact(fifo.clone(), 2)?;
         tree.compact(fifo, 2)?;
 
         assert_eq!(1, tree.table_count());
@@ -300,11 +338,95 @@ mod tests {
 
         // TTL=1s will mark both expired; very small limit ensures size-based collection path is also exercised.
         let fifo = Arc::new(Strategy::new(1, Some(1)));
+        tree.compact(fifo.clone(), 2)?;
         tree.compact(fifo, 2)?;
 
         assert_eq!(0, tree.table_count());
 
         crate::time::set_unix_timestamp_for_test(None);
+        Ok(())
+    }
+
+    #[test]
+    fn fifo_drops_from_lmax_after_major_compaction() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let tree = Config::new(
+            dir.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        for i in 0..4u8 {
+            tree.insert([b'k', i].as_slice(), "v", u64::from(i));
+            tree.flush_active_memtable(u64::from(i))?;
+        }
+
+        tree.major_compact(u64::MAX, 4)?;
+        let before = tree.table_count();
+        tree.compact(Arc::new(Strategy::new(1, None)), 4)?;
+
+        assert!(tree.table_count() < before);
+        Ok(())
+    }
+
+    #[test]
+    fn fifo_moves_disjoint_l0_tables_to_lmax() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let tree = Config::new(
+            dir.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "1", 0);
+        tree.flush_active_memtable(0)?;
+        tree.major_compact(u64::MAX, 0)?;
+
+        tree.insert("b", "2", 1);
+        tree.flush_active_memtable(1)?;
+        tree.compact(Arc::new(Strategy::new(u64::MAX, None)), 1)?;
+
+        let version = tree.current_version();
+        assert!(version.l0().is_empty());
+        assert_eq!(
+            Some(2),
+            version
+                .level(version.level_count() - 1)
+                .map(|level| level.table_count())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fifo_merges_l0_with_overlapping_lmax_tables() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let tree = Config::new(
+            dir.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "1", 0);
+        tree.insert("c", "3", 1);
+        tree.flush_active_memtable(1)?;
+        tree.major_compact(u64::MAX, 1)?;
+
+        tree.insert("b", "2", 2);
+        tree.flush_active_memtable(2)?;
+        tree.compact(Arc::new(Strategy::new(u64::MAX, None)), 2)?;
+
+        let version = tree.current_version();
+        assert!(version.l0().is_empty());
+        assert_eq!(
+            Some(1),
+            version
+                .level(version.level_count() - 1)
+                .map(|level| level.table_count())
+        );
+        assert_eq!(b"2", &*tree.get("b", 3)?.expect("key should exist"));
         Ok(())
     }
 }
