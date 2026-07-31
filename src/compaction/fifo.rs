@@ -73,7 +73,9 @@ impl CompactionStrategy for Strategy {
 
     fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice {
         let first_level = version.l0();
-        let last_level_idx = config.level_count - 1;
+        let Some(last_level_idx) = config.level_count.checked_sub(1) else {
+            return Choice::DoNothing;
+        };
 
         let Some(last_level) = version.level(usize::from(last_level_idx)) else {
             return Choice::DoNothing;
@@ -203,6 +205,23 @@ mod tests {
 
         let fifo = Arc::new(Strategy::new(1, None));
         tree.compact(fifo, 0)?;
+
+        assert_eq!(0, tree.table_count());
+        Ok(())
+    }
+
+    #[test]
+    fn fifo_zero_level_config_is_noop() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut config = Config::new(
+            dir.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        );
+        config.level_count = 0;
+        let tree = config.open()?;
+
+        tree.compact(Arc::new(Strategy::new(1, None)), 0)?;
 
         assert_eq!(0, tree.table_count());
         Ok(())
@@ -414,6 +433,7 @@ mod tests {
         tree.flush_active_memtable(1)?;
         tree.major_compact(u64::MAX, 1)?;
 
+        tree.insert("a", "1-updated", 2);
         tree.insert("b", "2", 2);
         tree.flush_active_memtable(2)?;
         tree.compact(Arc::new(Strategy::new(u64::MAX, None)), 2)?;
@@ -427,6 +447,7 @@ mod tests {
                 .map(|level| level.table_count())
         );
         assert_eq!(b"2", &*tree.get("b", 3)?.expect("key should exist"));
+        assert_eq!(b"1-updated", &*tree.get("a", 3)?.expect("key should exist"));
         Ok(())
     }
 }
