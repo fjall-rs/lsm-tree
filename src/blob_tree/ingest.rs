@@ -50,7 +50,9 @@ impl<'a> BlobIngestion<'a> {
             tree.index.config.descriptor_table.clone(),
         )?
         .use_target_size(blob_file_size)
-        .use_compression(kv.compression);
+        .use_compression(crate::vlog::blob_file::writer::BlobCompression::Standard(
+            kv.compression,
+        ));
 
         let separation_threshold = kv.separation_threshold;
 

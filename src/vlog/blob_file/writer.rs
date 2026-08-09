@@ -23,6 +23,18 @@ pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
     + std::mem::size_of::<u32>() // Real value length
     + std::mem::size_of::<u32>(); // On-disk value length
 
+#[derive(Clone, Copy)]
+pub enum BlobCompression {
+    Standard(CompressionType),
+    Passthrough(CompressionType),
+}
+
+impl Default for BlobCompression {
+    fn default() -> Self {
+        Self::Standard(CompressionType::None)
+    }
+}
+
 /// Blob file writer
 pub struct Writer {
     pub(crate) tree_id: TreeId,
@@ -41,8 +53,7 @@ pub struct Writer {
     pub(crate) first_key: Option<UserKey>,
     pub(crate) last_key: Option<UserKey>,
 
-    pub(crate) compression: CompressionType,
-    pub(crate) passthrough_compression: CompressionType,
+    pub(crate) blob_compression: BlobCompression,
 }
 
 impl Writer {
@@ -79,18 +90,12 @@ impl Writer {
             first_key: None,
             last_key: None,
 
-            compression: CompressionType::None,
-            passthrough_compression: CompressionType::None,
+            blob_compression: BlobCompression::default(),
         })
     }
 
-    pub fn use_compression(mut self, compressor: CompressionType) -> Self {
-        self.compression = compressor;
-        self
-    }
-
-    pub(crate) fn use_passthrough_compression(mut self, compressor: CompressionType) -> Self {
-        self.passthrough_compression = compressor;
+    pub fn use_compression(mut self, compression: BlobCompression) -> Self {
+        self.blob_compression = compression;
         self
     }
 
@@ -139,11 +144,13 @@ impl Writer {
         // Write header
         self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
-        let value = match &self.compression {
-            CompressionType::None => std::borrow::Cow::Borrowed(value),
-
+        let value = match &self.blob_compression {
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
+            BlobCompression::Standard(CompressionType::Lz4) => {
+                std::borrow::Cow::Owned(lz4_flex::compress(value))
+            }
+
+            _ => std::borrow::Cow::Borrowed(value),
         };
 
         let checksum = {
@@ -230,10 +237,12 @@ impl Writer {
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
-            compression: if self.passthrough_compression == CompressionType::None {
-                self.compression
-            } else {
-                self.passthrough_compression
+            compression: {
+                use BlobCompression::{Passthrough, Standard};
+
+                match self.blob_compression {
+                    Standard(ct) | Passthrough(ct) => ct,
+                }
             },
         };
         metadata.encode_into(&mut self.writer)?;

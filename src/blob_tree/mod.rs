@@ -426,7 +426,9 @@ impl AbstractTree for BlobTree {
             self.index.config.descriptor_table.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
-        .use_compression(kv_opts.compression);
+        .use_compression(crate::vlog::blob_file::writer::BlobCompression::Standard(
+            kv_opts.compression,
+        ));
 
         let separation_threshold = kv_opts.separation_threshold;
 
