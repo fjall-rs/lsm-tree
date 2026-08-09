@@ -11,26 +11,30 @@ pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
     } else {
         let mut new_runs: Vec<Run<T>> = Vec::new();
 
-        for run in runs.iter().rev() {
-            'run: for table in run.iter().rev() {
-                for existing_run in new_runs.iter_mut().rev() {
-                    if existing_run
+        for run in &runs {
+            for table in run.iter() {
+                // NOTE: A table needs to end up behind every run that overlaps it,
+                // otherwise point reads would find an older version of a key first
+                let last_overlap = new_runs.iter().rposition(|existing_run| {
+                    existing_run
                         .iter()
-                        .all(|x| !table.key_range().overlaps_with_key_range(x.key_range()))
-                    {
-                        existing_run.push(table.clone());
-                        continue 'run;
-                    }
-                }
+                        .any(|x| table.key_range().overlaps_with_key_range(x.key_range()))
+                });
 
-                #[expect(
-                    clippy::expect_used,
-                    reason = "we pass in a table, so the run cannot be None"
-                )]
-                new_runs.insert(
-                    0,
-                    Run::new(vec![table.clone()]).expect("run should not be empty"),
-                );
+                let target = match last_overlap {
+                    Some(idx) => new_runs.get_mut(idx + 1),
+                    None => new_runs.first_mut(),
+                };
+
+                if let Some(target) = target {
+                    target.push(table.clone());
+                } else {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we pass in a table, so the run cannot be None"
+                    )]
+                    new_runs.push(Run::new(vec![table.clone()]).expect("run should not be empty"));
+                }
             }
         }
 
@@ -156,6 +160,25 @@ mod tests {
         assert_eq!(
             vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")]).unwrap()],
             &*runs,
+        );
+    }
+
+    #[test]
+    fn optimize_runs_overlap_transitive() {
+        let runs = vec![
+            Run::new(vec![s(2, "m", "p")]).unwrap(),
+            Run::new(vec![s(1, "a", "z")]).unwrap(),
+            Run::new(vec![s(0, "a", "c")]).unwrap(),
+        ];
+        let runs = optimize_runs::<FakeTable>(runs);
+
+        assert_eq!(
+            vec![
+                Run::new(vec![s(2, "m", "p")]).unwrap(),
+                Run::new(vec![s(1, "a", "z")]).unwrap(),
+                Run::new(vec![s(0, "a", "c")]).unwrap(),
+            ],
+            &*runs
         );
     }
 }
