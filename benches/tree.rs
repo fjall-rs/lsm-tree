@@ -1,5 +1,8 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{AbstractTree, BlockCache, Config};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use lsm_tree::{
+    config::BlockSizePolicy, AbstractTree, BatchItem, Cache, Config, Guard, SeqNo,
+    SequenceNumberCounter,
+};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -11,10 +14,14 @@ fn full_scan(c: &mut Criterion) {
         group.bench_function(format!("scan all uncached, {item_count} items"), |b| {
             let path = tempdir().unwrap();
 
-            let tree = Config::new(path)
-                .block_cache(BlockCache::with_capacity_bytes(0).into())
-                .open()
-                .unwrap();
+            let tree = Config::new(
+                path.path(),
+                SequenceNumberCounter::default(),
+                SequenceNumberCounter::default(),
+            )
+            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
 
             for x in 0_u32..item_count {
                 let key = x.to_be_bytes();
@@ -25,17 +32,21 @@ fn full_scan(c: &mut Criterion) {
             tree.flush_active_memtable(0).unwrap();
 
             b.iter(|| {
-                assert_eq!(tree.len(None, None).unwrap(), item_count as usize);
+                assert_eq!(tree.len(SeqNo::MAX, None).unwrap(), item_count as usize);
             })
         });
 
         group.bench_function(format!("scan all cached, {item_count} items"), |b| {
             let path = tempdir().unwrap();
 
-            let tree = Config::new(path)
-                .block_cache(BlockCache::with_capacity_bytes(100_000_000).into())
-                .open()
-                .unwrap();
+            let tree = Config::new(
+                path.path(),
+                SequenceNumberCounter::default(),
+                SequenceNumberCounter::default(),
+            )
+            .use_cache(Arc::new(Cache::with_capacity_bytes(100_000_000)))
+            .open()
+            .unwrap();
 
             for x in 0_u32..item_count {
                 let key = x.to_be_bytes();
@@ -44,10 +55,10 @@ fn full_scan(c: &mut Criterion) {
             }
 
             tree.flush_active_memtable(0).unwrap();
-            assert_eq!(tree.len(None, None).unwrap(), item_count as usize);
+            assert_eq!(tree.len(SeqNo::MAX, None).unwrap(), item_count as usize);
 
             b.iter(|| {
-                assert_eq!(tree.len(None, None).unwrap(), item_count as usize);
+                assert_eq!(tree.len(SeqNo::MAX, None).unwrap(), item_count as usize);
             })
         });
     }
@@ -61,10 +72,14 @@ fn scan_vs_query(c: &mut Criterion) {
     for size in [100_000, 1_000_000] {
         let path = tempdir().unwrap();
 
-        let tree = Config::new(path)
-            .block_cache(BlockCache::with_capacity_bytes(0).into())
-            .open()
-            .unwrap();
+        let tree = Config::new(
+            path.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
 
         for x in 0..size as u64 {
             let key = x.to_be_bytes().to_vec();
@@ -73,22 +88,19 @@ fn scan_vs_query(c: &mut Criterion) {
         }
 
         tree.flush_active_memtable(0).unwrap();
-        assert_eq!(tree.len(None, None).unwrap(), size);
+        assert_eq!(tree.len(SeqNo::MAX, None).unwrap(), size);
 
         group.sample_size(10);
         group.bench_function(format!("scan {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.iter(None, None);
-                let iter = iter.into_iter();
+                let iter = tree.iter(SeqNo::MAX, None);
                 let count = iter
-                    .filter(|x| match x {
-                        Ok((key, _)) => {
-                            let buf = &key[..8];
-                            let (int_bytes, _rest) = buf.split_at(std::mem::size_of::<u64>());
-                            let num = u64::from_be_bytes(int_bytes.try_into().unwrap());
-                            (60000..60010).contains(&num)
-                        }
-                        Err(_) => false,
+                    .filter_map(|guard| {
+                        let (key, _) = guard.into_inner().ok()?;
+                        let buf = &key[..8];
+                        let (int_bytes, _rest) = buf.split_at(std::mem::size_of::<u64>());
+                        let num = u64::from_be_bytes(int_bytes.try_into().unwrap());
+                        (60000..60010).contains(&num).then_some(())
                     })
                     .count();
                 assert_eq!(count, 10);
@@ -101,7 +113,7 @@ fn scan_vs_query(c: &mut Criterion) {
                         Included(60000_u64.to_be_bytes().to_vec()),
                         Excluded(60010_u64.to_be_bytes().to_vec()),
                     ),
-                    None,
+                    SeqNo::MAX,
                     None,
                 );
                 let iter = iter.into_iter();
@@ -115,7 +127,7 @@ fn scan_vs_query(c: &mut Criterion) {
                         Included(60000_u64.to_be_bytes().to_vec()),
                         Excluded(60010_u64.to_be_bytes().to_vec()),
                     ),
-                    None,
+                    SeqNo::MAX,
                     None,
                 );
                 let iter = iter.into_iter();
@@ -131,10 +143,14 @@ fn scan_vs_prefix(c: &mut Criterion) {
     for size in [10_000, 100_000, 1_000_000] {
         let path = tempdir().unwrap();
 
-        let tree = Config::new(path)
-            .block_cache(BlockCache::with_capacity_bytes(0).into())
-            .open()
-            .unwrap();
+        let tree = Config::new(
+            path.path(),
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
 
         for _ in 0..size {
             let key = nanoid::nanoid!();
@@ -151,28 +167,30 @@ fn scan_vs_prefix(c: &mut Criterion) {
         }
 
         tree.flush_active_memtable(0).unwrap();
-        assert_eq!(tree.len(None, None).unwrap() as u64, size + 10);
+        assert_eq!(tree.len(SeqNo::MAX, None).unwrap() as u64, size + 10);
 
         group.sample_size(10);
         group.bench_function(format!("scan {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.iter(None, None);
-                let iter = iter.filter(|x| match x {
-                    Ok((key, _)) => key.starts_with(prefix.as_bytes()),
-                    Err(_) => false,
-                });
-                assert_eq!(iter.count(), 10);
+                let count = tree
+                    .iter(SeqNo::MAX, None)
+                    .filter_map(|guard| {
+                        let (key, _) = guard.into_inner().ok()?;
+                        key.starts_with(prefix.as_bytes()).then_some(())
+                    })
+                    .count();
+                assert_eq!(count, 10);
             });
         });
         group.bench_function(format!("prefix {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.prefix(prefix, None, None);
+                let iter = tree.prefix(prefix, SeqNo::MAX, None);
                 assert_eq!(iter.count(), 10);
             });
         });
         group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.prefix(prefix, None, None);
+                let iter = tree.prefix(prefix, SeqNo::MAX, None);
                 assert_eq!(iter.rev().count(), 10);
             });
         });
@@ -186,11 +204,15 @@ fn tree_get_pairs(c: &mut Criterion) {
     for segment_count in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512] {
         {
             let folder = tempfile::tempdir().unwrap();
-            let tree = Config::new(folder)
-                .data_block_size(1_024)
-                .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
-                .open()
-                .unwrap();
+            let tree = Config::new(
+                folder.path(),
+                SequenceNumberCounter::default(),
+                SequenceNumberCounter::default(),
+            )
+            .data_block_size_policy(BlockSizePolicy::all(1_024))
+            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
 
             let mut x = 0_u64;
 
@@ -207,7 +229,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::first_key_value (disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.first_key_value(None, None).unwrap().is_some());
+                        assert!(tree.first_key_value(SeqNo::MAX, None).is_some());
                     });
                 },
             );
@@ -216,7 +238,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::last_key_value (disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.last_key_value(None, None).unwrap().is_some());
+                        assert!(tree.last_key_value(SeqNo::MAX, None).is_some());
                     });
                 },
             );
@@ -224,11 +246,15 @@ fn tree_get_pairs(c: &mut Criterion) {
 
         {
             let folder = tempfile::tempdir().unwrap();
-            let tree = Config::new(folder)
-                .data_block_size(1_024)
-                .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
-                .open()
-                .unwrap();
+            let tree = Config::new(
+                folder.path(),
+                SequenceNumberCounter::default(),
+                SequenceNumberCounter::default(),
+            )
+            .data_block_size_policy(BlockSizePolicy::all(1_024))
+            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
 
             let mut x = 0_u64;
 
@@ -247,7 +273,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::first_key_value (non-disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.first_key_value(None, None).unwrap().is_some());
+                        assert!(tree.first_key_value(SeqNo::MAX, None).is_some());
                     });
                 },
             );
@@ -256,7 +282,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::last_key_value (non-disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.last_key_value(None, None).unwrap().is_some());
+                        assert!(tree.last_key_value(SeqNo::MAX, None).is_some());
                     });
                 },
             );
@@ -267,11 +293,15 @@ fn tree_get_pairs(c: &mut Criterion) {
 fn disk_point_read(c: &mut Criterion) {
     let folder = tempdir().unwrap();
 
-    let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
-        .open()
-        .unwrap();
+    let tree = Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+    .open()
+    .unwrap();
 
     for seqno in 0..5 {
         tree.insert("a", "b", seqno);
@@ -287,29 +317,30 @@ fn disk_point_read(c: &mut Criterion) {
         let tree = tree.clone();
 
         b.iter(|| {
-            tree.get("a", None).unwrap().unwrap();
+            tree.get("a", SeqNo::MAX).unwrap().unwrap();
         });
     });
 
-    c.bench_function("point read w/ seqno latest (uncached)", |b| {
-        let snapshot = tree.snapshot(5);
-
+    c.bench_function("point read w/ seqno (uncached)", |b| {
         b.iter(|| {
-            snapshot.get("a").unwrap().unwrap();
+            tree.get("a", 5).unwrap().unwrap();
         });
     });
 }
 
 fn disjoint_tree_minmax(c: &mut Criterion) {
     let mut group = c.benchmark_group("Disjoint tree");
-
     let folder = tempfile::tempdir().unwrap();
 
-    let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
-        .open()
-        .unwrap();
+    let tree = Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+    .open()
+    .unwrap();
 
     tree.insert("a", "a", 0);
     tree.flush_active_memtable(0).unwrap();
@@ -346,13 +377,23 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
 
     group.bench_function("Tree::first_key_value".to_string(), |b| {
         b.iter(|| {
-            assert_eq!(&*tree.first_key_value(None, None).unwrap().unwrap().1, b"a");
+            let (_, val) = tree
+                .first_key_value(SeqNo::MAX, None)
+                .unwrap()
+                .into_inner()
+                .unwrap();
+            assert_eq!(&*val, b"a");
         });
     });
 
     group.bench_function("Tree::last_key_value".to_string(), |b| {
         b.iter(|| {
-            assert_eq!(&*tree.last_key_value(None, None).unwrap().unwrap().1, b"g");
+            let (_, val) = tree
+                .last_key_value(SeqNo::MAX, None)
+                .unwrap()
+                .into_inner()
+                .unwrap();
+            assert_eq!(&*val, b"g");
         });
     });
 }
@@ -360,20 +401,76 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
 fn blob_tree_get(c: &mut Criterion) {
     let folder = tempfile::tempdir().unwrap();
 
-    let tree = Config::new(folder.path())
-        .block_cache(BlockCache::with_capacity_bytes(0).into())
-        .open_as_blob_tree()
-        .unwrap();
+    let tree = Config::new(
+        folder.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+    .with_kv_separation(Some(Default::default()))
+    .open()
+    .unwrap();
 
     let value = b"powek5bowa".repeat(100);
 
     tree.insert("mykey", &value, 0);
+    tree.flush_active_memtable(0).unwrap();
 
     c.bench_function("blob tree get", |b| {
         b.iter(|| {
-            tree.get("mykey", None).unwrap().unwrap();
+            tree.get("mykey", SeqNo::MAX).unwrap().unwrap();
         });
     });
+}
+
+fn tree_batch_write(c: &mut Criterion) {
+    let mut group = c.benchmark_group("write batch");
+    group.sample_size(10);
+
+    for batch_size in [10, 100, 1_000, 10_000] {
+        //group.throughput(Throughput::Elements(batch_size));
+
+        // prepare items outside the timed section
+        let items: Vec<_> = (0..batch_size)
+            .map(|i: u64| (i.to_be_bytes().to_vec(), b"value".to_vec()))
+            .collect();
+
+        group.bench_function(format!("naive loop, {batch_size} items"), |b| {
+            b.iter_batched(
+                || {
+                    let path = tempdir().unwrap();
+                    let tree = Config::new(path.path(), Default::default(), Default::default())
+                        .open()
+                        .unwrap();
+                    (path, tree)
+                },
+                |(_path, tree)| {
+                    for (k, v) in &items {
+                        tree.insert(k.clone(), v.clone(), 0);
+                    }
+                },
+                criterion::BatchSize::PerIteration,
+            );
+        });
+        group.bench_function(format!("write_batch, {batch_size} items"), |b| {
+            b.iter_batched(
+                || {
+                    let path = tempdir().unwrap();
+                    let tree = Config::new(path.path(), Default::default(), Default::default())
+                        .open()
+                        .unwrap();
+                    let batch = items
+                        .iter()
+                        .map(|(k, v)| BatchItem::Insert(k.clone(), v.clone()));
+                    (path, tree, batch)
+                },
+                |(_path, tree, batch)| {
+                    tree.write_batch(batch, 0);
+                },
+                criterion::BatchSize::PerIteration,
+            );
+        });
+    }
 }
 
 // TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
@@ -387,6 +484,7 @@ criterion_group!(
     full_scan,
     scan_vs_query,
     scan_vs_prefix,
+    tree_batch_write,
     tree_get_pairs,
 );
 criterion_main!(benches);
