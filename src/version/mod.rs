@@ -9,6 +9,48 @@ pub mod recovery;
 pub mod run;
 mod super_version;
 
+#[doc(hidden)]
+pub mod fuzzing {
+    use super::{optimize::optimize_runs as optimize, run::Ranged, Run};
+    use crate::KeyRange;
+
+    #[derive(Clone)]
+    struct FuzzTable {
+        id: usize,
+        key_range: KeyRange,
+    }
+
+    impl Ranged for FuzzTable {
+        fn key_range(&self) -> &KeyRange {
+            &self.key_range
+        }
+    }
+
+    /// Runs the production optimizer over fuzz-table IDs and their key ranges.
+    #[must_use]
+    pub fn optimize_runs(runs: Vec<Vec<(usize, KeyRange)>>) -> Vec<Vec<(usize, KeyRange)>> {
+        let runs = runs
+            .into_iter()
+            .filter_map(|run| {
+                Run::new(
+                    run.into_iter()
+                        .map(|(id, key_range)| FuzzTable { id, key_range })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        optimize(runs)
+            .into_iter()
+            .map(|run| {
+                run.iter()
+                    .map(|table| (table.id, table.key_range.clone()))
+                    .collect()
+            })
+            .collect()
+    }
+}
+
 pub use blob_file_list::BlobFileList;
 pub use persist::persist_version;
 pub use run::Run;
