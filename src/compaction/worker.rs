@@ -364,6 +364,12 @@ fn merge_tables(
         return Ok(());
     };
 
+    let table_max_created_at = tables
+        .iter()
+        .map(|t| t.metadata.created_at)
+        .max()
+        .unwrap_or_default();
+
     let mut blob_frag_map = FragmentationMap::default();
 
     let Some(mut merge_iter) = create_compaction_stream(
@@ -413,7 +419,8 @@ fn merge_tables(
     ));
 
     let table_writer =
-        super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
+        super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?
+            .use_table_creation_timestamp(table_max_created_at);
 
     let start = Instant::now();
 
