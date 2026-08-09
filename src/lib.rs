@@ -144,6 +144,10 @@ pub mod util;
 
 mod value;
 mod value_type;
+
+/// Integrity verification for SST and blob files.
+pub mod verify;
+
 mod version;
 mod vlog;
 
