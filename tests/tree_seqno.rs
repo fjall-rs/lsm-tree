@@ -11,9 +11,11 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
         SequenceNumberCounter::default(),
     )
     .open()?;
-    assert_eq!(tree.get_highest_seqno(), None);
+    // There's no data in this tree, but the actual tree metadata
+    // has been persisted, so its seqno is reported as 0
+    assert_eq!(tree.get_highest_seqno(), Some(0));
     assert_eq!(tree.get_highest_memtable_seqno(), None);
-    assert_eq!(tree.get_highest_persisted_seqno(), None);
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(0));
 
     tree.insert("a", "a0", 0);
     assert_eq!(tree.get_highest_seqno(), Some(0));
