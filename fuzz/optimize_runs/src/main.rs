@@ -92,7 +92,10 @@ fn run_operations(operations: impl IntoIterator<Item = Operation>) {
 fn main() {
     fuzz!(|data: &[u8]| {
         let mut unstructured = Unstructured::new(data);
-        let Ok(operations) = Vec::<Operation>::arbitrary(&mut unstructured) else {
+        let Ok(operations) = unstructured.arbitrary_iter::<Operation>() else {
+            return;
+        };
+        let Ok(operations) = operations.take(256).collect::<arbitrary::Result<Vec<_>>>() else {
             return;
         };
 

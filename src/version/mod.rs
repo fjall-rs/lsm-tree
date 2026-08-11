@@ -49,6 +49,31 @@ pub mod fuzzing {
             })
             .collect()
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn range(min: u8, max: u8) -> KeyRange {
+            KeyRange::new((vec![min].into(), vec![max].into()))
+        }
+
+        #[test]
+        fn optimizer_adapter_preserves_transitive_run_order() {
+            let optimized = optimize_runs(vec![
+                vec![],
+                vec![(2, range(b'm', b'p'))],
+                vec![(1, range(b'a', b'z'))],
+                vec![(0, range(b'a', b'c'))],
+            ]);
+
+            let ids = optimized
+                .iter()
+                .map(|run| run.iter().map(|(id, _)| *id).collect::<Vec<_>>())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, vec![vec![2], vec![1], vec![0]]);
+        }
+    }
 }
 
 pub use blob_file_list::BlobFileList;
