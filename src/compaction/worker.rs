@@ -856,8 +856,11 @@ mod tests {
         assert_eq!(3, tree.approximate_len());
         assert_eq!(0, tree.sealed_memtable_count());
 
-        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
+        let fifo = Arc::new(crate::compaction::Fifo::new(1, None));
+        tree.compact(fifo.clone(), 3)?;
+        assert_eq!(3, tree.table_count());
 
+        tree.compact(fifo, 3)?;
         assert_eq!(0, tree.table_count());
 
         Ok(())
