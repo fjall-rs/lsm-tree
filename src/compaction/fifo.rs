@@ -104,7 +104,7 @@ impl CompactionStrategy for Strategy {
                 table_ids,
                 dest_level: last_level_idx,
                 canonical_level: last_level_idx,
-                target_size: u64::MAX,
+                target_size: 256 * 1_024 * 1_024,
             };
 
             return if overlapping_table_ids.is_empty() {
