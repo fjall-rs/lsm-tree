@@ -148,7 +148,7 @@ mod version;
 mod vlog;
 
 #[doc(hidden)]
-pub use version::fuzzing;
+pub use version::{optimize_runs, run::Ranged, Run};
 
 /// User defined key (byte array)
 pub type UserKey = Slice;

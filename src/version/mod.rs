@@ -9,74 +9,9 @@ pub mod recovery;
 pub mod run;
 mod super_version;
 
-#[doc(hidden)]
-pub mod fuzzing {
-    use super::{optimize::optimize_runs as optimize, run::Ranged, Run};
-    use crate::KeyRange;
-
-    #[derive(Clone)]
-    struct FuzzTable {
-        id: usize,
-        key_range: KeyRange,
-    }
-
-    impl Ranged for FuzzTable {
-        fn key_range(&self) -> &KeyRange {
-            &self.key_range
-        }
-    }
-
-    /// Runs the production optimizer over fuzz-table IDs and their key ranges.
-    #[must_use]
-    pub fn optimize_runs(runs: Vec<Vec<(usize, KeyRange)>>) -> Vec<Vec<(usize, KeyRange)>> {
-        let runs = runs
-            .into_iter()
-            .filter_map(|run| {
-                Run::new(
-                    run.into_iter()
-                        .map(|(id, key_range)| FuzzTable { id, key_range })
-                        .collect(),
-                )
-            })
-            .collect();
-
-        optimize(runs)
-            .into_iter()
-            .map(|run| {
-                run.iter()
-                    .map(|table| (table.id, table.key_range.clone()))
-                    .collect()
-            })
-            .collect()
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        fn range(min: u8, max: u8) -> KeyRange {
-            KeyRange::new((vec![min].into(), vec![max].into()))
-        }
-
-        #[test]
-        fn optimizer_adapter_preserves_transitive_run_order() {
-            let optimized = optimize_runs(vec![
-                vec![],
-                vec![(2, range(b'm', b'p'))],
-                vec![(1, range(b'a', b'z'))],
-                vec![(0, range(b'a', b'c'))],
-            ]);
-
-            let ids = optimized
-                .iter()
-                .map(|run| run.iter().map(|(id, _)| *id).collect::<Vec<_>>())
-                .collect::<Vec<_>>();
-            assert_eq!(ids, vec![vec![2], vec![1], vec![0]]);
-        }
-    }
-}
-
 pub use blob_file_list::BlobFileList;
+#[doc(hidden)]
+pub use optimize::optimize_runs;
 pub use persist::persist_version;
 pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersions};
@@ -91,7 +26,6 @@ use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
-use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
 

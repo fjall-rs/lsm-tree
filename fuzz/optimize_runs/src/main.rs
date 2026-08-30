@@ -2,7 +2,7 @@
 extern crate afl;
 
 use arbitrary::{Arbitrary, Unstructured};
-use lsm_tree::{KeyRange, fuzzing::optimize_runs};
+use lsm_tree::{KeyRange, Ranged, Run, optimize_runs as optimize};
 use std::collections::BTreeMap;
 
 #[derive(Arbitrary, Debug)]
@@ -13,6 +13,40 @@ enum Operation {
 
 type Table = BTreeMap<u8, u64>;
 type Runs = Vec<Vec<(usize, KeyRange)>>;
+
+#[derive(Clone)]
+struct FuzzTable {
+    id: usize,
+    key_range: KeyRange,
+}
+
+impl Ranged for FuzzTable {
+    fn key_range(&self) -> &KeyRange {
+        &self.key_range
+    }
+}
+
+fn optimize_runs(runs: Runs) -> Runs {
+    let runs = runs
+        .into_iter()
+        .filter_map(|run| {
+            Run::new(
+                run.into_iter()
+                    .map(|(id, key_range)| FuzzTable { id, key_range })
+                    .collect(),
+            )
+        })
+        .collect();
+
+    optimize(runs)
+        .into_iter()
+        .map(|run| {
+            run.iter()
+                .map(|table| (table.id, table.key_range.clone()))
+                .collect()
+        })
+        .collect()
+}
 
 fn verify(runs: &Runs, tables: &[Table], expected: &BTreeMap<u8, u64>) {
     let mut table_ids = runs
@@ -106,6 +140,26 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn range(min: u8, max: u8) -> KeyRange {
+        KeyRange::new((vec![min].into(), vec![max].into()))
+    }
+
+    #[test]
+    fn optimizer_adapter_preserves_transitive_run_order() {
+        let optimized = optimize_runs(vec![
+            vec![],
+            vec![(2, range(b'm', b'p'))],
+            vec![(1, range(b'a', b'z'))],
+            vec![(0, range(b'a', b'c'))],
+        ]);
+
+        let ids = optimized
+            .iter()
+            .map(|run| run.iter().map(|(id, _)| *id).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![vec![2], vec![1], vec![0]]);
+    }
 
     #[test]
     fn transitive_overlap_keeps_the_newest_value_visible() {
