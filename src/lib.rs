@@ -147,6 +147,9 @@ mod value_type;
 mod version;
 mod vlog;
 
+#[doc(hidden)]
+pub use version::{optimize_runs, run::Ranged, Run};
+
 /// User defined key (byte array)
 pub type UserKey = Slice;
 

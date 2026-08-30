@@ -5,6 +5,7 @@
 use crate::KeyRange;
 use std::ops::{Bound, RangeBounds};
 
+#[doc(hidden)]
 pub trait Ranged {
     fn key_range(&self) -> &KeyRange;
 }
@@ -50,6 +51,7 @@ impl<T: Ranged> std::ops::Deref for Indexed<T> {
 
 /// A disjoint run of tables
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct Run<T: Ranged>(Vec<T>);
 
 impl<T: Ranged> std::ops::Deref for Run<T> {
@@ -60,6 +62,11 @@ impl<T: Ranged> std::ops::Deref for Run<T> {
     }
 }
 
+#[allow(
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    reason = "Run is only publicly exported as a hidden fuzzing implementation detail"
+)]
 impl<T: Ranged> Run<T> {
     pub fn new(items: Vec<T>) -> Option<Self> {
         if items.is_empty() {
