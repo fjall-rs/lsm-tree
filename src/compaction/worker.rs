@@ -203,15 +203,14 @@ fn move_tables(
 
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
-    // NOTE: Check for race condition
+    // NOTE: Check for race condition - https://github.com/fjall-rs/fjall/issues/287
     //
     // The compaction choice was made under a *read* lock which we dropped before taking
     // this write lock, so the version may have been swapped out in between (`clear()` for
-    // example installs a brand new, empty version). `Version::with_moved` asserts that every
-    // input table is still present, so committing a stale move would panic while holding both
-    // the compaction state mutex and the version history write lock, poisoning them.
-    //
-    // Fixes: https://github.com/fjall-rs/fjall/issues/287
+    // example installs a brand new, empty version).
+    // `Version::with_moved` asserts that every input table is still present, so committing a
+    // stale move would panic while holding both the compaction state mutex and the version
+    // history write lock, poisoning them.
     if table_ids.iter().any(|&id| {
         version_history_lock
             .latest_version()
@@ -219,9 +218,7 @@ fn move_tables(
             .get_table(id)
             .is_none()
     }) {
-        log::debug!(
-            "Not moving tables because the version changed in the meantime, table(s) {table_ids:?} are not referenced anymore",
-        );
+        log::debug!("{table_ids:?} are not referenced anymore; skipping move");
         return Ok(());
     }
 
@@ -536,17 +533,12 @@ fn merge_tables(
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
     log::trace!("Acquired super version write lock");
 
-    // NOTE: Check for race condition
+    // NOTE: Check for race condition - https://github.com/fjall-rs/fjall/issues/287
     //
     // We held no lock while doing the actual merge, so the version may have been swapped out
-    // in the meantime (`clear()` for example installs a brand new, empty version). Committing
-    // the merge result would then insert the compacted tables into a version that no longer
+    // in the meantime (`clear()` for example installs a brand new, empty version).
+    // Committing the merge result would then insert the compacted tables into a version that no longer
     // references their inputs, resurrecting data that was already logically removed.
-    //
-    // The written table files are not referenced by any version, so they are cleaned up on
-    // recovery, same as for a compaction that is interrupted by a crash.
-    //
-    // Fixes: https://github.com/fjall-rs/fjall/issues/287
     if payload.table_ids.iter().any(|&id| {
         version_history_lock
             .latest_version()
@@ -554,9 +546,7 @@ fn merge_tables(
             .get_table(id)
             .is_none()
     }) {
-        log::debug!(
-            "Not registering compaction result because the version changed in the meantime, input table(s) are not referenced anymore",
-        );
+        log::debug!("Input table(s) are not referenced anymore; skipping result installation");
 
         compaction_state
             .hidden_set_mut()
@@ -706,12 +696,16 @@ fn drop_tables(
 mod tests {
     use super::{create_compaction_stream, pick_run_indexes};
     use crate::{
-        compaction::{state::CompactionState, Choice, CompactionStrategy, Input},
-        config::BlockSizePolicy,
+        compaction::{
+            filter::{CompactionFilter, Context as FilterContext, Factory, ItemAccessor, Verdict},
+            state::CompactionState,
+            Choice, CompactionStrategy, Input,
+        },
+        config::{BlockSizePolicy, Config as TreeConfig, KvSeparationOptions},
         version::Version,
-        AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter, TableId,
+        AbstractTree, AnyTree, SequenceNumberCounter, TableId,
     };
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use test_log::test;
 
     #[test]
@@ -923,7 +917,7 @@ mod tests {
                 "InPlaceCompaction"
             }
 
-            fn choose(&self, _: &Version, _: &Config, _: &CompactionState) -> Choice {
+            fn choose(&self, _: &Version, _: &TreeConfig, _: &CompactionState) -> Choice {
                 Choice::Merge(Input {
                     table_ids: self.0.iter().copied().collect(),
                     dest_level: 6,
@@ -1011,25 +1005,8 @@ mod tests {
 
         Ok(())
     }
-}
 
-#[cfg(test)]
-#[expect(clippy::expect_used, clippy::unwrap_used)]
-mod clear_race_tests {
-    use crate::{
-        compaction::{
-            filter::{CompactionFilter, Context as FilterContext, Factory, ItemAccessor, Verdict},
-            state::CompactionState,
-            Choice, CompactionStrategy, Input,
-        },
-        config::Config as TreeConfig,
-        version::Version,
-        AbstractTree, AnyTree, SequenceNumberCounter, TableId,
-    };
-    use std::sync::{Arc, Mutex};
-    use test_log::test;
-
-    /// Emits a `Move` of table IDs that were picked from an older version.
+    /// Emits a `Move` of table IDs that were picked from an older version
     ///
     /// This is what the compaction worker itself does when `clear()` swaps the version
     /// out between `CompactionStrategy::choose` (read lock) and `move_tables` (write lock).
@@ -1050,7 +1027,7 @@ mod clear_race_tests {
         }
     }
 
-    // https://github.com/fjall-rs/fjall/issues/287
+    // Regression test for https://github.com/fjall-rs/fjall/issues/287
     #[test]
     fn compaction_move_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
@@ -1073,23 +1050,17 @@ mod clear_race_tests {
 
         assert_eq!(1, table_ids.len());
 
-        // The compaction strategy has already picked `table_ids` at this point.
         tree.clear()?;
-        assert_eq!(0, tree.current_version().iter_tables().count());
+        assert_eq!(0, tree.table_count());
 
-        // Before the fix this panics in `Version::with_moved`:
-        //   assertion `left == right` failed: invalid table IDs
-        //     left: 0
-        //    right: 1
         tree.compact(Arc::new(StaleMove(table_ids)), 0)?;
-
-        assert_eq!(0, tree.current_version().iter_tables().count());
+        assert_eq!(0, tree.table_count());
 
         Ok(())
     }
 
-    /// Calls `clear()` on the first filtered item, which happens while the compaction
-    /// worker holds no lock at all.
+    /// Calls `clear()` on the first filtered item, which happens
+    /// while the compaction worker holds no lock at all
     struct ClearMidCompaction(Arc<Mutex<Option<AnyTree>>>);
 
     impl Factory for ClearMidCompaction {
@@ -1117,7 +1088,7 @@ mod clear_race_tests {
         }
     }
 
-    // https://github.com/fjall-rs/fjall/issues/287
+    // Regression test for https://github.com/fjall-rs/fjall/issues/287
     #[test]
     fn compaction_merge_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
@@ -1134,17 +1105,12 @@ mod clear_race_tests {
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.current_version().iter_tables().count());
+        assert_eq!(1, tree.table_count());
 
         *handle.lock().unwrap() = Some(tree.clone());
 
-        // `clear()` runs inside the merge, after the compaction worker released both
-        // the compaction state mutex and the version history lock.
         tree.compact(Arc::new(crate::compaction::major::Strategy::default()), 0)?;
-
-        // Before the fix the merge result is committed into the post-clear version,
-        // bringing the cleared data back.
-        assert_eq!(0, tree.current_version().iter_tables().count());
+        assert_eq!(0, tree.table_count());
 
         Ok(())
     }
