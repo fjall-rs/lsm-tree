@@ -978,6 +978,16 @@ impl Tree {
             .max()
             .unwrap_or_default();
 
+        // Check for < 1 MB shards, which may be able to
+        // hold filter blocks, causing high read latencies
+        if config.cache.shard_capacity() < 1_000_000 {
+            // TODO: we probably really need a documentation page that explains stuff like this
+            // TODO: and documents how to tune this better... "the fjall book"...
+            log::warn!(
+                "Cache shard capacity is less than 1 MB, which may cause non-partitioned filter blocks to be uncacheable, greatly read latencies. Consider increasing the cache size.",
+            );
+        }
+
         let inner = TreeInner {
             id: tree_id,
             memtable_id_counter: SequenceNumberCounter::new(1),
