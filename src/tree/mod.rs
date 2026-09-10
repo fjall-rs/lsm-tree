@@ -978,7 +978,7 @@ impl Tree {
             .max()
             .unwrap_or_default();
 
-        // Check for < 1 MB shards, which may be able to
+        // Check for < 1 MB shards, which may not be able to
         // hold filter blocks, causing high read latencies
         if config.cache.shard_capacity() < 1_000_000 {
             // TODO: we probably really need a documentation page that explains stuff like this
