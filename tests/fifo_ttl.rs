@@ -80,6 +80,7 @@ fn fifo_limit_considers_blob_bytes() -> lsm_tree::Result<()> {
 
     // Very small limit forces dropping based on (table + blob) size
     let fifo = Arc::new(Fifo::new(10, None));
+    tree.compact(fifo.clone(), 3)?;
     tree.compact(fifo, 3)?;
 
     // Should have dropped at least one table due to blob bytes pressure
