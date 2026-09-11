@@ -4,8 +4,11 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection,
+    table::{meta::Timestamp, writer::LinkedFile},
+    value::InternalValue,
+    vlog::BlobFileId,
+    Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -48,6 +51,8 @@ pub struct MultiWriter {
 
     /// Level the tables are written to
     initial_level: u8,
+
+    table_creation_timestamp: Option<Timestamp>,
 }
 
 impl MultiWriter {
@@ -91,6 +96,8 @@ impl MultiWriter {
             current_key: None,
 
             linked_blobs: HashMap::default(),
+
+            table_creation_timestamp: None,
         })
     }
 
@@ -108,6 +115,13 @@ impl MultiWriter {
                 on_disk_bytes: u64::from(indirection.vhandle.on_disk_size),
                 len: 1,
             });
+    }
+
+    #[must_use]
+    pub fn use_table_creation_timestamp(mut self, ts: Timestamp) -> Self {
+        self.table_creation_timestamp = Some(ts);
+        self.writer = self.writer.use_table_creation_timestamp(ts);
+        self
     }
 
     #[must_use]
