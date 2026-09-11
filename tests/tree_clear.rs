@@ -41,3 +41,26 @@ fn tree_clear() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn tree_clear_at_seqno() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let seqno = SequenceNumberCounter::default();
+    let visible_seqno = SequenceNumberCounter::default();
+    let external_seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+
+    assert!(tree.get_highest_persisted_seqno().is_none());
+    let seqno = external_seqno.next();
+    tree.clear_at_seqno(Some(seqno))?;
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(seqno));
+    let insert_seqno = external_seqno.next();
+    tree.insert(b"foo", b"bar", insert_seqno);
+    tree.flush_active_memtable(insert_seqno)
+        .expect("should flush");
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(insert_seqno));
+
+    Ok(())
+}
