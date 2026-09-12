@@ -8,7 +8,7 @@ use crate::{
         block::{Decoder, ParsedItem},
         data_block::DataBlockParsedItem,
     },
-    InternalValue,
+    InternalValue, SeqNo,
 };
 
 /// The data block iterator handles double-ended scans over a data block
@@ -34,15 +34,31 @@ impl<'a> Iter<'a> {
         true
     }
 
-    pub fn seek(&mut self, needle: &[u8]) -> bool {
-        // Find the restart interval whose head key is the last one strictly below `needle`.
-        // The decoder then performs a linear scan within that interval; we stop as soon as we
-        // reach a key ≥ needle. This minimizes parsing work while preserving correctness.
-        if !self
-            .decoder
-            .inner_mut()
-            .seek(|head_key, _| head_key < needle, false)
-        {
+    /// Seeks to the last restart interval whose head key is strictly below the
+    /// target `needle`, or equal to it with a seqno that is at least the given
+    /// snapshot boundary.
+    ///
+    /// Here `seqno` is a snapshot boundary: point reads return the first item
+    /// with `item.seqno < seqno`. Using the internal key ordering
+    /// (`user_key` ASC, `seqno` DESC), this skips restart intervals that can only
+    /// contain versions newer than the snapshot, so any visible version for
+    /// `needle` will be found within roughly one restart interval of the
+    /// resulting position.
+    pub fn seek_to_key_seqno(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.decoder.inner_mut().seek(
+            |head_key, head_seqno| match head_key.cmp(needle) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => head_seqno >= seqno,
+                std::cmp::Ordering::Greater => false,
+            },
+            false,
+        )
+    }
+
+    pub fn seek(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        // Reuse the seqno-aware binary search from `seek_to_key_seqno`, then
+        // follow up with a linear scan to position at the exact key.
+        if !self.seek_to_key_seqno(needle, seqno) {
             return false;
         }
 
@@ -75,9 +91,14 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
-        // Reverse-bound seek: position the high scanner at the first restart whose head key is
-        // ≤ needle, then walk backwards inside the interval until we find a key ≤ needle.
+    /// Reverse inclusive seek: position at the last key `<= needle`.
+    ///
+    /// `seqno` is accepted for API uniformity with the forward seek methods
+    /// ([`seek`], [`seek_exclusive`]) but is **intentionally unused** here.
+    /// Backward binary search cannot leverage seqno because intervals are
+    /// visited from the selected one toward index 0 — a tighter predicate
+    /// would skip intervals that may contain the visible version.
+    pub fn seek_upper(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
         if !self
             .decoder
             .inner_mut()
@@ -112,15 +133,10 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn seek_exclusive(&mut self, needle: &[u8]) -> bool {
-        // Exclusive lower bound: identical to `seek`, except we must not yield entries equal to
-        // `needle`. We therefore keep consuming while keys compare equal and only stop once we
-        // observe a strictly greater key.
-        if !self
-            .decoder
-            .inner_mut()
-            .seek(|head_key, _| head_key < needle, false)
-        {
+    pub fn seek_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        // Exclusive lower bound: same seqno-aware binary search, but the linear
+        // scan below skips entries equal to `needle`.
+        if !self.seek_to_key_seqno(needle, seqno) {
             return false;
         }
 
@@ -144,9 +160,11 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn seek_upper_exclusive(&mut self, needle: &[u8]) -> bool {
-        // Exclusive upper bound: mirror of `seek_upper`. We must not include entries equal to
-        // `needle`, so we consume equals from the high end until we see a strictly smaller key.
+    /// Reverse exclusive seek: position at the last key `< needle`.
+    ///
+    /// See [`seek_upper`] for why `seqno` is accepted but unused in reverse
+    /// seeks.
+    pub fn seek_upper_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
         if !self
             .decoder
             .inner_mut()
