@@ -57,6 +57,12 @@ fn verify(runs: &Runs, tables: &[Table], expected: &BTreeMap<u8, u64>) {
     assert_eq!(table_ids, (0..tables.len()).collect::<Vec<_>>());
 
     for run in runs {
+        for adjacent in run.windows(2) {
+            assert!(
+                adjacent[0].1.max() < adjacent[1].1.min(),
+                "optimized run is not sorted and disjoint: {run:?}"
+            );
+        }
         for (index, (_, range)) in run.iter().enumerate() {
             for (_, other) in run.iter().skip(index + 1) {
                 assert!(
@@ -143,6 +149,18 @@ mod tests {
 
     fn range(min: u8, max: u8) -> KeyRange {
         KeyRange::new((vec![min].into(), vec![max].into()))
+    }
+
+    #[test]
+    fn verify_rejects_unsorted_disjoint_ranges() {
+        let tables = [BTreeMap::from([(b'a', 1)]), BTreeMap::from([(b'z', 2)])];
+        let expected = BTreeMap::from([(b'a', 1), (b'z', 2)]);
+        let mut runs = vec![vec![(0, range(b'a', b'a')), (1, range(b'z', b'z'))]];
+
+        verify(&runs, &tables, &expected);
+        runs[0].reverse();
+
+        assert!(std::panic::catch_unwind(|| verify(&runs, &tables, &expected)).is_err());
     }
 
     #[test]
