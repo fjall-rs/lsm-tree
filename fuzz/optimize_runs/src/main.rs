@@ -2,7 +2,7 @@
 extern crate afl;
 
 use arbitrary::{Arbitrary, Unstructured};
-use lsm_tree::{KeyRange, Ranged, Run, optimize_runs as optimize};
+use lsm_tree::{KeyRange, Ranged, Run, optimize_runs};
 use std::collections::BTreeMap;
 
 #[derive(Arbitrary, Debug)]
@@ -12,9 +12,9 @@ enum Operation {
 }
 
 type Table = BTreeMap<u8, u64>;
-type Runs = Vec<Vec<(usize, KeyRange)>>;
+type Runs = Vec<Run<FuzzTable>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct FuzzTable {
     id: usize,
     key_range: KeyRange,
@@ -26,32 +26,10 @@ impl Ranged for FuzzTable {
     }
 }
 
-fn optimize_runs(runs: Runs) -> Runs {
-    let runs = runs
-        .into_iter()
-        .filter_map(|run| {
-            Run::new(
-                run.into_iter()
-                    .map(|(id, key_range)| FuzzTable { id, key_range })
-                    .collect(),
-            )
-        })
-        .collect();
-
-    optimize(runs)
-        .into_iter()
-        .map(|run| {
-            run.iter()
-                .map(|table| (table.id, table.key_range.clone()))
-                .collect()
-        })
-        .collect()
-}
-
 fn verify(runs: &Runs, tables: &[Table], expected: &BTreeMap<u8, u64>) {
     let mut table_ids = runs
         .iter()
-        .flat_map(|run| run.iter().map(|(id, _)| *id))
+        .flat_map(|run| run.iter().map(|table| table.id))
         .collect::<Vec<_>>();
     table_ids.sort_unstable();
     assert_eq!(table_ids, (0..tables.len()).collect::<Vec<_>>());
@@ -59,25 +37,16 @@ fn verify(runs: &Runs, tables: &[Table], expected: &BTreeMap<u8, u64>) {
     for run in runs {
         for adjacent in run.windows(2) {
             assert!(
-                adjacent[0].1.max() < adjacent[1].1.min(),
+                adjacent[0].key_range.max() < adjacent[1].key_range.min(),
                 "optimized run is not sorted and disjoint: {run:?}"
             );
-        }
-        for (index, (_, range)) in run.iter().enumerate() {
-            for (_, other) in run.iter().skip(index + 1) {
-                assert!(
-                    !range.overlaps_with_key_range(other),
-                    "optimized run contains overlapping tables: {run:?}"
-                );
-            }
         }
     }
 
     for (&key, &expected_seqno) in expected {
         let actual = runs.iter().find_map(|run| {
-            run.iter()
-                .find(|(_, range)| range.contains_key(&[key]))
-                .and_then(|(id, _)| tables[*id].get(&key).copied())
+            run.get_for_key(&[key])
+                .and_then(|table| tables[table.id].get(&key).copied())
         });
 
         assert_eq!(
@@ -102,7 +71,11 @@ fn flush(
         tables.push(std::mem::take(buffer));
         runs.insert(
             0,
-            vec![(id, KeyRange::new((vec![min].into(), vec![max].into())))],
+            Run::new(vec![FuzzTable {
+                id,
+                key_range: KeyRange::new((vec![min].into(), vec![max].into())),
+            }])
+            .expect("flushed table is not empty"),
         );
         *runs = optimize_runs(std::mem::take(runs));
     }
@@ -152,31 +125,58 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "not sorted and disjoint")]
     fn verify_rejects_unsorted_disjoint_ranges() {
         let tables = [BTreeMap::from([(b'a', 1)]), BTreeMap::from([(b'z', 2)])];
         let expected = BTreeMap::from([(b'a', 1), (b'z', 2)]);
-        let mut runs = vec![vec![(0, range(b'a', b'a')), (1, range(b'z', b'z'))]];
+        let runs = vec![
+            Run::new(vec![
+                FuzzTable {
+                    id: 1,
+                    key_range: range(b'z', b'z'),
+                },
+                FuzzTable {
+                    id: 0,
+                    key_range: range(b'a', b'a'),
+                },
+            ])
+            .unwrap(),
+        ];
 
         verify(&runs, &tables, &expected);
-        runs[0].reverse();
-
-        assert!(std::panic::catch_unwind(|| verify(&runs, &tables, &expected)).is_err());
     }
 
     #[test]
-    fn optimizer_adapter_preserves_transitive_run_order() {
-        let optimized = optimize_runs(vec![
-            vec![],
-            vec![(2, range(b'm', b'p'))],
-            vec![(1, range(b'a', b'z'))],
-            vec![(0, range(b'a', b'c'))],
+    fn boundary_keys_remain_visible_across_disjoint_tables_and_gaps() {
+        run_operations([
+            Operation::Insert {
+                key: b'a',
+                seqno: 0,
+            },
+            Operation::Insert {
+                key: b'd',
+                seqno: 0,
+            },
+            Operation::Flush,
+            Operation::Insert {
+                key: b'm',
+                seqno: 1,
+            },
+            Operation::Insert {
+                key: b'p',
+                seqno: 1,
+            },
+            Operation::Flush,
+            Operation::Insert {
+                key: b'c',
+                seqno: 2,
+            },
+            Operation::Insert {
+                key: b'n',
+                seqno: 2,
+            },
+            Operation::Flush,
         ]);
-
-        let ids = optimized
-            .iter()
-            .map(|run| run.iter().map(|(id, _)| *id).collect::<Vec<_>>())
-            .collect::<Vec<_>>();
-        assert_eq!(ids, vec![vec![2], vec![1], vec![0]]);
     }
 
     #[test]
