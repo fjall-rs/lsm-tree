@@ -10,6 +10,8 @@ pub mod run;
 mod super_version;
 
 pub use blob_file_list::BlobFileList;
+#[doc(hidden)]
+pub use optimize::optimize_runs;
 pub use persist::persist_version;
 pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersions};
@@ -24,7 +26,6 @@ use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
-use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
 
