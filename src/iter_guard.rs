@@ -1,10 +1,8 @@
 use crate::{
     blob_tree::Guard as BlobGuard, tree::Guard as StandardGuard, KvPair, UserKey, UserValue,
 };
-use enum_dispatch::enum_dispatch;
 
 /// Guard to access key-value pairs
-#[enum_dispatch]
 pub trait IterGuard {
     /// Accesses the key-value pair if the predicate returns `true`.
     ///
@@ -54,11 +52,43 @@ pub trait IterGuard {
 }
 
 /// Generic iterator value
-#[enum_dispatch(IterGuard)]
 pub enum IterGuardImpl {
     /// Iterator value of a standard LSM-tree
     Standard(StandardGuard),
 
     /// Iterator value of a key-value separated tree
     Blob(BlobGuard),
+}
+
+impl IterGuard for IterGuardImpl {
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<(UserKey, Option<UserValue>)> {
+        match self {
+            Self::Standard(inner) => IterGuard::into_inner_if(inner, pred),
+            Self::Blob(inner) => IterGuard::into_inner_if(inner, pred),
+        }
+    }
+
+    fn into_inner(self) -> crate::Result<KvPair> {
+        match self {
+            Self::Standard(inner) => IterGuard::into_inner(inner),
+            Self::Blob(inner) => IterGuard::into_inner(inner),
+        }
+    }
+
+    fn key(self) -> crate::Result<UserKey> {
+        match self {
+            Self::Standard(inner) => IterGuard::key(inner),
+            Self::Blob(inner) => IterGuard::key(inner),
+        }
+    }
+
+    fn size(self) -> crate::Result<u32> {
+        match self {
+            Self::Standard(inner) => IterGuard::size(inner),
+            Self::Blob(inner) => IterGuard::size(inner),
+        }
+    }
 }

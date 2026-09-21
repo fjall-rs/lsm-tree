@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
-    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree, UserKey, UserValue,
+    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, Config,
+    Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, UserKey, UserValue,
 };
 use std::{
     ops::RangeBounds,
@@ -16,7 +16,6 @@ pub type RangeItem = crate::Result<KvPair>;
 type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 
 /// Generic Tree API
-#[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
     /// Debug method for tracing the MVCC history of a key.
     #[doc(hidden)]
@@ -207,7 +206,7 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    /// Acquires the flush lock which is required to call [`Tree::flush`].
+    /// Acquires the flush lock which is required to call [`crate::Tree::flush`].
     fn get_flush_lock(&self) -> MutexGuard<'_, ()>;
 
     /// Synchronously flushes a memtable to a table.
@@ -320,7 +319,7 @@ pub trait AbstractTree {
     /// This operation scans the entire tree: O(n) complexity!
     ///
     /// Never, under any circumstances, use .`len()` == 0 to check
-    /// if the tree is empty, use [`Tree::is_empty`] instead.
+    /// if the tree is empty, use [`crate::Tree::is_empty`] instead.
     ///
     /// # Examples
     ///
@@ -613,3 +612,5 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
 }
+
+include!("any_tree_dispatch.rs");
