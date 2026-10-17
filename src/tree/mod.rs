@@ -865,7 +865,6 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    #[must_use]
     pub fn create_iter(
         &self,
         seqno: SeqNo,

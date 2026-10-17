@@ -181,6 +181,7 @@ fn create_compaction_stream<'a>(
     })
 }
 
+#[allow(clippy::significant_drop_tightening)]
 fn move_tables(
     compaction_state: &MutexGuard<'_, CompactionState>,
     opts: &Options,
@@ -1064,7 +1065,7 @@ mod tests {
     struct ClearMidCompaction(Arc<Mutex<Option<AnyTree>>>);
 
     impl Factory for ClearMidCompaction {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "ClearMidCompaction"
         }
 
@@ -1076,6 +1077,7 @@ mod tests {
     struct ClearMidCompactionFilter(Arc<Mutex<Option<AnyTree>>>);
 
     impl CompactionFilter for ClearMidCompactionFilter {
+        #[allow(clippy::unwrap_used)]
         fn filter_item(
             &mut self,
             _: ItemAccessor<'_>,
@@ -1090,6 +1092,7 @@ mod tests {
 
     // Regression test for https://github.com/fjall-rs/fjall/issues/287
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn compaction_merge_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
 
