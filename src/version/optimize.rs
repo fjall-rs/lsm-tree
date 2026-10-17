@@ -5,6 +5,8 @@
 use super::run::Ranged;
 use crate::version::Run;
 
+#[doc(hidden)]
+#[must_use]
 pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
     if runs.len() <= 1 {
         runs
