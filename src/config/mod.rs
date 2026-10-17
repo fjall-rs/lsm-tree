@@ -89,6 +89,11 @@ impl Default for KvSeparationOptions {
             #[cfg(feature="lz4")]
             compression:   CompressionType::Lz4,
 
+            #[cfg(feature="zlib")]
+            #[cfg(not(feature="lz4"))]
+            compression: CompressionType::Zlib(6),
+
+            #[cfg(not(feature="zlib"))]
             #[cfg(not(feature="lz4"))]
             compression: CompressionType::None,
 

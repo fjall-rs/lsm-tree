@@ -150,6 +150,22 @@ impl Writer {
                 std::borrow::Cow::Owned(lz4_flex::compress(value))
             }
 
+            #[cfg(feature = "zlib")]
+            BlobCompression::Standard(CompressionType::Zlib(level)) => {
+                use zlib_rs::{compress_bound, compress_slice, DeflateConfig, ReturnCode};
+
+                let mut buf = vec![0u8; compress_bound(value.len())];
+
+                let (_, rc) =
+                    compress_slice(&mut buf, value, DeflateConfig::new(i32::from(*level)));
+
+                if rc != ReturnCode::Ok {
+                    todo!("handle error");
+                }
+
+                std::borrow::Cow::Owned(buf)
+            }
+
             _ => std::borrow::Cow::Borrowed(value),
         };
 

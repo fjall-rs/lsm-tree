@@ -93,6 +93,23 @@ impl<'a> Reader<'a> {
 
                 builder.freeze().into()
             }
+
+            #[cfg(feature = "zlib")]
+            CompressionType::Zlib(_level) => {
+                use zlib_rs::{decompress_slice, InflateConfig, ReturnCode};
+
+                let mut decompressed_data =
+                    unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+
+                let (_, rc) =
+                    decompress_slice(&mut decompressed_data, &raw_data, InflateConfig::default());
+
+                if rc != ReturnCode::Ok {
+                    todo!("handle error");
+                }
+
+                decompressed_data.freeze().into()
+            }
         };
 
         debug_assert_eq!(real_val_len, {

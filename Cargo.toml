@@ -17,8 +17,9 @@ name = "lsm_tree"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["zlib"]
 lz4 = ["dep:lz4_flex"]
+zlib =["dep:zlib-rs"]
 bytes_1 = ["dep:bytes"]
 metrics = []
 
@@ -38,6 +39,7 @@ sfa = "~1.0.0"
 tempfile = "3.20.0"
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+zlib-rs = { version = "0.6.8", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.0", features = ["html_reports"] }
@@ -83,13 +85,13 @@ required-features = []
 name = "block"
 harness = false
 path = "benches/block.rs"
-required-features = ["lz4"]
+required-features = ["lz4", "zlib"]
 
 [[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
-required-features = ["lz4"]
+required-features = ["lz4", "zlib"]
 
 [[bench]]
 name = "level_manifest"

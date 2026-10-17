@@ -56,6 +56,12 @@ Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeit
 
 *Disabled by default.*
 
+### zlib
+
+Allows using `zlib` compression, powered by [`zlib-rs`](https://github.com/trifectatechfoundation/zlib-rs).
+
+*Disabled by default.*
+
 ### bytes_1
 
 Uses [`bytes`](https://github.com/tokio-rs/bytes) 1.x as the underlying `Slice` type.
@@ -65,7 +71,7 @@ Uses [`bytes`](https://github.com/tokio-rs/bytes) 1.x as the underlying `Slice` 
 ## Run unit benchmarks
 
 ```bash
-cargo bench --features lz4
+cargo bench --features lz4,zlib
 ```
 
 ## License

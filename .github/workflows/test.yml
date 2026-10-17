@@ -50,7 +50,7 @@ jobs:
       - name: Run tests
         run: cargo nextest run --all-features
       - name: Run doc tests
-        run: cargo test --doc --features lz4
+        run: cargo test --doc --features lz4,zlib
   codecov:
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -69,7 +69,7 @@ jobs:
       - name: Run tests
         run: cargo llvm-cov --no-report nextest --all-features
       - name: Run doc tests
-        run: cargo llvm-cov --no-report --doc --features lz4
+        run: cargo llvm-cov --no-report --doc --features lz4,zlib
       - name: Create code coverage report
         run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
       - name: Upload coverage data to codecov
@@ -101,4 +101,4 @@ jobs:
       - name: cross test
         run: |
           cargo install cross
-          cross test -r --features lz4 --target ${{ matrix.target }}
+          cross test -r --features lz4,zlib --target ${{ matrix.target }}
