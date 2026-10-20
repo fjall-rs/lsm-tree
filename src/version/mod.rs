@@ -769,7 +769,7 @@ impl Version {
         self.gc_stats.encode_into(writer)?;
 
         if let Some(seqno) = self.created_seqno {
-            writer.start("created_seqno")?;
+            writer.start("seqno")?;
             writer.write_u64::<LittleEndian>(seqno)?;
         }
 

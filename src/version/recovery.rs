@@ -140,7 +140,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
         crate::blob_tree::FragmentationMap::decode_from(&mut reader)?
     };
 
-    let created_seqno = if let Some(section) = toc.section(b"created_seqno") {
+    let created_seqno = if let Some(section) = toc.section(b"seqno") {
         let mut reader = section.buf_reader(&version_file_path)?;
         Some(reader.read_u64::<LittleEndian>()?)
     } else {
