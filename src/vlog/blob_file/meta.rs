@@ -12,6 +12,17 @@ use crate::{
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Write};
 
+macro_rules! read_u8 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u8()?
+    }};
+}
+
 macro_rules! read_u64 {
     ($block:expr, $name:expr) => {{
         let bytes = $block
@@ -38,6 +49,8 @@ pub const METADATA_HEADER_MAGIC: &[u8] = b"META";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Metadata {
+    pub blob_file_version: u8,
+
     pub id: BlobFileId,
 
     pub created_at: u128,
@@ -69,7 +82,7 @@ impl Metadata {
 
         #[rustfmt::skip]
         let meta_items = [
-            meta("blob_file_version", &[0x3]),
+            meta("blob_file_version", &[self.blob_file_version]),
             meta("checksum_type", &[u8::from(ChecksumType::Xxh3)]),
             meta("compression", &self.compression.encode_into_vec()),
             meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
@@ -146,7 +159,10 @@ impl Metadata {
                 .value,
         ));
 
+        let blob_file_version = read_u8!(block, b"blob_file_version");
+
         Ok(Self {
+            blob_file_version,
             id,
             created_at,
             compression,
@@ -167,6 +183,7 @@ mod tests {
     #[expect(clippy::unwrap_used)]
     fn test_blob_file_meta_roundtrip() {
         let meta = Metadata {
+            blob_file_version: 0x3,
             id: 0,
             created_at: 1_234_567_890,
             compression: CompressionType::None,

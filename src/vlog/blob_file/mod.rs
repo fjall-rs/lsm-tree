@@ -5,8 +5,10 @@
 pub mod merge;
 pub mod meta;
 pub mod multi_writer;
-pub mod reader;
-pub mod scanner;
+pub mod reader_v3;
+pub mod reader_v4;
+pub mod scanner_v3;
+pub mod scanner_v4;
 pub mod writer;
 
 use crate::{
@@ -90,6 +92,13 @@ impl std::hash::Hash for BlobFile {
 }
 
 impl BlobFile {
+    /// Returns `true` if the blob file was written with a 3.x version.
+    ///
+    /// v4 blob files use a new blob header format.
+    pub(crate) fn is_v3(&self) -> bool {
+        self.0.meta.blob_file_version == 0x3
+    }
+
     pub(crate) fn mark_as_deleted(&self) {
         self.0
             .is_deleted

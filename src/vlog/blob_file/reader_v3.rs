@@ -3,10 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    vlog::{
-        blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
-        ValueHandle,
-    },
+    vlog::{blob_file::writer::BLOB_HEADER_MAGIC, ValueHandle},
     BlobFile, Checksum, CompressionType, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -14,6 +11,11 @@ use std::{
     fs::File,
     io::{Cursor, Read},
 };
+
+// Hard-coded now for backwards compatibility
+//
+// v4 added 4 more bytes (header checksum)
+const BLOB_HEADER_LEN: usize = 38;
 
 /// Reads a single blob from a blob file
 pub struct Reader<'a> {
@@ -103,61 +105,5 @@ impl<'a> Reader<'a> {
         });
 
         Ok(value)
-    }
-}
-
-#[cfg(test)]
-#[expect(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    use crate::SequenceNumberCounter;
-    use test_log::test;
-
-    #[test]
-    fn blob_reader_roundtrip() -> crate::Result<()> {
-        let id_generator = SequenceNumberCounter::default();
-
-        let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
-
-        let handle = writer.write(b"a", 0, b"abcdef")?;
-
-        let blob_file = writer.finish()?;
-        let blob_file = blob_file.first().unwrap();
-
-        let file = File::open(&blob_file.0.path)?;
-        let reader = Reader::new(blob_file, &file);
-
-        assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
-
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "lz4")]
-    fn blob_reader_roundtrip_lz4() -> crate::Result<()> {
-        use crate::vlog::blob_file::writer::BlobCompression;
-
-        let id_generator = SequenceNumberCounter::default();
-
-        let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(BlobCompression::Standard(CompressionType::Lz4));
-
-        let handle0 = writer.write(b"a", 0, b"abcdef")?;
-        let handle1 = writer.write(b"b", 0, b"ghi")?;
-
-        let blob_file = writer.finish()?;
-        let blob_file = blob_file.first().unwrap();
-
-        let file = File::open(&blob_file.0.path)?;
-        let reader = Reader::new(blob_file, &file);
-
-        assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
-        assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
-
-        Ok(())
     }
 }

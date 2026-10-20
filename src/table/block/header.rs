@@ -71,19 +71,19 @@ impl Header {
             + std::mem::size_of::<u32>()
             // Uncompressed data length
             + std::mem::size_of::<u32>()
-            // Checksum
+            // Header checksum
             + std::mem::size_of::<u32>()
     }
 }
 
 impl Encode for Header {
-    fn encode_into<W: Write>(&self, mut writer: &mut W) -> Result<(), crate::Error> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         use byteorder::LE;
 
-        let checksum = {
-            let mut writer = ChecksummedWriter::new(&mut writer);
+        let header_checksum = {
+            let mut writer = ChecksummedWriter::new(&mut *writer);
 
-            // Write header
+            // Write magic bytes
             writer.write_all(&MAGIC_BYTES)?;
 
             // Write block type
@@ -105,8 +105,8 @@ impl Encode for Header {
             clippy::cast_possible_truncation,
             reason = "we purposefully only use the lower 4 bytes as checksum"
         )]
-        // Write 4-byte checksum
-        writer.write_u32::<LE>(checksum.into_u128() as u32)?;
+        // Write 4-byte header checksum
+        writer.write_u32::<LE>(header_checksum.into_u128() as u32)?;
 
         Ok(())
     }

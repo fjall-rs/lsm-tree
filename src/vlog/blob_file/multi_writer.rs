@@ -6,7 +6,7 @@ use super::writer::Writer;
 use crate::{
     file_accessor::FileAccessor,
     vlog::{
-        blob_file::{writer::BlobCompression, Inner as BlobFileInner, Metadata},
+        blob_file::{writer::BlobCompression, Inner as BlobFileInner},
         ValueHandle,
     },
     BlobFile, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
@@ -117,7 +117,7 @@ impl MultiWriter {
 
             let tree_id = writer.tree_id;
 
-            let (metadata, checksum) = writer.finish()?;
+            let (meta, checksum) = writer.finish()?;
 
             let file = Arc::new(File::open(&path)?);
             let file_accessor = descriptor_table.map_or(FileAccessor::File(file.clone()), |dt| {
@@ -132,15 +132,7 @@ impl MultiWriter {
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
                 file_accessor,
-                meta: Metadata {
-                    id: blob_file_id,
-                    created_at: crate::time::unix_timestamp().as_nanos(),
-                    item_count: metadata.item_count,
-                    total_compressed_bytes: metadata.total_compressed_bytes,
-                    total_uncompressed_bytes: metadata.total_uncompressed_bytes,
-                    key_range: metadata.key_range.clone(),
-                    compression: metadata.compression,
-                },
+                meta,
             }));
 
             Ok(Some(blob_file))

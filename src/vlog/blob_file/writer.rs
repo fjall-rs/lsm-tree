@@ -17,11 +17,13 @@ use std::{
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
 
 pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
-    + std::mem::size_of::<u128>() // Checksum
+    + std::mem::size_of::<u128>() // Data checksum
     + std::mem::size_of::<u64>() // SeqNo
     + std::mem::size_of::<u16>() // Key length
     + std::mem::size_of::<u32>() // Real value length
-    + std::mem::size_of::<u32>(); // On-disk value length
+    + std::mem::size_of::<u32>() // On-disk value length
+    + std::mem::size_of::<u32>() // Header checksum
+       ;
 
 #[derive(Clone, Copy)]
 pub enum BlobCompression {
@@ -129,21 +131,6 @@ impl Writer {
 
         self.uncompressed_bytes += u64::from(uncompressed_len);
 
-        // NOTE:
-        // BLOB HEADER LAYOUT
-        //
-        // [MAGIC_BYTES; 4B]
-        // [Checksum; 16B]
-        // [Seqno; 8B]
-        // [key len; 2B]
-        // [real val len; 4B]
-        // [on-disk val len; 4B]
-        // [...key; ?]
-        // [...val; ?]
-
-        // Write header
-        self.writer.write_all(BLOB_HEADER_MAGIC)?;
-
         let value = match &self.blob_compression {
             #[cfg(feature = "lz4")]
             BlobCompression::Standard(CompressionType::Lz4) => {
@@ -153,28 +140,58 @@ impl Writer {
             _ => std::borrow::Cow::Borrowed(value),
         };
 
-        let checksum = {
+        let data_checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
             hasher.update(key);
             hasher.update(&value);
             hasher.digest128()
         };
 
-        // Write checksum
-        self.writer.write_u128::<LittleEndian>(checksum)?;
+        // NOTE:
+        // BLOB HEADER LAYOUT
+        //
+        // [MAGIC_BYTES; 4B]
+        // [Checksum; 16B]
+        // [Seqno; 8B]
+        // [key len; 2B]
+        // [real val len; 4B]
+        // [on-disk val len; 4B]
+        // [header checksum; 4B]
+        // [...key; ?]
+        // [...val; ?]
 
-        // Write seqno
-        self.writer.write_u64::<LittleEndian>(seqno)?;
+        let header_checksum = {
+            let mut writer = ChecksummedWriter::new(&mut self.writer);
 
-        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
-        self.writer.write_u16::<LittleEndian>(key.len() as u16)?;
+            // Write header
+            writer.write_all(BLOB_HEADER_MAGIC)?;
 
-        // Write uncompressed value length
-        self.writer.write_u32::<LittleEndian>(uncompressed_len)?;
+            // Write checksum
+            writer.write_u128::<LittleEndian>(data_checksum)?;
 
-        // Write compressed (on-disk) value length
-        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-        self.writer.write_u32::<LittleEndian>(value.len() as u32)?;
+            // Write seqno
+            writer.write_u64::<LittleEndian>(seqno)?;
+
+            #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
+            writer.write_u16::<LittleEndian>(key.len() as u16)?;
+
+            // Write uncompressed value length
+            writer.write_u32::<LittleEndian>(uncompressed_len)?;
+
+            // Write compressed (on-disk) value length
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
+            writer.write_u32::<LittleEndian>(value.len() as u32)?;
+
+            writer.checksum()
+        };
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "we purposefully only use the lower 4 bytes as checksum"
+        )]
+        // Write 4-byte header checksum
+        self.writer
+            .write_u32::<LittleEndian>(header_checksum.into_u128() as u32)?;
 
         self.writer.write_all(key)?;
         self.writer.write_all(&value)?;
@@ -186,6 +203,8 @@ impl Writer {
 
         self.offset += std::mem::size_of::<u16>() as u64;
         self.offset += std::mem::size_of::<u32>() as u64;
+        self.offset += std::mem::size_of::<u32>() as u64;
+
         self.offset += std::mem::size_of::<u32>() as u64;
 
         self.offset += key.len() as u64;
@@ -223,6 +242,7 @@ impl Writer {
 
         // Write metadata
         let metadata = Metadata {
+            blob_file_version: 0x4,
             id: self.blob_file_id,
             created_at: unix_timestamp().as_nanos(),
             item_count: self.item_count,

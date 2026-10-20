@@ -2,11 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    version::BlobFileList,
-    vlog::{blob_file::reader::Reader, ValueHandle},
-    Cache, GlobalTableId, TreeId, UserValue,
-};
+use crate::{version::BlobFileList, vlog::ValueHandle, Cache, GlobalTableId, TreeId, UserValue};
 use std::{fs::File, path::Path, sync::Arc};
 
 pub struct Accessor<'a>(&'a BlobFileList);
@@ -44,7 +40,13 @@ impl<'a> Accessor<'a> {
                 (file, true)
             };
 
-        let value = Reader::new(blob_file, &file).get(key, vhandle)?;
+        let value = if blob_file.is_v3() {
+            // NOTE: We support v3 blob files in v4
+            super::blob_file::reader_v3::Reader::new(blob_file, &file).get(key, vhandle)?
+        } else {
+            super::blob_file::reader_v4::Reader::new(blob_file, &file).get(key, vhandle)?
+        };
+
         cache.insert_blob(tree_id, vhandle, value.clone());
 
         if fd_cache_miss {

@@ -464,7 +464,7 @@ fn merge_tables(
                 let scanner = BlobFileMergeScanner::new(
                     blob_files_to_rewrite
                         .iter()
-                        .map(|bf| BlobFileScanner::new(&bf.0.path, bf.id()))
+                        .map(BlobFileScanner::new)
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
