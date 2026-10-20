@@ -375,7 +375,6 @@ impl Table {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[must_use]
     #[doc(hidden)]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
         self.range(..)
@@ -386,7 +385,6 @@ impl Table {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[must_use]
     #[doc(hidden)]
     pub fn range<R: RangeBounds<UserKey> + Send>(
         &self,

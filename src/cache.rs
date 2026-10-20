@@ -112,6 +112,11 @@ impl Cache {
         self.capacity
     }
 
+    /// Returns a cache shard's capacity in bytes.
+    pub(crate) fn shard_capacity(&self) -> u64 {
+        self.data.shard_capacity()
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn get_block(&self, id: GlobalTableId, offset: BlockOffset) -> Option<Block> {

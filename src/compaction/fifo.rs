@@ -89,7 +89,7 @@ impl CompactionStrategy for Strategy {
         // Account for both table file bytes and value-log (blob) bytes to enforce the true space limit.
         let db_size = first_level.size() + version.blob_files.on_disk_size();
 
-        let mut ids_to_drop: HashSet<_> = HashSet::default();
+        let mut ids_to_drop = HashSet::default();
 
         // Compute TTL cutoff once and perform a single pass to mark expired tables and
         // accumulate their sizes. Also collect non-expired tables for possible size-based drops.
@@ -112,8 +112,7 @@ impl CompactionStrategy for Strategy {
             if expired {
                 ids_to_drop.insert(table.id());
                 let linked_blob_file_bytes = table.referenced_blob_bytes().unwrap_or_default();
-                ttl_dropped_bytes =
-                    ttl_dropped_bytes.saturating_add(table.file_size() + linked_blob_file_bytes);
+                ttl_dropped_bytes += table.file_size() + linked_blob_file_bytes;
             } else {
                 alive.push(table);
             }
@@ -126,7 +125,7 @@ impl CompactionStrategy for Strategy {
         if size_after_ttl > self.limit {
             let overshoot = size_after_ttl - self.limit;
 
-            let mut collected_bytes = 0u64;
+            let mut collected_bytes = 0;
 
             // Oldest-first list by creation time from the non-expired set.
             alive.sort_by_key(|t| t.metadata.created_at);
@@ -139,8 +138,7 @@ impl CompactionStrategy for Strategy {
                 ids_to_drop.insert(table.id());
 
                 let linked_blob_file_bytes = table.referenced_blob_bytes().unwrap_or_default();
-                collected_bytes =
-                    collected_bytes.saturating_add(table.file_size() + linked_blob_file_bytes);
+                collected_bytes += table.file_size() + linked_blob_file_bytes;
             }
         }
 

@@ -454,6 +454,16 @@ impl AbstractTree for Tree {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
+        // NOTE: Check for race condition
+        // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
+        if sealed_memtables_to_delete
+            .iter()
+            .any(|id| !version_lock.latest_version().sealed_memtables.contains(id))
+        {
+            log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
+            return Ok(());
+        }
+
         version_lock.upgrade_version(
             &self.config.path,
             |current| {
@@ -498,7 +508,7 @@ impl AbstractTree for Tree {
         copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
         copy.sealed_memtables = Arc::new(SealedMemtables::default());
 
-        // Rotate does not modify the memtable, so it cannot break snapshots
+        // Clear active is only used for recovery where snapshots do not exist yet
         copy.seqno = super_version.seqno;
 
         version_history_lock.replace_latest_version(copy);
@@ -870,7 +880,6 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    #[must_use]
     pub fn create_iter(
         &self,
         seqno: SeqNo,
@@ -982,6 +991,16 @@ impl Tree {
             .map(Table::id)
             .max()
             .unwrap_or_default();
+
+        // Check for < 1 MB shards, which may not be able to
+        // hold filter blocks, causing high read latencies
+        if config.cache.shard_capacity() < 1_000_000 {
+            // TODO: we probably really need a documentation page that explains stuff like this
+            // TODO: and documents how to tune this better... "the fjall book"...
+            log::warn!(
+                "Cache shard capacity is less than 1 MB, which may cause non-partitioned filter blocks to be uncacheable, greatly read latencies. Consider increasing the cache size.",
+            );
+        }
 
         let inner = TreeInner {
             id: tree_id,

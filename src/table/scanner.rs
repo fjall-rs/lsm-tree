@@ -29,6 +29,7 @@ impl Scanner {
         global_seqno: SeqNo,
     ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
+        // TODO: benchmarks were inconclusive on SSD, not much difference between 4KB - 2MB
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
         let block = Self::fetch_next_block(&mut reader, compression)?;

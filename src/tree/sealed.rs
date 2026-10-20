@@ -34,4 +34,8 @@ impl SealedMemtables {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    pub fn contains(&self, id: &MemtableId) -> bool {
+        self.0.iter().any(|t| t.id() == *id)
+    }
 }
