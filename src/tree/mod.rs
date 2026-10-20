@@ -265,20 +265,20 @@ impl AbstractTree for Tree {
         let config = self.tree_config();
         let mut versions = self.get_version_history_lock();
 
-        versions.upgrade_version(
+        let seqno = config.seqno.next();
+
+        versions.upgrade_version_with_seqno(
             &config.path,
             |v| {
                 let mut copy = v.clone();
                 copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
                 copy.sealed_memtables = Arc::default();
-                copy.version = Version::new_at_seqno(
-                    v.version.id() + 1,
-                    self.tree_type(),
-                    Some(config.seqno.get()),
-                );
+
+                copy.version =
+                    Version::new_at_seqno(v.version.id() + 1, self.tree_type(), Some(seqno));
                 Ok(copy)
             },
-            &config.seqno,
+            seqno,
             &config.visible_seqno,
         )
     }
