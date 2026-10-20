@@ -3,46 +3,12 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::Checksum;
-use crate::checksum::ChecksummedWriter;
+use crate::checksum::{ChecksummedReader, ChecksummedWriter};
 use crate::coding::{Decode, Encode};
 use crate::file::MAGIC_BYTES;
 use crate::table::block::BlockType;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-
-struct ChecksummedReader<R: std::io::Read> {
-    inner: R,
-    hasher: xxhash_rust::xxh3::Xxh3Default,
-}
-
-impl<R: std::io::Read> ChecksummedReader<R> {
-    pub fn new(reader: R) -> Self {
-        Self {
-            inner: reader,
-            hasher: xxhash_rust::xxh3::Xxh3Default::new(),
-        }
-    }
-
-    pub fn checksum(&self) -> Checksum {
-        Checksum::from_raw(self.hasher.digest128())
-    }
-
-    /// Optionally expose the inner reader if needed
-    pub fn into_inner(self) -> R {
-        self.inner
-    }
-}
-
-impl<R: std::io::Read> std::io::Read for ChecksummedReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.inner.read(buf)?;
-
-        #[expect(clippy::indexing_slicing)]
-        self.hasher.update(&buf[..n]);
-
-        Ok(n)
-    }
-}
 
 /// Header of a disk-based block
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -118,7 +84,7 @@ impl Decode for Header {
 
         let mut protected_reader = ChecksummedReader::new(reader);
 
-        // Check header
+        // Check magic
         let mut magic = [0u8; MAGIC_BYTES.len()];
         protected_reader.read_exact(&mut magic)?;
 
@@ -133,10 +99,10 @@ impl Decode for Header {
         // Read data checksum
         let checksum = protected_reader.read_u128::<LE>()?;
 
-        // Read data length
+        // Read on-disk data length
         let data_length = protected_reader.read_u32::<LE>()?;
 
-        // Read data length
+        // Read uncompressed data length
         let uncompressed_length = protected_reader.read_u32::<LE>()?;
 
         #[expect(

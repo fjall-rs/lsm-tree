@@ -2,10 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::writer::BLOB_HEADER_MAGIC;
 use crate::{
-    vlog::{blob_file::meta::METADATA_HEADER_MAGIC, BlobFileId},
-    Checksum, SeqNo, UserKey, UserValue,
+    vlog::{
+        blob_file::{header::BLOB_HEADER_MAGIC, meta::METADATA_HEADER_MAGIC, scanner::ScanEntry},
+        BlobFileId,
+    },
+    Checksum, UserKey, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
@@ -41,15 +43,6 @@ impl Scanner {
             is_terminated: false,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ScanEntry {
-    pub key: UserKey,
-    pub seqno: SeqNo,
-    pub value: UserValue,
-    pub offset: u64,
-    pub uncompressed_len: u32,
 }
 
 impl Iterator for Scanner {

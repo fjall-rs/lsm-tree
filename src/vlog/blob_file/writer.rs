@@ -4,26 +4,17 @@
 
 use super::meta::Metadata;
 use crate::{
-    checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
-    KeyRange, SeqNo, TreeId, UserKey,
+    checksum::ChecksummedWriter,
+    coding::Encode,
+    time::unix_timestamp,
+    vlog::{blob_file::header::BlobHeader, BlobFileId},
+    Checksum, CompressionType, KeyRange, SeqNo, TreeId, UserKey,
 };
-use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
-
-pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
-
-pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
-    + std::mem::size_of::<u128>() // Data checksum
-    + std::mem::size_of::<u64>() // SeqNo
-    + std::mem::size_of::<u16>() // Key length
-    + std::mem::size_of::<u32>() // Real value length
-    + std::mem::size_of::<u32>() // On-disk value length
-    + std::mem::size_of::<u32>() // Header checksum
-       ;
 
 #[derive(Clone, Copy)]
 pub enum BlobCompression {
@@ -147,66 +138,27 @@ impl Writer {
             hasher.digest128()
         };
 
-        // NOTE:
-        // BLOB HEADER LAYOUT
-        //
-        // [MAGIC_BYTES; 4B]
-        // [Checksum; 16B]
-        // [Seqno; 8B]
-        // [key len; 2B]
-        // [real val len; 4B]
-        // [on-disk val len; 4B]
-        // [header checksum; 4B]
-        // [...key; ?]
-        // [...val; ?]
-
-        let header_checksum = {
-            let mut writer = ChecksummedWriter::new(&mut self.writer);
-
-            // Write header
-            writer.write_all(BLOB_HEADER_MAGIC)?;
-
-            // Write checksum
-            writer.write_u128::<LittleEndian>(data_checksum)?;
-
-            // Write seqno
-            writer.write_u64::<LittleEndian>(seqno)?;
+        BlobHeader {
+            data_checksum,
 
             #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
-            writer.write_u16::<LittleEndian>(key.len() as u16)?;
+            key_len: key.len() as u16,
 
-            // Write uncompressed value length
-            writer.write_u32::<LittleEndian>(uncompressed_len)?;
+            uncompressed_len,
 
-            // Write compressed (on-disk) value length
             #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-            writer.write_u32::<LittleEndian>(value.len() as u32)?;
+            on_disk_len: value.len() as u32,
 
-            writer.checksum()
-        };
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "we purposefully only use the lower 4 bytes as checksum"
-        )]
-        // Write 4-byte header checksum
-        self.writer
-            .write_u32::<LittleEndian>(header_checksum.into_u128() as u32)?;
+            seqno,
+        }
+        .encode_into(&mut self.writer)?;
 
         self.writer.write_all(key)?;
         self.writer.write_all(&value)?;
 
         // Update offset
-        self.offset += BLOB_HEADER_MAGIC.len() as u64;
-        self.offset += std::mem::size_of::<u128>() as u64;
-        self.offset += std::mem::size_of::<u64>() as u64;
 
-        self.offset += std::mem::size_of::<u16>() as u64;
-        self.offset += std::mem::size_of::<u32>() as u64;
-        self.offset += std::mem::size_of::<u32>() as u64;
-
-        self.offset += std::mem::size_of::<u32>() as u64;
-
+        self.offset += BlobHeader::serialized_len() as u64;
         self.offset += key.len() as u64;
         self.offset += value.len() as u64;
 

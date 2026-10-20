@@ -2,20 +2,24 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+mod header;
 pub mod merge;
 pub mod meta;
 pub mod multi_writer;
-pub mod reader_v3;
-pub mod reader_v4;
-pub mod scanner_v3;
-pub mod scanner_v4;
+pub(super) mod reader_v3;
+pub(super) mod reader_v4;
+mod scanner;
+pub(super) mod scanner_v3;
+pub(super) mod scanner_v4;
 pub mod writer;
+
+pub use meta::Metadata;
+pub use scanner::{BlobFileScanner, ScanEntry};
 
 use crate::{
     blob_tree::FragmentationMap, file_accessor::FileAccessor, vlog::BlobFileId, Checksum,
     GlobalTableId, TreeId,
 };
-pub use meta::Metadata;
 use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},

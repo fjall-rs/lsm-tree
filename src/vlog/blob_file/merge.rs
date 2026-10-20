@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::vlog::{blob_file::scanner_v3::ScanEntry, BlobFileId, BlobFileScanner};
+use crate::vlog::{blob_file::ScanEntry, BlobFileId, BlobFileScanner};
 use interval_heap::IntervalHeap;
 use std::cmp::Reverse;
 

@@ -94,3 +94,37 @@ impl<W: std::io::Write> std::io::Write for ChecksummedWriter<W> {
         self.inner.write(buf)
     }
 }
+
+pub struct ChecksummedReader<R: std::io::Read> {
+    inner: R,
+    hasher: xxhash_rust::xxh3::Xxh3Default,
+}
+
+impl<R: std::io::Read> ChecksummedReader<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            inner: reader,
+            hasher: xxhash_rust::xxh3::Xxh3Default::new(),
+        }
+    }
+
+    pub fn checksum(&self) -> Checksum {
+        Checksum::from_raw(self.hasher.digest128())
+    }
+
+    /// Optionally expose the inner reader if needed
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
+}
+
+impl<R: std::io::Read> std::io::Read for ChecksummedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+
+        #[expect(clippy::indexing_slicing)]
+        self.hasher.update(&buf[..n]);
+
+        Ok(n)
+    }
+}

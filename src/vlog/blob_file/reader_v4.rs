@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    coding::Decode,
     vlog::{
-        blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
+        blob_file::header::{BlobHeader, BLOB_HEADER_MAGIC},
         ValueHandle,
     },
     BlobFile, Checksum, CompressionType, UserValue,
@@ -29,7 +30,7 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
-        let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        let add_size = (BlobHeader::serialized_len() as u64) + (key.len() as u64);
 
         let value = crate::file::read_exact(
             self.file,
@@ -38,30 +39,8 @@ impl<'a> Reader<'a> {
         )?;
 
         let mut reader = Cursor::new(&value[..]);
-
-        // TODO: v4 refactor this and scanner and the writer part into a Header with encode_into/decode_from
-        // like in blocks, so we can easily use ProtectedReader...
-        let mut magic = [0u8; 4];
-        reader.read_exact(&mut magic)?;
-
-        if magic != BLOB_HEADER_MAGIC {
-            return Err(crate::Error::InvalidHeader("Blob"));
-        }
-
-        let expected_data_checksum = reader.read_u128::<LittleEndian>()?;
-
-        let _seqno = reader.read_u64::<LittleEndian>()?;
-        let key_len = reader.read_u16::<LittleEndian>()?;
-
-        let real_val_len = reader.read_u32::<LittleEndian>()?;
-
-        let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
-
-        let header_checksum = reader.read_u32::<LittleEndian>()?;
-        // --- until here
-
-        let key = crate::UserKey::from_reader(&mut reader, key_len.into())?;
-
+        let header = BlobHeader::decode_from(&mut reader)?;
+        let key = crate::UserKey::from_reader(&mut reader, header.key_len.into())?;
         let raw_data = value.slice((add_size as usize)..);
 
         {
@@ -71,6 +50,8 @@ impl<'a> Reader<'a> {
                 hasher.update(&raw_data);
                 hasher.digest128()
             };
+
+            let expected_data_checksum = header.data_checksum;
 
             if expected_data_checksum != checksum {
                 log::error!(
@@ -100,7 +81,7 @@ impl<'a> Reader<'a> {
             }
         };
 
-        debug_assert_eq!(real_val_len, {
+        debug_assert_eq!(header.uncompressed_len, {
             #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             {
                 value.len() as u32

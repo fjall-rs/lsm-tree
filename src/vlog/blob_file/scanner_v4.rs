@@ -2,18 +2,17 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::writer::BLOB_HEADER_MAGIC;
 use crate::{
+    coding::Decode,
     vlog::{
-        blob_file::{meta::METADATA_HEADER_MAGIC, scanner_v3::ScanEntry},
+        blob_file::{header::BlobHeader, scanner::ScanEntry},
         BlobFileId,
     },
     Checksum, UserKey, UserValue,
 };
-use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
-    io::{BufReader, Read, Seek},
+    io::{BufReader, Seek},
     path::Path,
 };
 
@@ -21,7 +20,7 @@ use std::{
 pub struct Scanner {
     pub(crate) blob_file_id: BlobFileId, // TODO: remove unused?
     inner: BufReader<File>,
-    is_terminated: bool,
+    blob_count: usize,
 }
 
 impl Scanner {
@@ -30,18 +29,26 @@ impl Scanner {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        blob_file_id: BlobFileId,
+        blob_count: usize,
+    ) -> crate::Result<Self> {
         let file_reader = BufReader::with_capacity(32_000, File::open(path)?);
-        Ok(Self::with_reader(blob_file_id, file_reader))
+        Ok(Self::with_reader(blob_file_id, file_reader, blob_count))
     }
 
     /// Initializes a new blob file reader.
     #[must_use]
-    pub fn with_reader(blob_file_id: BlobFileId, file_reader: BufReader<File>) -> Self {
+    pub fn with_reader(
+        blob_file_id: BlobFileId,
+        file_reader: BufReader<File>,
+        blob_count: usize,
+    ) -> Self {
         Self {
             blob_file_id,
             inner: file_reader,
-            is_terminated: false,
+            blob_count,
         }
     }
 }
@@ -50,42 +57,22 @@ impl Iterator for Scanner {
     type Item = crate::Result<ScanEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.is_terminated {
+        if self.blob_count == 0 {
             return None;
         }
 
         let offset = fail_iter!(self.inner.stream_position());
 
-        {
-            let mut buf = [0; BLOB_HEADER_MAGIC.len()];
-            fail_iter!(self.inner.read_exact(&mut buf));
+        let header = fail_iter!(BlobHeader::decode_from(&mut self.inner));
 
-            if buf == METADATA_HEADER_MAGIC {
-                self.is_terminated = true;
-                return None;
-            }
-
-            if buf != BLOB_HEADER_MAGIC {
-                return Some(Err(crate::Error::InvalidHeader("Blob")));
-            }
-        }
-
-        let expected_checksum = fail_iter!(self.inner.read_u128::<LittleEndian>());
-        let seqno = fail_iter!(self.inner.read_u64::<LittleEndian>());
-
-        let key_len = fail_iter!(self.inner.read_u16::<LittleEndian>());
-
-        let real_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
-
-        let on_disk_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
-
-        let header_checksum = fail_iter!(self.inner.read_u32::<LittleEndian>());
-
-        let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
+        let key = fail_iter!(UserKey::from_reader(
+            &mut self.inner,
+            header.key_len as usize
+        ));
 
         let value = fail_iter!(UserValue::from_reader(
             &mut self.inner,
-            on_disk_val_len as usize
+            header.on_disk_len as usize
         ));
 
         {
@@ -95,6 +82,8 @@ impl Iterator for Scanner {
                 hasher.update(&value);
                 hasher.digest128()
             };
+
+            let expected_checksum = header.data_checksum;
 
             if expected_checksum != checksum {
                 log::error!(
@@ -109,12 +98,14 @@ impl Iterator for Scanner {
             }
         }
 
+        self.blob_count -= 1;
+
         Some(Ok(ScanEntry {
             key,
-            seqno,
+            seqno: header.seqno,
             value,
             offset,
-            uncompressed_len: real_val_len,
+            uncompressed_len: header.uncompressed_len,
         }))
     }
 }
@@ -145,7 +136,7 @@ mod tests {
         }
 
         {
-            let mut scanner = Scanner::new(&blob_file_path, 0)?;
+            let mut scanner = Scanner::new(&blob_file_path, 0, keys.len())?;
 
             for key in keys {
                 assert_eq!(

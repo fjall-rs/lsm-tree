@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    vlog::{blob_file::writer::BLOB_HEADER_MAGIC, ValueHandle},
+    vlog::{blob_file::header::BLOB_HEADER_MAGIC, ValueHandle},
     BlobFile, Checksum, CompressionType, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};

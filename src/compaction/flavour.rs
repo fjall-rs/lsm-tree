@@ -10,7 +10,7 @@ use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
 use crate::table::multi_writer::MultiWriter;
 use crate::version::{SuperVersions, Version};
-use crate::vlog::blob_file::scanner_v3::ScanEntry;
+use crate::vlog::blob_file::ScanEntry;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
 use crate::{BlobFile, HashSet, InternalValue, Table};
 use std::iter::Peekable;

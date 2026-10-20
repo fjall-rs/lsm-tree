@@ -7,66 +7,23 @@ pub mod blob_file;
 mod handle;
 
 pub use {
-    accessor::Accessor, blob_file::merge::MergeScanner as BlobFileMergeScanner,
-    blob_file::multi_writer::MultiWriter as BlobFileWriter, blob_file::BlobFile,
+    accessor::Accessor,
+    blob_file::{
+        merge::MergeScanner as BlobFileMergeScanner, multi_writer::MultiWriter as BlobFileWriter,
+        BlobFile, BlobFileScanner,
+    },
     handle::ValueHandle,
 };
 
 use crate::{
     file_accessor::FileAccessor,
-    vlog::blob_file::{scanner_v3::ScanEntry, Inner as BlobFileInner, Metadata},
+    vlog::blob_file::{Inner as BlobFileInner, Metadata},
     Checksum, DescriptorTable, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
-
-trait AbstractBlobFileScanner: Iterator<Item = crate::Result<ScanEntry>> {
-    fn blob_file_id(&self) -> BlobFileId;
-}
-
-impl AbstractBlobFileScanner for crate::vlog::blob_file::scanner_v3::Scanner {
-    fn blob_file_id(&self) -> BlobFileId {
-        self.blob_file_id
-    }
-}
-
-impl AbstractBlobFileScanner for crate::vlog::blob_file::scanner_v4::Scanner {
-    fn blob_file_id(&self) -> BlobFileId {
-        self.blob_file_id
-    }
-}
-
-pub struct BlobFileScanner(Box<dyn AbstractBlobFileScanner>);
-
-impl Iterator for BlobFileScanner {
-    type Item = crate::Result<ScanEntry>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-
-impl BlobFileScanner {
-    pub fn new(blob_file: &BlobFile) -> crate::Result<Self> {
-        Ok(Self(if blob_file.is_v3() {
-            Box::new(blob_file::scanner_v3::Scanner::new(
-                &blob_file.0.path,
-                blob_file.id(),
-            )?)
-        } else {
-            Box::new(blob_file::scanner_v4::Scanner::new(
-                &blob_file.0.path,
-                blob_file.id(),
-            )?)
-        }))
-    }
-
-    pub fn blob_file_id(&self) -> BlobFileId {
-        self.0.blob_file_id()
-    }
-}
 
 pub fn recover_blob_files(
     folder: &Path,
