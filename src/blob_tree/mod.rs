@@ -12,9 +12,9 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 use crate::{
     abstract_tree::{AbstractTree, RangeItem},
     coding::Decode,
+    compaction::worker::NewCompactionResult,
     iter_guard::{IterGuard, IterGuardImpl},
     table::Table,
-    tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter},
@@ -174,12 +174,6 @@ impl AbstractTree for BlobTree {
         self.index.table_file_cache_size()
     }
 
-    fn get_version_history_lock(
-        &self,
-    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
-        self.index.get_version_history_lock()
-    }
-
     fn next_table_id(&self) -> TableId {
         self.index.next_table_id()
     }
@@ -192,17 +186,9 @@ impl AbstractTree for BlobTree {
         self.index.get_internal_entry(key, seqno)
     }
 
-    fn current_version(&self) -> Version {
-        self.index.current_version()
-    }
-
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics> {
         self.index.metrics()
-    }
-
-    fn version_free_list_len(&self) -> usize {
-        self.index.version_free_list_len()
     }
 
     fn prefix<K: AsRef<[u8]>>(
@@ -271,9 +257,9 @@ impl AbstractTree for BlobTree {
 
     fn clear(&self) -> crate::Result<()> {
         let config = self.tree_config();
-        let mut versions = self.get_version_history_lock();
+        // let mut versions = self.get_version_history_lock();
 
-        versions.upgrade_version(
+        /*versions.upgrade_version(
             &config.path,
             |v| {
                 let mut copy = v.clone();
@@ -285,15 +271,9 @@ impl AbstractTree for BlobTree {
             },
             &config.seqno,
             &config.visible_seqno,
-        )
-    }
+        )*/
 
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
-        self.index.major_compact(target_size, seqno_threshold)
-    }
-
-    fn clear_active_memtable(&self) {
-        self.index.clear_active_memtable();
+        todo!()
     }
 
     fn l0_run_count(&self) -> usize {
@@ -337,10 +317,6 @@ impl AbstractTree for BlobTree {
 
     fn pinned_block_index_size(&self) -> usize {
         self.index.pinned_block_index_size()
-    }
-
-    fn sealed_memtable_count(&self) -> usize {
-        self.index.sealed_memtable_count()
     }
 
     fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
@@ -499,21 +475,12 @@ impl AbstractTree for BlobTree {
         Ok(Some((tables, Some(blob_files))))
     }
 
-    fn register_tables(
+    fn run_compaction(
         &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
-        frag_map: Option<FragmentationMap>,
-        sealed_memtables_to_delete: &[MemtableId],
+        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
         gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
-        self.index.register_tables(
-            tables,
-            blob_files,
-            frag_map,
-            sealed_memtables_to_delete,
-            gc_watermark,
-        )
+    ) -> crate::Result<NewCompactionResult> {
+        self.index.run_compaction(strategy, gc_watermark)
     }
 
     fn compact(
@@ -534,14 +501,6 @@ impl AbstractTree for BlobTree {
 
     fn get_highest_seqno(&self) -> Option<SeqNo> {
         self.index.get_highest_seqno()
-    }
-
-    fn active_memtable(&self) -> Arc<Memtable> {
-        self.index.active_memtable()
-    }
-
-    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
-        self.index.rotate_memtable()
     }
 
     fn table_count(&self) -> usize {
@@ -599,13 +558,7 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         let key = key.as_ref();
 
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .index
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .get_version_for_snapshot(seqno);
+        let super_version = self.index.get_version_for_snapshot(seqno);
 
         let Some(item) = crate::Tree::get_internal_entry_from_version(&super_version, key, seqno)?
         else {

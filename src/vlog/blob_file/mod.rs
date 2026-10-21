@@ -81,6 +81,12 @@ impl Drop for Inner {
 #[derive(Clone)]
 pub struct BlobFile(pub(crate) Arc<Inner>);
 
+impl std::fmt::Debug for BlobFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BlobFile(#{})", self.id())
+    }
+}
+
 impl Eq for BlobFile {}
 
 impl PartialEq for BlobFile {

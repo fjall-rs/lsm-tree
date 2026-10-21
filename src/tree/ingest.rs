@@ -259,8 +259,10 @@ impl<'a> Ingestion<'a> {
         // Flush any pending memtable writes to ensure ingestion sees a
         // consistent snapshot and lookup order remains correct.
         // We call rotate + flush directly because we already hold the lock.
-        self.tree.rotate_memtable();
-        self.tree.flush(&flush_lock, 0)?;
+        // self.tree.rotate_memtable();
+        todo!();
+
+        // self.tree.flush(&flush_lock, 0)?;
 
         // Finalize the ingestion writer, writing all buffered data to disk.
         let results = self.writer.finish()?;
@@ -273,13 +275,10 @@ impl<'a> Ingestion<'a> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
 
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
-
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables and the version that registers them, ensuring
         // consistent MVCC snapshots.
-        let global_seqno = self.tree.config.seqno.next();
+        let global_seqno = todo!();
 
         // Recover all created tables, assigning them the global_seqno we just
         // allocated. This ensures all ingested tables share the same sequence
@@ -306,7 +305,7 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Upgrade the version with our ingested tables, using the global_seqno
+        /*// Upgrade the version with our ingested tables, using the global_seqno
         // we allocated earlier. This ensures the version and all tables share
         // the same sequence number.
         //
@@ -328,7 +327,7 @@ impl<'a> Ingestion<'a> {
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
         if let Err(e) = version_lock.maintenance(&self.tree.config.path, 0) {
             log::warn!("Version GC failed: {e:?}");
-        }
+        }*/
 
         Ok(())
     }

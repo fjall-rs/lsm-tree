@@ -28,7 +28,8 @@ impl CompactionState {
 #[cfg(test)]
 #[expect(clippy::expect_used)]
 mod tests {
-    use crate::{AbstractTree, SequenceNumberCounter};
+    use crate::{version_set::MemoryVersionSetProvider, AbstractTree};
+    use std::sync::Arc;
     use test_log::test;
 
     #[test]
@@ -36,28 +37,35 @@ mod tests {
     fn level_manifest_atomicity() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree =
+            crate::Config::new(folder, Arc::new(MemoryVersionSetProvider::default())).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        //tree.flush_active_memtable(0)?;
+        todo!();
+
         tree.insert("a", "a", 1);
-        tree.flush_active_memtable(0)?;
+
+        //tree.flush_active_memtable(0)?;
+        todo!();
+
         tree.insert("a", "a", 2);
-        tree.flush_active_memtable(0)?;
+
+        //tree.flush_active_memtable(0)?;
+        todo!();
 
         assert_eq!(3, tree.approximate_len());
 
-        tree.major_compact(u64::MAX, 3)?;
+        //tree.major_compact(u64::MAX, 3)?;
+        todo!();
 
         assert_eq!(1, tree.table_count());
 
         tree.insert("a", "a", 3);
-        tree.flush_active_memtable(0)?;
+
+        //tree.flush_active_memtable(0)?;
+        todo!();
 
         let table_count_before_major_compact = tree.table_count();
 
@@ -74,7 +82,8 @@ mod tests {
         //         .folder = "/invaliiid/asd".into();
         // }
 
-        assert!(tree.major_compact(u64::MAX, 4).is_err());
+        //assert!(tree.major_compact(u64::MAX, 4).is_err());
+        todo!();
 
         assert!(tree
             .compaction_state

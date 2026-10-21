@@ -6,19 +6,24 @@ pub mod ingest;
 pub mod inner;
 pub mod sealed;
 
+#[cfg(test)]
+pub mod test;
+
 use crate::{
-    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
+    compaction::{
+        drop_range::OwnedBounds, state::CompactionState, worker::NewCompactionResult,
+        CompactionStrategy,
+    },
     config::Config,
     file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     key::InternalKey,
-    manifest::Manifest,
     memtable::Memtable,
     slice::Slice,
     table::Table,
     value::InternalValue,
-    version::{recovery::recover, SuperVersion, SuperVersions, Version},
+    version::{recovery::recover, SuperVersion, Version},
     vlog::BlobFile,
     AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
     ValueType,
@@ -92,13 +97,6 @@ impl AbstractTree for Tree {
             .map_or(0, |dt| dt.len())
     }
 
-    fn get_version_history_lock(
-        &self,
-    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history.write().expect("lock is poisoned")
-    }
-
     fn next_table_id(&self) -> TableId {
         self.0.table_id_counter.get()
     }
@@ -112,12 +110,7 @@ impl AbstractTree for Tree {
     }
 
     fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .latest_version();
+        let super_version = self.tree_config().version_set_provider.latest_version();
 
         let key = Slice::from(key);
 
@@ -155,23 +148,8 @@ impl AbstractTree for Tree {
     }
 
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .get_version_for_snapshot(seqno);
-
+        let super_version = self.get_version_for_snapshot(seqno);
         Self::get_internal_entry_from_version(&super_version, key, seqno)
-    }
-
-    fn current_version(&self) -> Version {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history
-            .read()
-            .expect("poisoned")
-            .latest_version()
-            .version
     }
 
     fn get_flush_lock(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -182,14 +160,6 @@ impl AbstractTree for Tree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics> {
         &self.0.metrics
-    }
-
-    fn version_free_list_len(&self) -> usize {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history
-            .read()
-            .expect("lock is poisoned")
-            .free_list_len()
     }
 
     fn prefix<K: AsRef<[u8]>>(
@@ -263,9 +233,9 @@ impl AbstractTree for Tree {
 
     fn clear(&self) -> crate::Result<()> {
         let config = self.tree_config();
-        let mut versions = self.get_version_history_lock();
+        // let mut versions = self.get_version_history_lock();
 
-        versions.upgrade_version(
+        /*versions.upgrade_version(
             &config.path,
             |v| {
                 let mut copy = v.clone();
@@ -276,23 +246,20 @@ impl AbstractTree for Tree {
             },
             &config.seqno,
             &config.visible_seqno,
-        )
+        )*/
+
+        todo!()
     }
 
-    #[doc(hidden)]
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
-        let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
-
-        // IMPORTANT: Write lock so we can be the only compaction going on
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let _lock = self
-            .0
-            .major_compaction_lock
-            .write()
-            .expect("lock is poisoned");
-
-        log::info!("Starting major compaction");
-        self.inner_compact(strategy, seqno_threshold)
+    /// TODO: WIP
+    fn run_compaction(
+        &self,
+        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<NewCompactionResult> {
+        let mut opts = crate::compaction::worker::Options::from_tree(self, strategy);
+        opts.mvcc_gc_watermark = gc_watermark;
+        crate::compaction::worker::do_compaction(&opts)
     }
 
     fn l0_run_count(&self) -> usize {
@@ -327,16 +294,6 @@ impl AbstractTree for Tree {
             .iter_tables()
             .map(Table::pinned_block_index_size)
             .sum()
-    }
-
-    fn sealed_memtable_count(&self) -> usize {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history
-            .read()
-            .expect("lock is poisoned")
-            .latest_version()
-            .sealed_memtables
-            .len()
     }
 
     fn flush_to_tables(
@@ -430,88 +387,6 @@ impl AbstractTree for Tree {
         Ok(Some((tables, None)))
     }
 
-    #[expect(clippy::significant_drop_tightening)]
-    fn register_tables(
-        &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
-        frag_map: Option<crate::blob_tree::FragmentationMap>,
-        sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
-        gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
-        log::trace!(
-            "Registering {} tables, {} blob files",
-            tables.len(),
-            blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
-        );
-
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut _compaction_state = self.compaction_state.lock().expect("lock is poisoned");
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_lock = self.version_history.write().expect("lock is poisoned");
-
-        // NOTE: Check for race condition
-        // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
-        if sealed_memtables_to_delete
-            .iter()
-            .any(|id| !version_lock.latest_version().sealed_memtables.contains(id))
-        {
-            log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
-            return Ok(());
-        }
-
-        version_lock.upgrade_version(
-            &self.config.path,
-            |current| {
-                let mut copy = current.clone();
-
-                copy.version = copy.version.with_new_l0_run(
-                    tables,
-                    blob_files,
-                    frag_map.filter(|x| !x.is_empty()),
-                );
-
-                for &table_id in sealed_memtables_to_delete {
-                    log::trace!("releasing sealed memtable #{table_id}");
-                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
-                }
-
-                Ok(copy)
-            },
-            &self.config.seqno,
-            &self.config.visible_seqno,
-        )?;
-
-        if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
-            log::warn!("Version GC failed: {e:?}");
-        }
-
-        Ok(())
-    }
-
-    fn clear_active_memtable(&self) {
-        use crate::tree::sealed::SealedMemtables;
-
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
-        let super_version = version_history_lock.latest_version();
-
-        if super_version.active_memtable.is_empty() {
-            return;
-        }
-
-        let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
-        copy.sealed_memtables = Arc::new(SealedMemtables::default());
-
-        // Clear active is only used for recovery where snapshots do not exist yet
-        copy.seqno = super_version.seqno;
-
-        version_history_lock.replace_latest_version(copy);
-
-        log::trace!("cleared active memtable");
-    }
-
     fn compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
@@ -538,45 +413,6 @@ impl AbstractTree for Tree {
         &self.config
     }
 
-    fn active_memtable(&self) -> Arc<Memtable> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history
-            .read()
-            .expect("lock is poisoned")
-            .latest_version()
-            .active_memtable
-    }
-
-    #[expect(clippy::significant_drop_tightening)]
-    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
-        let super_version = version_history_lock.latest_version();
-
-        if super_version.active_memtable.is_empty() {
-            return None;
-        }
-
-        let yanked_memtable = super_version.active_memtable;
-
-        let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
-        copy.sealed_memtables =
-            Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
-
-        // Rotate does not modify the memtable so it cannot break snapshots
-        copy.seqno = super_version.seqno;
-
-        version_history_lock.replace_latest_version(copy);
-
-        log::trace!(
-            "rotate: added memtable id={} to sealed memtables",
-            yanked_memtable.id,
-        );
-
-        Some(yanked_memtable)
-    }
-
     fn table_count(&self) -> usize {
         self.current_version().table_count()
     }
@@ -587,11 +423,7 @@ impl AbstractTree for Tree {
 
     fn approximate_len(&self) -> usize {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .latest_version();
+        let super_version = self.tree_config().version_set_provider.latest_version();
 
         let tables_item_count = self
             .current_version()
@@ -621,11 +453,7 @@ impl AbstractTree for Tree {
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let version = self
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .latest_version();
+        let version = self.tree_config().version_set_provider.latest_version();
 
         let active = version.active_memtable.get_highest_seqno();
 
@@ -760,11 +588,9 @@ impl Tree {
     }
 
     pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history
-            .read()
-            .expect("lock is poisoned")
-            .get_version_for_snapshot(seqno)
+        self.tree_config()
+            .version_set_provider
+            .get_version_for_seqno(seqno)
     }
 
     /// Normalizes a user-provided range into owned `Bound<Slice>` values.
@@ -880,12 +706,7 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .get_version_for_snapshot(seqno);
+        let super_version = self.get_version_for_snapshot(seqno);
 
         Self::create_internal_range(super_version, range, seqno, ephemeral).map(|item| match item {
             Ok(kv) => Ok((kv.key.user_key, kv.value)),
@@ -912,10 +733,8 @@ impl Tree {
     #[doc(hidden)]
     #[must_use]
     pub fn append_entry(&self, value: InternalValue) -> (u64, u64) {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        self.version_history
-            .read()
-            .expect("lock is poisoned")
+        self.tree_config()
+            .version_set_provider
             .latest_version()
             .active_memtable
             .insert(value)
@@ -926,7 +745,7 @@ impl Tree {
     /// # Errors
     ///
     /// Returns error, if an IO error occurred.
-    fn recover(mut config: Config) -> crate::Result<Self> {
+    fn recover(config: Config) -> crate::Result<Self> {
         use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
@@ -937,7 +756,7 @@ impl Tree {
         #[cfg(feature = "metrics")]
         let metrics = Arc::new(Metrics::default());
 
-        let version = Self::recover_levels(
+        /*let version = Self::recover_levels(
             &config.path,
             tree_id,
             &config,
@@ -969,9 +788,12 @@ impl Tree {
 
             // IMPORTANT: Restore persisted config
             config.level_count = manifest.level_count;
-        }
+        }*/
 
-        let highest_table_id = version
+        let highest_table_id: TableId = config
+            .version_set_provider
+            .latest_version()
+            .version
             .iter_tables()
             .map(Table::id)
             .max()
@@ -992,7 +814,6 @@ impl Tree {
             memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
             blob_file_id_counter: SequenceNumberCounter::default(),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             config: Arc::new(config),
             major_compaction_lock: RwLock::default(),

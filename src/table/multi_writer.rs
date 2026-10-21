@@ -259,7 +259,11 @@ impl MultiWriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::CompressionPolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+    use crate::{
+        config::CompressionPolicy, version_set::MemoryVersionSetProvider, AbstractTree,
+        CompressionType, Config, SeqNo,
+    };
+    use std::sync::Arc;
     use test_log::test;
 
     // NOTE: Tests that versions of the same key stay
@@ -272,25 +276,26 @@ mod tests {
     fn table_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-        .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-        .open()?;
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .data_block_compression_policy(CompressionPolicy::all(CompressionType::None))
+            .index_block_compression_policy(CompressionPolicy::all(CompressionType::None))
+            .open()?;
 
         tree.insert("a", "a1".repeat(4_000), 0);
         tree.insert("a", "a2".repeat(4_000), 1);
         tree.insert("a", "a3".repeat(4_000), 2);
         tree.insert("a", "a4".repeat(4_000), 3);
         tree.insert("a", "a5".repeat(4_000), 4);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
-        tree.major_compact(1_024, 0)?;
+        version_set_provider.compact(&tree, Arc::new(crate::compaction::Major::default()), 2, 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
@@ -304,14 +309,12 @@ mod tests {
     fn table_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-        .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-        .open()?;
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .data_block_compression_policy(CompressionPolicy::all(CompressionType::None))
+            .index_block_compression_policy(CompressionPolicy::all(CompressionType::None))
+            .open()?;
 
         tree.insert("a", "a1".repeat(4_000), 0);
         tree.insert("a", "a1".repeat(4_000), 1);
@@ -319,11 +322,21 @@ mod tests {
         tree.insert("b", "a1".repeat(4_000), 0);
         tree.insert("c", "a1".repeat(4_000), 0);
         tree.insert("c", "a1".repeat(4_000), 1);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
-        tree.major_compact(1_024, 0)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(crate::compaction::major::Strategy::new(
+                1_024, // 1 KiB
+            )),
+            2,
+            0,
+        )?;
+
         assert_eq!(3, tree.table_count());
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 

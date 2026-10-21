@@ -104,7 +104,7 @@ mod ingestion;
 mod iter_guard;
 mod key;
 mod key_range;
-mod manifest;
+// mod manifest;
 mod memtable;
 mod run_reader;
 mod run_scanner;
@@ -145,6 +145,7 @@ pub mod util;
 mod value;
 mod value_type;
 mod version;
+mod version_set;
 mod vlog;
 
 /// User defined key (byte array)
@@ -168,6 +169,8 @@ pub use {
     tree::inner::TreeId,
     tree::Guard as StandardGuard,
     value::InternalValue,
+    version_set::MemoryVersionSetProvider,
+    version_set::VersionSetProvider,
 };
 
 pub use {

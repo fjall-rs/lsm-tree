@@ -3,17 +3,28 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    blob_tree::FragmentationMap, compaction::worker::NewCompactionResult,
     iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
-    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree, UserKey, UserValue,
+    Config, Guard, InternalValue, KvPair, Memtable, MemtableId, SeqNo, TableId, Tree, UserKey,
+    UserValue,
 };
 use std::{
     ops::RangeBounds,
-    sync::{Arc, MutexGuard, RwLockWriteGuard},
+    sync::{Arc, MutexGuard},
 };
 
 pub type RangeItem = crate::Result<KvPair>;
 
-type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
+// TODO: change to struct
+pub type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
+
+pub struct NewFlushToTablesResult {
+    pub tables: Vec<Table>,
+    pub blob_files: Option<Vec<BlobFile>>,
+    pub frag_map: Option<FragmentationMap>,
+    pub evicted_sealed_memtables: Vec<MemtableId>,
+    pub flushed_size: u64,
+}
 
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
@@ -28,7 +39,8 @@ pub trait AbstractTree {
     // TODO: remove
     #[doc(hidden)]
     fn version_memtable_size_sum(&self) -> u64 {
-        self.get_version_history_lock().memtable_size_sum()
+        //self.get_version_history_lock().memtable_size_sum()
+        todo!()
     }
 
     #[doc(hidden)]
@@ -44,79 +56,11 @@ pub trait AbstractTree {
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
 
     #[doc(hidden)]
-    fn current_version(&self) -> Version;
-
-    #[doc(hidden)]
-    fn get_version_history_lock(&self) -> RwLockWriteGuard<'_, crate::version::SuperVersions>;
-
-    /// Seals the active memtable and flushes to table(s).
-    ///
-    /// If there are already other sealed memtables lined up, those will be flushed as well.
-    ///
-    /// Only used in tests.
-    #[doc(hidden)]
-    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<()> {
-        let lock = self.get_flush_lock();
-        self.rotate_memtable();
-        self.flush(&lock, eviction_seqno)?;
-        Ok(())
-    }
-
-    /// Synchronously flushes pending sealed memtables to tables.
-    ///
-    /// Returns the sum of flushed memtable sizes that were flushed.
-    ///
-    /// The function may not return a result, if nothing was flushed.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn flush(
-        &self,
-        _lock: &MutexGuard<'_, ()>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<u64>> {
-        use crate::{compaction::stream::CompactionStream, merge::Merger};
-
-        let version_history = self.get_version_history_lock();
-        let latest = version_history.latest_version();
-
-        if latest.sealed_memtables.len() == 0 {
-            return Ok(None);
-        }
-
-        let sealed_ids = latest
-            .sealed_memtables
-            .iter()
-            .map(|mt| mt.id)
-            .collect::<Vec<_>>();
-
-        log::debug!("Flushing sealed memtables {sealed_ids:?} to table(s)");
-
-        let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
-
-        let merger = Merger::new(
-            latest
-                .sealed_memtables
-                .iter()
-                .map(|mt| mt.iter().map(Ok))
-                .collect::<Vec<_>>(),
-        );
-        let stream = CompactionStream::new(merger, seqno_threshold);
-
-        drop(version_history);
-
-        if let Some((tables, blob_files)) = self.flush_to_tables(stream)? {
-            self.register_tables(
-                &tables,
-                blob_files.as_deref(),
-                None,
-                &sealed_ids,
-                seqno_threshold,
-            )?;
-        }
-
-        Ok(Some(flushed_size))
+    fn current_version(&self) -> Version {
+        self.tree_config()
+            .version_set_provider
+            .latest_version()
+            .version
     }
 
     /// Returns an iterator that scans through the entire tree.
@@ -177,13 +121,6 @@ pub trait AbstractTree {
     /// Will return `Err` only if an IO error occurs.
     fn clear(&self) -> crate::Result<()>;
 
-    /// Performs major compaction, blocking the caller until it's done.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
-
     /// Returns the disk space used by stale blobs.
     fn stale_blob_bytes(&self) -> u64 {
         0
@@ -201,11 +138,65 @@ pub trait AbstractTree {
     fn pinned_block_index_size(&self) -> usize;
 
     /// Gets the length of the version free list.
-    fn version_free_list_len(&self) -> usize;
+    fn version_set_len(&self) -> usize {
+        self.tree_config()
+            .version_set_provider
+            .version_history_len()
+    }
 
     /// Returns the metrics structure.
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
+
+    /// TODO: WIP
+    fn run_compaction(
+        &self,
+        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<NewCompactionResult>;
+
+    /// TODO: WIP
+    fn new_flush(&self, gc_watermark: SeqNo) -> crate::Result<Option<NewFlushToTablesResult>> {
+        use crate::{compaction::stream::CompactionStream, merge::Merger};
+
+        let latest = self.tree_config().version_set_provider.latest_version();
+
+        if latest.sealed_memtables.len() == 0 {
+            log::trace!("Flushing aborted because there are no sealed memtables");
+            return Ok(None);
+        }
+
+        let sealed_ids = latest
+            .sealed_memtables
+            .iter()
+            .map(|mt| mt.id)
+            .collect::<Vec<_>>();
+
+        log::debug!("Flushing sealed memtables {sealed_ids:?} to table(s)");
+
+        let flushed_size: u64 = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
+
+        let merger = Merger::new(
+            latest
+                .sealed_memtables
+                .iter()
+                .map(|mt| mt.iter().map(Ok))
+                .collect::<Vec<_>>(),
+        );
+        let stream = CompactionStream::new(merger, gc_watermark);
+
+        let Some((tables, blob_files)) = self.flush_to_tables(stream)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(NewFlushToTablesResult {
+            tables,
+            blob_files,
+            frag_map: None,
+            evicted_sealed_memtables: sealed_ids,
+            flushed_size,
+        }))
+    }
 
     /// Acquires the flush lock which is required to call [`Tree::flush`].
     fn get_flush_lock(&self) -> MutexGuard<'_, ()>;
@@ -224,25 +215,14 @@ pub trait AbstractTree {
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
     ) -> crate::Result<Option<FlushToTablesResult>>;
 
-    /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn register_tables(
-        &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
-        frag_map: Option<crate::blob_tree::FragmentationMap>,
-        sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
-        gc_watermark: SeqNo,
-    ) -> crate::Result<()>;
-
-    /// Clears the active memtable atomically.
-    fn clear_active_memtable(&self);
-
     /// Returns the number of sealed memtables.
-    fn sealed_memtable_count(&self) -> usize;
+    fn sealed_memtable_count(&self) -> usize {
+        self.tree_config()
+            .version_set_provider
+            .latest_version()
+            .sealed_memtables
+            .len()
+    }
 
     /// Performs compaction on the tree's levels, blocking the caller until it's done.
     ///
@@ -268,9 +248,6 @@ pub trait AbstractTree {
         memtable_seqno.max(table_seqno)
     }
 
-    /// Returns the active memtable.
-    fn active_memtable(&self) -> Arc<Memtable>;
-
     /// Returns the tree type.
     fn tree_type(&self) -> crate::TreeType {
         // NOTE: This is only really safe to do, because we validate
@@ -281,9 +258,6 @@ pub trait AbstractTree {
             crate::TreeType::Standard
         }
     }
-
-    /// Seals the active memtable.
-    fn rotate_memtable(&self) -> Option<Arc<Memtable>>;
 
     /// Returns the number of tables currently in the tree.
     fn table_count(&self) -> usize;

@@ -6,7 +6,7 @@ use crate::{
     compaction::state::CompactionState,
     config::Config,
     stop_signal::StopSignal,
-    version::{persist_version, SuperVersions, Version},
+    version::{persist_version, Version},
     SequenceNumberCounter, TableId,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
@@ -45,8 +45,6 @@ pub struct TreeInner {
     // This is not really used in the normal tree, but we need it in the blob tree
     /// Hands out a unique (monotonically increasing) blob file ID
     pub(crate) blob_file_id_counter: SequenceNumberCounter,
-
-    pub(crate) version_history: Arc<RwLock<SuperVersions>>,
 
     pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
@@ -89,7 +87,6 @@ impl TreeInner {
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_counter: SequenceNumberCounter::default(),
             config: Arc::new(config),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),

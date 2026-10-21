@@ -4,17 +4,10 @@
 
 use crate::{
     coding::Decode,
-    vlog::{
-        blob_file::header::{BlobHeader, BLOB_HEADER_MAGIC},
-        ValueHandle,
-    },
+    vlog::{blob_file::header::BlobHeader, ValueHandle},
     BlobFile, Checksum, CompressionType, UserValue,
 };
-use byteorder::{LittleEndian, ReadBytesExt};
-use std::{
-    fs::File,
-    io::{Cursor, Read},
-};
+use std::{fs::File, io::Cursor};
 
 /// Reads a single blob from a blob file
 pub struct Reader<'a> {
@@ -72,7 +65,8 @@ impl<'a> Reader<'a> {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
                 #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+                let mut builder =
+                    unsafe { UserValue::builder_unzeroed(header.uncompressed_len as usize) };
 
                 lz4_flex::decompress_into(&raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;

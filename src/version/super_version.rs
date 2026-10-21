@@ -3,10 +3,12 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    abstract_tree::NewFlushToTablesResult,
+    compaction::worker::{CompactionOperation, NewCompactionResult},
     memtable::Memtable,
     tree::sealed::SealedMemtables,
-    version::{persist_version, Version},
-    SeqNo, SequenceNumberCounter,
+    version::Version,
+    BlobFile, MemtableId, SeqNo, Table,
 };
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
@@ -26,9 +28,102 @@ pub struct SuperVersion {
     pub(crate) seqno: SeqNo,
 }
 
-pub struct SuperVersions(VecDeque<SuperVersion>);
+impl SuperVersion {
+    pub fn register_compaction(
+        &self,
+        result: NewCompactionResult,
+        version_seqno: SeqNo,
+    ) -> crate::Result<Self> {
+        let mut copy = self.clone();
+        copy.seqno = version_seqno;
 
-impl SuperVersions {
+        match result.inner {
+            CompactionOperation::Noop => {}
+            CompactionOperation::Merge {
+                created_tables,
+                dst_lvl,
+                tables_to_delete,
+                blob_files_to_drop,
+                blob_frag_map,
+                created_blob_files,
+            } => {
+                copy.version = copy.version.with_merge(
+                    &tables_to_delete.iter().map(Table::id).collect::<Vec<_>>(),
+                    &created_tables,
+                    dst_lvl,
+                    if blob_frag_map.is_empty() {
+                        None
+                    } else {
+                        Some(blob_frag_map)
+                    },
+                    created_blob_files,
+                    &blob_files_to_drop
+                        .iter()
+                        .map(BlobFile::id)
+                        .collect::<Vec<_>>(),
+                );
+            }
+            CompactionOperation::Move { dst_lvl, tables } => {
+                copy.version = copy
+                    .version
+                    .with_moved(&tables.iter().map(Table::id).collect::<Vec<_>>(), dst_lvl);
+            }
+            CompactionOperation::Drop { tables } => {
+                copy.version = copy.version.with_dropped(
+                    &tables.iter().map(Table::id).collect::<Vec<_>>(),
+                    &mut Vec::new(),
+                )?;
+            }
+            _ => {
+                unimplemented!()
+            }
+        }
+
+        Ok(copy)
+    }
+
+    pub(crate) fn register_flush(&self, flush_result: NewFlushToTablesResult) -> Self {
+        let mut copy = self.clone();
+
+        copy.version = copy.version.with_new_l0_run(
+            &flush_result.tables,
+            flush_result.blob_files.as_deref(),
+            flush_result.frag_map.filter(|x| !x.is_empty()),
+        );
+
+        for table_id in flush_result.evicted_sealed_memtables {
+            log::trace!("Releasing sealed memtable #{table_id}");
+            copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
+        }
+
+        copy
+    }
+
+    pub fn rotate_active_memtable(&self, memtable_id: MemtableId) -> Option<Self> {
+        if self.active_memtable.is_empty() {
+            return None;
+        }
+
+        let yanked_memtable = &self.active_memtable;
+
+        // Rotate does not modify the memtable so it cannot break snapshots
+        // So we just use the same seqno
+        let mut copy = self.clone();
+        copy.active_memtable = Arc::new(Memtable::new(memtable_id));
+        copy.sealed_memtables = Arc::new(self.sealed_memtables.add(yanked_memtable.clone()));
+
+        log::trace!(
+            "rotate: added memtable id={} to sealed memtables",
+            yanked_memtable.id,
+        );
+
+        Some(copy)
+    }
+}
+
+pub struct SuperVersionSet(VecDeque<SuperVersion>);
+
+impl SuperVersionSet {
     pub fn new(version: Version) -> Self {
         Self(
             vec![SuperVersion {
@@ -104,47 +199,6 @@ impl SuperVersions {
         Ok(())
     }
 
-    /// Modifies the level manifest atomically.
-    ///
-    /// The function accepts a transition function that receives the current version
-    /// and returns a new version.
-    ///
-    /// The function takes care of persisting the version changes on disk.
-    pub(crate) fn upgrade_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
-        &mut self,
-        tree_path: &Path,
-        f: F,
-        seqno: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
-    ) -> crate::Result<()> {
-        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
-    }
-
-    /// Like `upgrade_version`, but takes an already-allocated sequence number.
-    ///
-    /// This is useful when the seqno must be coordinated with other operations
-    /// (e.g., bulk ingestion where tables are recovered with the same seqno).
-    pub(crate) fn upgrade_version_with_seqno<
-        F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>,
-    >(
-        &mut self,
-        tree_path: &Path,
-        f: F,
-        seqno: SeqNo,
-        visible_seqno: &SequenceNumberCounter,
-    ) -> crate::Result<()> {
-        let mut next_version = f(&self.latest_version())?;
-        next_version.seqno = seqno;
-        log::trace!("Next version seqno={}", next_version.seqno);
-
-        persist_version(tree_path, &next_version.version)?;
-        self.append_version(next_version);
-
-        visible_seqno.fetch_max(seqno + 1);
-
-        Ok(())
-    }
-
     pub fn append_version(&mut self, version: SuperVersion) {
         self.0.push_back(version);
     }
@@ -202,7 +256,7 @@ mod tests {
 
     #[test]
     fn super_version_gc_above_watermark() -> crate::Result<()> {
-        let mut history = SuperVersions(
+        let mut history = SuperVersionSet(
             vec![
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
@@ -235,7 +289,7 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_simple() -> crate::Result<()> {
-        let mut history = SuperVersions(
+        let mut history = SuperVersionSet(
             vec![
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
@@ -268,7 +322,7 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_simple_2() -> crate::Result<()> {
-        let mut history = SuperVersions(
+        let mut history = SuperVersionSet(
             vec![
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
@@ -307,7 +361,7 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_keep() -> crate::Result<()> {
-        let mut history = SuperVersions(
+        let mut history = SuperVersionSet(
             vec![
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
@@ -334,7 +388,7 @@ mod tests {
 
     #[test]
     fn super_version_gc_below_watermark_shadowed() -> crate::Result<()> {
-        let mut history = SuperVersions(
+        let mut history = SuperVersionSet(
             vec![
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),

@@ -141,18 +141,16 @@ impl DoubleEndedIterator for RunReader {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::{AbstractTree, SequenceNumberCounter, Slice};
+    use crate::{version_set::MemoryVersionSetProvider, AbstractTree, Slice};
     use test_log::test;
 
     #[test]
     fn run_reader_skip() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(
-            &tempdir,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 
         let ids = [
             ["a", "b", "c"],
@@ -163,10 +161,13 @@ mod tests {
 
         for batch in ids {
             for id in batch {
-                tree.insert(id, vec![], 0);
+                tree.insert(id, b"", 0);
             }
-            tree.flush_active_memtable(0)?;
+
+            version_set_provider.flush_active_memtable(&tree, 1, 0)?;
         }
+
+        assert_eq!(ids.len(), tree.table_count());
 
         let tables = tree
             .current_version()
@@ -187,12 +188,10 @@ mod tests {
     #[expect(clippy::unwrap_used)]
     fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(
-            &tempdir,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 
         let ids = [
             ["a", "b", "c"],
@@ -203,10 +202,13 @@ mod tests {
 
         for batch in ids {
             for id in batch {
-                tree.insert(id, vec![], 0);
+                tree.insert(id, b"", 0);
             }
-            tree.flush_active_memtable(0)?;
+
+            version_set_provider.flush_active_memtable(&tree, 1, 0)?;
         }
+
+        assert_eq!(ids.len(), tree.table_count());
 
         let tables = tree
             .current_version()

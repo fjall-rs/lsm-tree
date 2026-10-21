@@ -21,7 +21,7 @@ pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
     compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
+    BlobTree, Cache, CompressionType, DescriptorTable, Tree, VersionSetProvider,
 };
 use std::{
     path::{Path, PathBuf},
@@ -58,8 +58,6 @@ impl TryFrom<u8> for TreeType {
         }
     }
 }
-
-const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 
 /// Options for key-value separation
 #[derive(Clone, Debug, PartialEq)]
@@ -232,22 +230,21 @@ pub struct Config {
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
-    /// The global sequence number generator
-    ///
-    /// Should be shared between multple trees of a database
-    pub(crate) seqno: SequenceNumberCounter,
-
-    pub(crate) visible_seqno: SequenceNumberCounter,
+    pub(crate) version_set_provider: Arc<dyn VersionSetProvider + Send + Sync>,
 }
 
-// TODO: remove default?
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    /// Initializes a new config
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        version_set_provider: Arc<dyn VersionSetProvider + Send + Sync>,
+    ) -> Self {
         Self {
-            path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
+            path: absolute_path(path.as_ref()),
+
+            version_set_provider,
+
             descriptor_table: Some(Arc::new(DescriptorTable::new(256))),
-            seqno: SequenceNumberCounter::default(),
-            visible_seqno: SequenceNumberCounter::default(),
 
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
@@ -294,22 +291,6 @@ impl Default for Config {
             expect_point_read_hits: false,
 
             kv_separation_opts: None,
-        }
-    }
-}
-
-impl Config {
-    /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        seqno: SequenceNumberCounter,
-        visible_seqno: SequenceNumberCounter,
-    ) -> Self {
-        Self {
-            path: absolute_path(path.as_ref()),
-            seqno,
-            visible_seqno,
-            ..Default::default()
         }
     }
 

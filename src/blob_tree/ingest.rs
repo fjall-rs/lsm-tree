@@ -183,8 +183,10 @@ impl<'a> BlobIngestion<'a> {
         // Flush any pending index memtable writes to ensure ingestion sees
         // a consistent snapshot of the index.
         // We call rotate + flush directly because we already hold the lock.
-        index.rotate_memtable();
-        index.flush(&flush_lock, 0)?;
+        //index.rotate_memtable();
+        todo!();
+
+        // index.flush(&flush_lock, 0)?;
 
         // Finalize the blob writer first, ensuring all large values are
         // written to blob files before we finalize the index tables that
@@ -200,13 +202,11 @@ impl<'a> BlobIngestion<'a> {
         // safely modify the tree's version.
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_lock = index.version_history.write().expect("lock is poisoned");
 
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables, blob files, and the version that registers
         // them, ensuring consistent MVCC snapshots across the value log.
-        let global_seqno = index.config.seqno.next();
+        let global_seqno = todo!();
 
         // Recover all created index tables, assigning them the global_seqno
         // we just allocated. These tables contain indirections to the blob
@@ -238,7 +238,9 @@ impl<'a> BlobIngestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Upgrade the version with our ingested tables and blob files, using
+        todo!();
+
+        /*  // Upgrade the version with our ingested tables and blob files, using
         // the global_seqno we allocated earlier. This ensures the version,
         // tables, and blob files all share the same sequence number, which is
         // critical for GC correctness - we must not delete blob files that are
@@ -258,13 +260,13 @@ impl<'a> BlobIngestion<'a> {
             },
             global_seqno,
             &self.tree.index.config.visible_seqno,
-        )?;
+        )?;*/
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(&index.config.path, 0) {
-            log::warn!("Version GC failed: {e:?}");
-        }
+        //if let Err(e) = version_lock.maintenance(&index.config.path, 0) {
+        //    log::warn!("Version GC failed: {e:?}");
+        //}
 
         Ok(())
     }
