@@ -1,7 +1,8 @@
 use lsm_tree::{
     config::BlockSizePolicy, get_tmp_folder, AbstractTree, KvSeparationOptions,
-    SequenceNumberCounter,
+    MemoryVersionSetProvider,
 };
+use std::sync::Arc;
 use test_log::test;
 
 // Force one block per table and one blob per block
@@ -14,19 +15,17 @@ fn blob_register_table_rotation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1))
-    .with_kv_separation(Some(
-        KvSeparationOptions::default()
-            .separation_threshold(0)
-            .age_cutoff(1.0)
-            .staleness_threshold(0.0),
-    ))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1))
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .separation_threshold(0)
+                .age_cutoff(1.0)
+                .staleness_threshold(0.0),
+        ))
+        .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -34,8 +33,8 @@ fn blob_register_table_rotation() -> lsm_tree::Result<()> {
     tree.insert("d", "d", 0);
     tree.insert("e", "e", 0);
 
-    tree.flush_active_memtable(0)?;
-    tree.major_compact(1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.compact(&tree, Arc::new(lsm_tree::compaction::Major::new(1)), 2, 0)?;
 
     assert_eq!(5, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
@@ -69,19 +68,17 @@ fn blob_register_table_rotation_relocation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1))
-    .with_kv_separation(Some(
-        KvSeparationOptions::default()
-            .separation_threshold(0)
-            .age_cutoff(1.0)
-            .staleness_threshold(0.0),
-    ))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1))
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .separation_threshold(0)
+                .age_cutoff(1.0)
+                .staleness_threshold(0.0),
+        ))
+        .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -90,22 +87,22 @@ fn blob_register_table_rotation_relocation() -> lsm_tree::Result<()> {
     tree.insert("e", "e", 0);
     tree.insert("f", "f", 0); // f is not overwritten
 
-    tree.flush_active_memtable(0)?;
-    tree.major_compact(1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.compact(&tree, Arc::new(lsm_tree::compaction::Major::new(1)), 2, 0)?;
 
-    tree.insert("a", "a", 1);
-    tree.insert("b", "b", 1);
-    tree.insert("c", "c", 1);
-    tree.insert("d", "d", 1);
-    tree.insert("e", "e", 1);
+    tree.insert("a", "a", 3);
+    tree.insert("b", "b", 3);
+    tree.insert("c", "c", 3);
+    tree.insert("d", "d", 3);
+    tree.insert("e", "e", 3);
 
-    tree.flush_active_memtable(0)?;
-    tree.major_compact(1, 10)?;
+    version_set_provider.flush_active_memtable(&tree, 4, 0)?;
+    version_set_provider.compact(&tree, Arc::new(lsm_tree::compaction::Major::new(1)), 2, 10)?;
 
     assert_eq!(6, tree.table_count());
     assert_eq!(2, tree.blob_file_count());
 
-    tree.major_compact(1, 11)?;
+    version_set_provider.compact(&tree, Arc::new(lsm_tree::compaction::Major::new(1)), 3, 11)?;
 
     assert_eq!(6, tree.table_count());
     assert_eq!(2, tree.blob_file_count());

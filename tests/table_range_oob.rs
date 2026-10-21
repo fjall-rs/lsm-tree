@@ -1,6 +1,7 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 100;
@@ -9,19 +10,18 @@ const ITEM_COUNT: usize = 100;
 fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for key in ('h'..='o').map(|c| c.to_string()) {
         let value = nanoid::nanoid!();
         tree.insert(key, value.as_bytes(), 0);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1_000, 0)?;
 
     assert_eq!(4, tree.range(..="k", SeqNo::MAX, None).count());
     assert_eq!(4, tree.range(..="k", SeqNo::MAX, None).rev().count());
@@ -36,20 +36,19 @@ fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
 fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
         let value = nanoid::nanoid!();
         tree.insert(key, value.as_bytes(), 0);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1_000, 0)?;
 
     assert_eq!(
         50,

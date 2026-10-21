@@ -1,4 +1,7 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, Slice};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo, Slice,
+};
+use std::sync::Arc;
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -15,12 +18,9 @@ macro_rules! iter_closed {
 fn tree_disjoint_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = crate::Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     // IMPORTANT: Purposefully mangle the order of IDs
     // to make sure stuff is still getting read in the correct order
@@ -36,7 +36,8 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
         for id in batch {
             tree.insert(id, vec![], 0);
         }
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
     }
 
     // NOTE: Forwards

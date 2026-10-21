@@ -1,16 +1,19 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
-#[ignore]
-fn snapshot_404() -> lsm_tree::Result<()> {
+fn tree_snapshot_404() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -20,7 +23,7 @@ fn snapshot_404() -> lsm_tree::Result<()> {
     tree.insert("a2", "a2", batch_seqno);
     tree.insert("c", "c", batch_seqno);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     let snapshot_seqno = seqno.get();
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
@@ -41,14 +44,14 @@ fn snapshot_404() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
+fn tree_snapshot_lots_of_versions() -> lsm_tree::Result<()> {
     let version_count = 600;
 
     let folder = get_tmp_folder();
 
-    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -59,7 +62,7 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
         tree.insert(key, format!("abc{version_count}").as_bytes(), seqno);
     }
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
 
@@ -81,12 +84,14 @@ const ITEM_COUNT: usize = 1;
 const BATCHES: usize = 10;
 
 #[test]
-fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
+fn tree_snapshot_disk_point_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -98,7 +103,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
         }
     }
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
 
@@ -122,7 +127,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
             tree.insert(key, format!("def{batch}").as_bytes(), batch_seqno);
         }
     }
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -138,12 +143,14 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
+fn tree_snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -157,7 +164,7 @@ fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
         }
     }
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
 

@@ -1,4 +1,5 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, MemoryVersionSetProvider, SeqNo};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -9,14 +10,12 @@ fn blob_tree_flush_gc_stats() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let new_big_value = b"winter!".repeat(128_000);
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -27,7 +26,7 @@ fn blob_tree_flush_gc_stats() -> lsm_tree::Result<()> {
 
         tree.insert("big", &new_big_value, 1);
 
-        tree.flush_active_memtable(1_000)?;
+        version_set_provider.flush_active_memtable(&tree, 2, 1_000)?;
 
         // NOTE: The first big_value is dropped, so it never arrives in a blob file
         assert_eq!(2, tree.approximate_len());
@@ -43,14 +42,12 @@ fn blob_tree_flush_gc_stats_tombstone() -> lsm_tree::Result<()> {
 
     let big_value = b"neptune!".repeat(128_000);
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -61,7 +58,7 @@ fn blob_tree_flush_gc_stats_tombstone() -> lsm_tree::Result<()> {
 
         tree.remove("big", 1);
 
-        tree.flush_active_memtable(1_000)?;
+        version_set_provider.flush_active_memtable(&tree, 3, 1_000)?;
 
         // NOTE: The first big_value is dropped, so it never arrives in a blob file
         assert_eq!(2, tree.approximate_len());

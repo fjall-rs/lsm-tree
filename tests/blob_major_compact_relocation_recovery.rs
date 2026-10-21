@@ -1,40 +1,53 @@
 #[test_log::test]
 fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+        get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
     };
+    use std::sync::Arc;
 
     let folder = get_tmp_folder();
     let path = folder.path();
 
     let big_value = b"neptune!".repeat(4_096);
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default()
-                .compression(lsm_tree::CompressionType::None)
-                .separation_threshold(1)
-                .staleness_threshold(0.0000001)
-                .age_cutoff(1.0),
-        ))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default()
+                    .compression(lsm_tree::CompressionType::None)
+                    .separation_threshold(1)
+                    .staleness_threshold(0.0000001)
+                    .age_cutoff(1.0),
+            ))
+            .open()?;
 
         tree.insert("a", &big_value, 0);
         tree.insert("b", b"smol", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.remove("b", 1);
-        tree.flush_active_memtable(0)?;
+        tree.remove("b", 2);
 
-        tree.major_compact(u64::MAX, 1_000)?;
-        tree.major_compact(u64::MAX, 1_000)?;
+        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+            4,
+            1_000,
+        )?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+            5,
+            1_000,
+        )?;
+
         assert_eq!(1, tree.blob_file_count());
 
         {
@@ -48,13 +61,9 @@ fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()>
     }
 
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         let value = tree.get("a", SeqNo::MAX)?.unwrap();
         assert_eq!(&*value, big_value);
@@ -67,40 +76,53 @@ fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()>
 #[cfg(feature = "lz4")]
 fn blob_tree_major_compact_relocation_recovery() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+        get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
     };
+    use std::sync::Arc;
 
     let folder = get_tmp_folder();
     let path = folder.path();
 
     let big_value = b"neptune!".repeat(4_096);
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default()
-                .compression(lsm_tree::CompressionType::Lz4)
-                .separation_threshold(1)
-                .staleness_threshold(0.0000001)
-                .age_cutoff(1.0),
-        ))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default()
+                    .compression(lsm_tree::CompressionType::Lz4)
+                    .separation_threshold(1)
+                    .staleness_threshold(0.0000001)
+                    .age_cutoff(1.0),
+            ))
+            .open()?;
 
         tree.insert("a", &big_value, 0);
         tree.insert("b", b"smol", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.remove("b", 1);
-        tree.flush_active_memtable(0)?;
+        tree.remove("b", 2);
 
-        tree.major_compact(u64::MAX, 1_000)?;
-        tree.major_compact(u64::MAX, 1_000)?;
+        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+            4,
+            1_000,
+        )?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+            5,
+            1_000,
+        )?;
+
         assert_eq!(1, tree.blob_file_count());
 
         {
@@ -114,13 +136,9 @@ fn blob_tree_major_compact_relocation_recovery() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         let value = tree.get("a", SeqNo::MAX)?.unwrap();
         assert_eq!(&*value, big_value);

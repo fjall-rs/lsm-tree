@@ -1,18 +1,14 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_weak_delete_queue() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -57,14 +53,10 @@ fn tree_weak_delete_queue() -> lsm_tree::Result<()> {
 #[test]
 fn tree_weak_delete_queue_reverse() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);

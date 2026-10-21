@@ -1,4 +1,7 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider,
+};
+use std::sync::Arc;
 use test_log::test;
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -6,20 +9,19 @@ use xxhash_rust::xxh3::xxh3_128;
 fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+            .open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
             tree.insert(key, value.as_bytes(), 0);
         }
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
@@ -33,13 +35,9 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+            .open()?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
@@ -59,20 +57,19 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
 fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+            .open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
             tree.insert(key, value.as_bytes(), 0);
         }
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
@@ -86,13 +83,9 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+            .open()?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();

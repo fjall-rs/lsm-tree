@@ -1,24 +1,23 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider};
+use std::sync::Arc;
 use test_log::test;
 use xxhash_rust::xxh3::xxh3_128;
 
 #[test]
-fn table_full_file_checksum() -> lsm_tree::Result<()> {
+fn tree_table_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
             tree.insert(key, value.as_bytes(), 0);
         }
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
@@ -32,12 +31,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
@@ -54,22 +48,20 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn table_full_file_detect_corruption() -> lsm_tree::Result<()> {
+fn tree_table_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
             tree.insert(key, value.as_bytes(), 0);
         }
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
@@ -83,12 +75,7 @@ fn table_full_file_detect_corruption() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();

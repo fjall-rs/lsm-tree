@@ -1,40 +1,44 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Guard, MemoryVersionSetProvider, SeqNo};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_l0_range_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = lsm_tree::Config::new(&folder, version_set_provider.clone())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
     tree.insert("c", "c", 0);
-    tree.flush_active_memtable(0)?;
 
-    tree.insert("a", "a", 1);
-    tree.insert("b", "b", 1);
-    tree.insert("c", "c", 1);
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
-    tree.insert("a", "A", 2);
-    tree.insert("b", "B", 2);
-    tree.insert("c", "C", 2);
-    tree.flush_active_memtable(0)?;
+    tree.insert("a", "a", 2);
+    tree.insert("b", "b", 2);
+    tree.insert("c", "c", 2);
 
-    tree.insert("d", "d", 3);
-    tree.insert("e", "e", 3);
-    tree.insert("f", "f", 3);
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
 
-    tree.insert("g", "g".repeat(10_000), 3);
-    tree.flush_active_memtable(0)?;
+    tree.insert("a", "A", 4);
+    tree.insert("b", "B", 4);
+    tree.insert("c", "C", 4);
+
+    version_set_provider.flush_active_memtable(&tree, 5, 0)?;
+
+    tree.insert("d", "d", 6);
+    tree.insert("e", "e", 6);
+    tree.insert("f", "f", 6);
+
+    version_set_provider.flush_active_memtable(&tree, 7, 0)?;
+
+    tree.insert("g", "g".repeat(10_000), 8);
+
+    version_set_provider.flush_active_memtable(&tree, 9, 0)?;
 
     let mut range = tree.range("c"..="e", SeqNo::MAX, None);
     assert_eq!(b"C", &*range.next().unwrap().value()?);

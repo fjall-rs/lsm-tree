@@ -1,7 +1,8 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo,
-    SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
+    MemoryVersionSetProvider, SeqNo,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -10,20 +11,19 @@ const ITEM_COUNT: usize = 1_000;
 fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
         let value = nanoid::nanoid!();
         tree.insert(key, value.as_bytes(), 0);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -37,13 +37,11 @@ fn table_point_reads() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -51,7 +49,8 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
         tree.insert(key, "1", 1);
         tree.insert(key, "2", 2);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -77,13 +76,11 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     let keys = [0, 1, 2]
         .into_iter()
@@ -95,7 +92,8 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
             tree.insert(key, seqno.to_string(), seqno);
         }
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     for key in &keys {
         let item = tree.get_internal_entry(key, SeqNo::MAX)?.unwrap();
@@ -125,14 +123,12 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+        .open()?;
 
     let keys = [0, 1, 2]
         .into_iter()
@@ -144,7 +140,8 @@ fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
             tree.insert(key, seqno.to_string(), seqno);
         }
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     for key in &keys {
         let item = tree.get(key, SeqNo::MAX)?.unwrap();

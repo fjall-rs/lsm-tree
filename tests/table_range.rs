@@ -1,30 +1,30 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, Guard, SeqNo,
-    SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider,
+    SeqNo,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000_000;
 
 #[test]
-fn a_lot_of_ranges() -> lsm_tree::Result<()> {
+fn tree_a_lot_of_ranges() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
         let value = nanoid::nanoid!();
         tree.insert(key, value.as_bytes(), 0);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     let iter = tree.range(
         1_000u64.to_be_bytes()..11_000u64.to_be_bytes(),
@@ -69,17 +69,15 @@ fn a_lot_of_ranges() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn table_range_last_back() -> lsm_tree::Result<()> {
+fn tree_range_last_back() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
 
@@ -87,7 +85,8 @@ fn table_range_last_back() -> lsm_tree::Result<()> {
         let key = x.to_be_bytes();
         tree.insert(key, &value, 0);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), SeqNo::MAX, None);
     assert_eq!(10, iter.count());
@@ -108,17 +107,15 @@ fn table_range_last_back() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn table_range_last_back_2() -> lsm_tree::Result<()> {
+fn tree_range_last_back_2() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
 
@@ -128,7 +125,8 @@ fn table_range_last_back_2() -> lsm_tree::Result<()> {
     }
     tree.insert(10u64.to_be_bytes(), [], 0);
     tree.insert(11u64.to_be_bytes(), [], 0);
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), SeqNo::MAX, None);
     assert_eq!(10, iter.count());

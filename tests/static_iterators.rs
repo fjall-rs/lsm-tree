@@ -2,7 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider};
+use std::sync::Arc;
 use test_log::test;
 
 /// Test that iterators can be stored in a struct (proving they're 'static)
@@ -10,12 +11,9 @@ use test_log::test;
 fn static_iterator_ownership() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "value_a", 0);
     tree.insert("b", "value_b", 1);
@@ -48,12 +46,9 @@ fn static_iterator_ownership() -> lsm_tree::Result<()> {
 fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for i in 0..100 {
         tree.insert(format!("key_{:03}", i), format!("value_{}", i), i as u64);
@@ -81,12 +76,9 @@ fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
 fn static_iterator_prefix() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("user:1:name", "Alice", 0);
     tree.insert("user:1:age", "30", 1);
@@ -113,12 +105,9 @@ fn static_iterator_prefix() -> lsm_tree::Result<()> {
 fn static_iterator_reverse() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for i in 0..10 {
         tree.insert(format!("key_{}", i), format!("value_{}", i), i as u64);
@@ -145,18 +134,16 @@ fn static_iterator_reverse() -> lsm_tree::Result<()> {
 fn static_iterator_with_segments() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     // Write data and flush to disk
     for i in 0..50 {
         tree.insert(format!("seg_{:03}", i), format!("val_{}", i), i as u64);
     }
-    tree.flush_active_memtable(50)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 50)?;
 
     // Write more data in memory
     for i in 50..100 {
@@ -182,13 +169,11 @@ fn static_iterator_with_segments() -> lsm_tree::Result<()> {
 fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     // Insert values that will be separated to blob files
     let large_value = vec![b'X'; 2048];
@@ -196,7 +181,7 @@ fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
         tree.insert(format!("blob_{:03}", i), large_value.clone(), i as u64);
     }
 
-    tree.flush_active_memtable(20)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 20)?;
 
     let iter = tree.range("blob_000"..="blob_019", 20, None);
     drop(tree);
@@ -218,12 +203,9 @@ fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
 fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     // Initial data
     for i in 0..10 {
@@ -259,12 +241,9 @@ fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
 fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for i in 0..100 {
         tree.insert(format!("key_{:03}", i), format!("val_{}", i), i as u64);
@@ -297,18 +276,16 @@ fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
 fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     // Create data and flush
     for i in 0..50 {
         tree.insert(format!("key_{:03}", i), format!("val_{}", i), i as u64);
     }
-    tree.flush_active_memtable(50)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 50)?;
 
     // Create iterator
     let iter = tree.range("key_000"..="key_049", 50, None);
@@ -329,12 +306,9 @@ fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
 fn static_iterator_with_tombstones() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for i in 0..20 {
         tree.insert(format!("key_{:02}", i), format!("val_{}", i), i as u64);

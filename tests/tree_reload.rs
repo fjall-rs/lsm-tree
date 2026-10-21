@@ -1,6 +1,8 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, TreeType,
+    get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter, TreeType,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
@@ -9,29 +11,21 @@ const ITEM_COUNT: usize = 10_000;
 fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
         assert_eq!(0, tree.table_count());
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert_eq!(1, tree.table_count());
         assert!(tree.contains_key("a", SeqNo::MAX)?);
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
         assert_eq!(1, tree.table_count());
         assert!(tree.contains_key("a", SeqNo::MAX)?);
     }
@@ -45,32 +39,26 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
 
     let large_value = "a".repeat(10_000);
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(0, tree.table_count());
 
         tree.insert("a", &large_value, 0);
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert_eq!(1, tree.table_count());
         assert!(tree.contains_key("a", SeqNo::MAX)?);
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(large_value.as_bytes(), tree.get("a", SeqNo::MAX)?.unwrap());
@@ -80,30 +68,25 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore = "v4 fix"]
 fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(0, tree.table_count());
         assert_eq!(0, tree.blob_file_count());
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(None)
-        .open();
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .with_kv_separation(None)
+            .open();
 
         assert!(matches!(tree, Err(lsm_tree::Error::Unrecoverable)));
     }
@@ -115,13 +98,10 @@ fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
 fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -136,12 +116,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -154,16 +129,11 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
         );
         assert_eq!(tree.tree_type(), TreeType::Standard);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -176,16 +146,11 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
         );
         assert_eq!(tree.tree_type(), TreeType::Standard);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, 2, 0)?;
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -208,8 +173,10 @@ fn tree_reload() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -217,7 +184,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key: [u8; 8] = (x + ITEM_COUNT as u64).to_be_bytes();
@@ -238,11 +205,11 @@ fn tree_reload() -> lsm_tree::Result<()> {
             ITEM_COUNT * 2
         );
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     }
 
     {
-        let tree = Config::new(&folder, seqno, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(

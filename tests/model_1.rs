@@ -1,37 +1,41 @@
 // Found by model testing
 
-use lsm_tree::{get_tmp_folder, AbstractTree, Result, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, Result};
 use std::sync::Arc;
 use test_log::test;
 
 #[test]
-fn model_1() -> Result<()> {
+fn tree_model_1() -> Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-    let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let value = b"hellohello";
 
     tree.insert(b"a", value, 0);
-    tree.flush_active_memtable(0)?;
 
-    tree.insert(b"b", value, 1);
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
-    tree.remove(b"b", 2);
-    tree.flush_active_memtable(0)?;
+    tree.insert(b"b", value, 2);
 
-    tree.insert(b"c", value, 3);
-    tree.flush_active_memtable(0)?;
-    tree.compact(compaction.clone(), 0)?;
+    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+
+    tree.remove(b"b", 4);
+
+    version_set_provider.flush_active_memtable(&tree, 5, 0)?;
+
+    tree.insert(b"c", value, 6);
+
+    version_set_provider.flush_active_memtable(&tree, 7, 0)?;
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Leveled::default()),
+        8,
+        0,
+    )?;
 
     {
         log::info!(r#"Getting "b""#);

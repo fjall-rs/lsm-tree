@@ -1,4 +1,5 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, MemoryVersionSetProvider};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -8,16 +9,15 @@ fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
 
     let medium_value = b"a".repeat(500);
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("med", &medium_value, 0);
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
     assert_eq!(1, tree.table_count());
     assert_eq!(0, tree.blob_file_count());

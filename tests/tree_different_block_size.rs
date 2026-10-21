@@ -1,6 +1,8 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -9,15 +11,13 @@ const ITEM_COUNT: usize = 1_000;
 fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_size_policy(BlockSizePolicy::all(2_048))
-        // .index_block_size_policy(BlockSizePolicy::all(2_048))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .data_block_size_policy(BlockSizePolicy::all(2_048))
+            // .index_block_size_policy(BlockSizePolicy::all(2_048))
+            .open()?;
 
         let seqno = SequenceNumberCounter::default();
 
@@ -27,44 +27,32 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_size_policy(BlockSizePolicy::all(2_048))
-        // .index_block_size_policy(BlockSizePolicy::all(2_048))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .data_block_size_policy(BlockSizePolicy::all(2_048))
+            // .index_block_size_policy(BlockSizePolicy::all(2_048))
+            .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_size_policy(BlockSizePolicy::all(4_096))
-        // .index_block_size_policy(BlockSizePolicy::all(4_096))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .data_block_size_policy(BlockSizePolicy::all(4_096))
+            // .index_block_size_policy(BlockSizePolicy::all(4_096))
+            .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_size_policy(BlockSizePolicy::all(78_652))
-        // .index_block_size_policy(BlockSizePolicy::all(78_652))
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone())
+            .data_block_size_policy(BlockSizePolicy::all(78_652))
+            // .index_block_size_policy(BlockSizePolicy::all(78_652))
+            .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 

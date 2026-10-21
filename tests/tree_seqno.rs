@@ -1,16 +1,15 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_highest_seqno() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+
     assert_eq!(tree.get_highest_seqno(), None);
     assert_eq!(tree.get_highest_memtable_seqno(), None);
     assert_eq!(tree.get_highest_persisted_seqno(), None);
@@ -35,30 +34,29 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
     assert_eq!(tree.get_highest_memtable_seqno(), Some(3));
     assert_eq!(tree.get_highest_persisted_seqno(), None);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 4, 0)?;
+
     assert_eq!(tree.get_highest_seqno(), Some(3));
     assert_eq!(tree.get_highest_memtable_seqno(), None);
     assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
 
-    tree.insert("a", "a0", 4);
-    assert_eq!(tree.get_highest_seqno(), Some(4));
-    assert_eq!(tree.get_highest_memtable_seqno(), Some(4));
+    tree.insert("a", "a0", 5);
+    assert_eq!(tree.get_highest_seqno(), Some(5));
+    assert_eq!(tree.get_highest_memtable_seqno(), Some(5));
     assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
 
-    tree.rotate_memtable().unwrap();
+    version_set_provider.rotate_active_memtable();
 
-    assert_eq!(tree.get_highest_seqno(), Some(4));
-    assert_eq!(tree.get_highest_memtable_seqno(), Some(4));
+    assert_eq!(tree.get_highest_seqno(), Some(5));
+    assert_eq!(tree.get_highest_memtable_seqno(), Some(5));
     assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
 
-    {
-        let flush_lock = tree.get_flush_lock();
-        assert!(tree.flush(&flush_lock, 0)?.unwrap() > 0);
-    }
+    let flush_result = tree.new_flush(0)?.expect("should flush to table files");
+    version_set_provider.register_flush(flush_result, 6);
 
-    assert_eq!(tree.get_highest_seqno(), Some(4));
+    assert_eq!(tree.get_highest_seqno(), Some(5));
     assert_eq!(tree.get_highest_memtable_seqno(), None);
-    assert_eq!(tree.get_highest_persisted_seqno(), Some(4));
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(5));
 
     Ok(())
 }

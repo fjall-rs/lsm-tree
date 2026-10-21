@@ -1,7 +1,8 @@
 use lsm_tree::{
-    config::CompressionPolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo,
-    SequenceNumberCounter,
+    config::CompressionPolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
+    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
+use std::sync::Arc;
 use test_log::test;
 
 // NOTE: This was a logic/MVCC error in v2 that could drop
@@ -14,7 +15,9 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
         .with_kv_separation(Some(
             KvSeparationOptions::default()
@@ -54,7 +57,7 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
         b"neptune3".repeat(50),
     );
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
@@ -65,8 +68,18 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
         b"neptune3".repeat(50),
     );
 
-    tree.major_compact(u64::MAX, 0)?;
-    tree.major_compact(u64::MAX, 0)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        0,
+    )?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        0,
+    )?;
 
     // IMPORTANT: We cannot drop any blobs yet
     // because the watermark is too low
@@ -87,14 +100,24 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
         b"neptune3".repeat(50),
     );
 
-    tree.major_compact(u64::MAX, 1_000)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        1_000,
+    )?;
 
     {
         let gc_stats = tree.current_version().gc_stats().clone();
         assert!(!gc_stats.is_empty());
     }
 
-    tree.major_compact(u64::MAX, 1_000)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        1_000,
+    )?;
 
     {
         let gc_stats = tree.current_version().gc_stats().clone();

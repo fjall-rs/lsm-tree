@@ -1,18 +1,14 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -37,14 +33,9 @@ fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
 fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -52,7 +43,8 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
     tree.remove_weak("a", 1);
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 2, 0)?;
+
     assert_eq!(1, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
@@ -63,24 +55,22 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
 fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
     assert_eq!(1, tree.table_count());
 
-    tree.remove_weak("a", 1);
+    tree.remove_weak("a", 2);
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+
     assert_eq!(2, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
@@ -91,14 +81,9 @@ fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
 fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "old", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);
@@ -106,7 +91,8 @@ fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
     tree.remove_weak("a", 1);
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 2, 0)?;
+
     assert_eq!(1, tree.table_count());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
@@ -117,24 +103,22 @@ fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
 fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "old", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
     assert_eq!(1, tree.table_count());
 
-    tree.remove_weak("a", 1);
+    tree.remove_weak("a", 2);
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+
     assert_eq!(2, tree.table_count());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
@@ -145,14 +129,9 @@ fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
 fn tree_weak_delete_resurrection() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);

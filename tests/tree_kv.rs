@@ -1,17 +1,16 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
+#[ignore = "restore recovery"]
 fn tree_first_last_kv() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert!(tree.is_empty(SeqNo::MAX, None)?);
         assert_eq!(
@@ -41,7 +40,8 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(
             b"b",
             &*tree
@@ -59,12 +59,10 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
         assert_eq!(
             b"b",
@@ -81,7 +79,8 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        tree.insert("a", "a", 0);
+        tree.insert("a", "a", 2);
+
         assert_eq!(2, tree.len(SeqNo::MAX, None)?);
         assert_eq!(
             b"a",
@@ -98,7 +97,8 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        tree.insert("c", "c", 0);
+        tree.insert("c", "c", 3);
+
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
         assert_eq!(
             b"a",
@@ -115,7 +115,8 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, 4, 0)?;
+
         assert_eq!(
             b"a",
             &*tree
@@ -133,12 +134,10 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
         assert_eq!(
             b"a",

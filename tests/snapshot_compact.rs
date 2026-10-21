@@ -1,13 +1,18 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
-fn snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
+fn tree_snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "a", seqno.next());
 
@@ -16,11 +21,19 @@ fn snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
     tree.insert("a", "b", seqno.next());
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
     assert_eq!(b"b", &*tree.get("a", u64::MAX)?.unwrap());
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
-    tree.major_compact(u64::MAX, 0)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        1,
+        0,
+    )?;
+
     assert_eq!(b"b", &*tree.get("a", u64::MAX)?.unwrap());
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
@@ -28,14 +41,16 @@ fn snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn snapshot_after_compaction_iters() -> lsm_tree::Result<()> {
+fn tree_snapshot_after_compaction_iters() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 100;
 
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -50,8 +65,14 @@ fn snapshot_after_compaction_iters() -> lsm_tree::Result<()> {
         tree.insert(key, "abc".as_bytes(), seqno.next());
     }
 
-    tree.flush_active_memtable(0)?;
-    tree.major_compact(u64::MAX, 0)?;
+    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        2,
+        0,
+    )?;
 
     assert_eq!(tree.len(seqno.get(), None)?, ITEM_COUNT);
 

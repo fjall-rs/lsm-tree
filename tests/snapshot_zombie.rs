@@ -1,4 +1,7 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 5;
@@ -9,15 +12,17 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
         tree.insert(key, "abc".as_bytes(), seqno.next());
     }
 
-    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
-    assert_eq!(tree.iter(SeqNo::MAX, None).rev().count(), ITEM_COUNT);
+    assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
+    assert_eq!(ITEM_COUNT, tree.iter(SeqNo::MAX, None).rev().count());
 
     {
         let snapshot_seqno = seqno.get();
@@ -30,8 +35,8 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
         tree.remove(key, seqno.next());
     }
 
-    assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-    assert_eq!(tree.iter(SeqNo::MAX, None).rev().count(), 0);
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+    assert_eq!(0, tree.iter(SeqNo::MAX, None).rev().count());
 
     {
         let snapshot_seqno = seqno.get();
@@ -48,18 +53,20 @@ fn snapshot_zombie_table() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
     {
-        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
             tree.insert(key, "abc".as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-        assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
-        assert_eq!(tree.iter(SeqNo::MAX, None).rev().count(), ITEM_COUNT);
+        assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
+        assert_eq!(ITEM_COUNT, tree.iter(SeqNo::MAX, None).rev().count());
 
         {
             let snapshot_seqno = seqno.get();
@@ -72,10 +79,10 @@ fn snapshot_zombie_table() -> lsm_tree::Result<()> {
             tree.remove(key, seqno.next());
         }
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-        assert_eq!(tree.iter(SeqNo::MAX, None).rev().count(), 0);
+        assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+        assert_eq!(0, tree.iter(SeqNo::MAX, None).rev().count());
 
         {
             let snapshot_seqno = seqno.get();
@@ -86,10 +93,10 @@ fn snapshot_zombie_table() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-        assert_eq!(tree.iter(SeqNo::MAX, None).rev().count(), 0);
+        assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+        assert_eq!(0, tree.iter(SeqNo::MAX, None).rev().count());
 
         {
             let snapshot_seqno = seqno.get();
