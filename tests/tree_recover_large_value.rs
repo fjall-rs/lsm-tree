@@ -21,7 +21,7 @@ fn tree_recover_large_value() -> lsm_tree::Result<()> {
 
         assert_eq!(
             &*tree.get("a", SeqNo::MAX)?.expect("should exist"),
-            "a".repeat(100_000).as_bytes()
+            "a".repeat(100_000).as_bytes(),
         );
     }
 

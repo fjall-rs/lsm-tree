@@ -53,13 +53,13 @@ fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     assert_eq!(
         50,
         tree.range((50u64.to_be_bytes()).., SeqNo::MAX, None)
-            .count()
+            .count(),
     );
     assert_eq!(
         50,
         tree.range((50u64.to_be_bytes()).., SeqNo::MAX, None)
             .rev()
-            .count()
+            .count(),
     );
 
     assert_eq!(
@@ -67,7 +67,7 @@ fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
         tree.range(
             (50u64.to_be_bytes())..(150u64.to_be_bytes()),
             SeqNo::MAX,
-            None
+            None,
         )
         .count()
     );
@@ -76,7 +76,7 @@ fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
         tree.range(
             (50u64.to_be_bytes())..(150u64.to_be_bytes()),
             SeqNo::MAX,
-            None
+            None,
         )
         .rev()
         .count()

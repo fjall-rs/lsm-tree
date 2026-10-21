@@ -102,14 +102,14 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
             tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-            ITEM_COUNT * 2
+            ITEM_COUNT * 2,
         );
         assert_eq!(
             tree.iter(SeqNo::MAX, None)
                 .rev()
                 .flat_map(|x| x.key())
                 .count(),
-            ITEM_COUNT * 2
+            ITEM_COUNT * 2,
         );
 
         version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
@@ -123,14 +123,14 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
             tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-            ITEM_COUNT * 2
+            ITEM_COUNT * 2,
         );
         assert_eq!(
             tree.iter(SeqNo::MAX, None)
                 .rev()
                 .flat_map(|x| x.key())
                 .count(),
-            ITEM_COUNT * 2
+            ITEM_COUNT * 2,
         );
     }
 
