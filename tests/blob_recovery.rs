@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, MemoryVersionSetProvider, SeqNo};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -9,6 +11,7 @@ fn blob_tree_recovery() -> lsm_tree::Result<()> {
 
     let big_value = b"neptune!".repeat(4_096);
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -16,20 +19,20 @@ fn blob_tree_recovery() -> lsm_tree::Result<()> {
             .with_kv_separation(Some(Default::default()))
             .open()?;
 
-        tree.insert("big", &big_value, 0);
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        tree.insert("big", &big_value, seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-        tree.insert("big", &big_value, 2);
-        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+        tree.insert("big", &big_value, seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-        tree.insert("big", &big_value, 4);
-        version_set_provider.flush_active_memtable(&tree, 5, 0)?;
+        tree.insert("big", &big_value, seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-        tree.insert("big", &big_value, 6);
-        version_set_provider.flush_active_memtable(&tree, 7, 0)?;
+        tree.insert("big", &big_value, seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-        tree.insert("big", &big_value, 8);
-        version_set_provider.flush_active_memtable(&tree, 9, 0)?;
+        tree.insert("big", &big_value, seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert!(!tree.is_empty(SeqNo::MAX, None)?);
         assert_eq!(5, tree.blob_file_count());

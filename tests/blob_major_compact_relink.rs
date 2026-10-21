@@ -1,5 +1,6 @@
 use lsm_tree::{
     get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -11,6 +12,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
 
     let big_value = b"neptune!".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -21,13 +23,14 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("smol", "small value", 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("smol", "small value", batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
@@ -46,12 +49,12 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 .list_blob_file_references()?,
         );
 
-        version_set_provider.flush_active_memtable(&tree, 2, 1)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 1)?;
 
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            6,
+            seqno.next(),
             1_000,
         )?;
 

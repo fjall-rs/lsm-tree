@@ -21,11 +21,11 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
             tree.insert(k.to_be_bytes(), "abc", seqno.next());
         }
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            2,
+            seqno.next(),
             0,
         )?;
 
@@ -55,7 +55,7 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            2,
+            seqno.next(),
             0,
         )?;
 
@@ -87,10 +87,11 @@ fn tree_filter_hit_rate_hit() -> lsm_tree::Result<()> {
 
     let tree = Config::new(path, version_set_provider.clone()).open()?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("c", "a", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("c", "a", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert!(tree.get("b", SeqNo::MAX)?.is_none());
     assert_eq!(1, tree.metrics().filter_queries());

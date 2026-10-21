@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 use xxhash_rust::xxh3::xxh3_128;
@@ -7,17 +9,19 @@ use xxhash_rust::xxh3::xxh3_128;
 fn tree_table_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
+        let batch_seqno = seqno.next();
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
-            tree.insert(key, value.as_bytes(), 0);
+            tree.insert(key, value.as_bytes(), batch_seqno);
         }
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
@@ -51,17 +55,19 @@ fn tree_table_full_file_checksum() -> lsm_tree::Result<()> {
 fn tree_table_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
+        let batch_seqno = seqno.next();
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
-            tree.insert(key, value.as_bytes(), 0);
+            tree.insert(key, value.as_bytes(), batch_seqno);
         }
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();

@@ -2,6 +2,7 @@
 
 use lsm_tree::{
     get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, Result,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -13,6 +14,7 @@ fn model_2() -> Result<()> {
 
     let path = folder.path();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(path, version_set_provider.clone())
@@ -22,21 +24,21 @@ fn model_2() -> Result<()> {
 
     let value = b"hellohello";
 
-    tree.insert("a", value, 3);
-    version_set_provider.flush_active_memtable(&tree, 4, 0)?;
-    tree.compact(compaction.clone(), 0)?;
+    tree.insert("a", value, seqno.next());
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+    tree.compact(compaction.clone(), seqno.next())?;
     assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
-    tree.insert("b", value, 5);
-    version_set_provider.flush_active_memtable(&tree, 6, 0)?;
-    tree.compact(compaction.clone(), 0)?;
+    tree.insert("b", value, seqno.next());
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+    tree.compact(compaction.clone(), seqno.next())?;
     assert_eq!(2, tree.table_count());
     assert_eq!(2, tree.blob_file_count());
 
-    tree.insert("a", value, 7);
-    version_set_provider.flush_active_memtable(&tree, 8, 0)?;
-    tree.compact(compaction.clone(), 0)?;
+    tree.insert("a", value, seqno.next());
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+    tree.compact(compaction.clone(), seqno.next())?;
     assert_eq!(3, tree.table_count());
     assert_eq!(3, tree.blob_file_count());
 

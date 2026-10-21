@@ -2,12 +2,14 @@
 fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()> {
     use lsm_tree::{
         get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+        SequenceNumberCounter,
     };
     use std::sync::Arc;
 
     let folder = get_tmp_folder();
     let path = folder.path();
 
+    let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(4_096);
 
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
@@ -23,28 +25,29 @@ fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()>
             ))
             .open()?;
 
-        tree.insert("a", &big_value, 0);
-        tree.insert("b", b"smol", 0);
+        let batch_seqno = seqno.next();
+        tree.insert("a", &big_value, batch_seqno);
+        tree.insert("b", b"smol", batch_seqno);
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.remove("b", 2);
+        tree.remove("b", seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
-            4,
+            seqno.next(),
             1_000,
         )?;
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
-            5,
+            seqno.next(),
             1_000,
         )?;
 
@@ -77,12 +80,14 @@ fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()>
 fn blob_tree_major_compact_relocation_recovery() -> lsm_tree::Result<()> {
     use lsm_tree::{
         get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+        SequenceNumberCounter,
     };
     use std::sync::Arc;
 
     let folder = get_tmp_folder();
     let path = folder.path();
 
+    let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(4_096);
 
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
@@ -98,28 +103,29 @@ fn blob_tree_major_compact_relocation_recovery() -> lsm_tree::Result<()> {
             ))
             .open()?;
 
-        tree.insert("a", &big_value, 0);
-        tree.insert("b", b"smol", 0);
+        let batch_seqno = seqno.next();
+        tree.insert("a", &big_value, batch_seqno);
+        tree.insert("b", b"smol", batch_seqno);
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.remove("b", 2);
+        tree.remove("b", seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
-            4,
+            seqno.next(),
             1_000,
         )?;
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
-            5,
+            seqno.next(),
             1_000,
         )?;
 

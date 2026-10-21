@@ -1,6 +1,6 @@
 use lsm_tree::{
     blob_tree::FragmentationEntry, get_tmp_folder, AbstractTree, KvSeparationOptions,
-    MemoryVersionSetProvider, SeqNo,
+    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -13,6 +13,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let new_big_value = b"winter!".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -24,37 +25,37 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
 
-        tree.insert("big", &big_value, 0);
+        tree.insert("big", &big_value, seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.insert("big", &big_value, 2);
+        tree.insert("big", &big_value, seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(2, tree.table_count());
         assert_eq!(2, tree.blob_file_count());
 
-        tree.insert("big", &big_value, 4);
+        tree.insert("big", &big_value, seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 5, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(3, tree.table_count());
         assert_eq!(3, tree.blob_file_count());
 
-        tree.insert("big", &big_value, 6);
+        tree.insert("big", &big_value, seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 7, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(4, tree.table_count());
         assert_eq!(4, tree.blob_file_count());
 
-        tree.insert("big", &new_big_value, 8);
+        tree.insert("big", &new_big_value, seqno.next());
 
-        version_set_provider.flush_active_memtable(&tree, 9, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(5, tree.table_count());
         assert_eq!(5, tree.blob_file_count());
@@ -71,7 +72,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            10,
+            seqno.next(),
             1_000,
         )?;
 
@@ -101,7 +102,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            11,
+            seqno.next(),
             1_000,
         )?;
 

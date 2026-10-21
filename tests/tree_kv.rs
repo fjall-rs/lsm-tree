@@ -1,4 +1,7 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -6,6 +9,8 @@ use test_log::test;
 #[ignore = "restore recovery"]
 fn tree_first_last_kv() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
+
+    let seqno = SequenceNumberCounter::default();
 
     {
         let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
@@ -24,7 +29,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             None
         );
 
-        tree.insert("b", "b", 0);
+        tree.insert("b", "b", seqno.next());
         assert_eq!(
             b"b",
             &*tree
@@ -40,7 +45,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(
             b"b",
@@ -79,7 +84,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        tree.insert("a", "a", 2);
+        tree.insert("a", "a", seqno.next());
 
         assert_eq!(2, tree.len(SeqNo::MAX, None)?);
         assert_eq!(
@@ -97,7 +102,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        tree.insert("c", "c", 3);
+        tree.insert("c", "c", seqno.next());
 
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
         assert_eq!(
@@ -115,7 +120,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
                 .unwrap()
         );
 
-        version_set_provider.flush_active_memtable(&tree, 4, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(
             b"a",

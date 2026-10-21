@@ -1,5 +1,6 @@
 use lsm_tree::{
     config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -8,6 +9,7 @@ use test_log::test;
 fn tree_non_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
@@ -15,46 +17,53 @@ fn tree_non_disjoint_point_read() -> lsm_tree::Result<()> {
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("c", "c", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("c", "c", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("d", "d", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("d", "d", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("e", "e", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("e", "e", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("f", "f", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("f", "f", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("g", "g", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("g", "g", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("h", "h", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("h", "h", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("z", "z", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("z", "z", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     tree.get("c", SeqNo::MAX).unwrap().unwrap();
     tree.get("d", SeqNo::MAX).unwrap().unwrap();

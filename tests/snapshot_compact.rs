@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -17,24 +17,24 @@ fn tree_snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
     tree.insert("a", "a", seqno.next());
 
     let snapshot_seqno = seqno.get();
-    assert_eq!(b"a", &*tree.get("a", u64::MAX)?.unwrap());
+    assert_eq!(b"a", &*tree.get("a", SeqNo::MAX)?.unwrap());
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
     tree.insert("a", "b", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    assert_eq!(b"b", &*tree.get("a", u64::MAX)?.unwrap());
+    assert_eq!(b"b", &*tree.get("a", SeqNo::MAX)?.unwrap());
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1,
+        seqno.next(),
         0,
     )?;
 
-    assert_eq!(b"b", &*tree.get("a", u64::MAX)?.unwrap());
+    assert_eq!(b"b", &*tree.get("a", SeqNo::MAX)?.unwrap());
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
     Ok(())
@@ -65,12 +65,12 @@ fn tree_snapshot_after_compaction_iters() -> lsm_tree::Result<()> {
         tree.insert(key, "abc".as_bytes(), seqno.next());
     }
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        2,
+        seqno.next(),
         0,
     )?;
 

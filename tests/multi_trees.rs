@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -8,6 +10,7 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     let folder0 = get_tmp_folder();
     let folder1 = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree0 = Config::new(&folder0, version_set_provider.clone()).open()?;
@@ -15,9 +18,9 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
 
     assert_eq!(0, tree0.next_table_id());
 
-    tree0.insert("a", "a", 0);
+    tree0.insert("a", "a", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree0, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree0, seqno.next(), 0)?;
 
     assert_eq!(2, tree0.next_table_id());
 
@@ -42,9 +45,9 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
 
     assert_eq!(0, tree1.next_table_id());
 
-    tree1.insert("a", "a", 0);
+    tree1.insert("a", "a", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree1, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree1, seqno.next(), 0)?;
 
     assert_eq!(2, tree1.next_table_id());
 

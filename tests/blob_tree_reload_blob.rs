@@ -11,6 +11,7 @@ const ITEM_COUNT: usize = 10_000;
 fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -48,7 +49,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
         );
         assert_eq!(tree.tree_type(), TreeType::Blob);
 
-        version_set_provider.flush_active_memtable(&tree, 0, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     }
 
     {

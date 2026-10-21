@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, MemoryVersionSetProvider, SeqNo};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -6,39 +8,44 @@ use test_log::test;
 fn tree_l0_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("b", "b", 0);
-    tree.insert("c", "c", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("b", "b", batch_seqno);
+    tree.insert("c", "c", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "a", 1);
-    tree.insert("b", "b", 1);
-    tree.insert("c", "c", 1);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("b", "b", batch_seqno);
+    tree.insert("c", "c", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("a", "A", 2);
-    tree.insert("b", "B", 2);
-    tree.insert("c", "C", 2);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "A", batch_seqno);
+    tree.insert("b", "B", batch_seqno);
+    tree.insert("c", "C", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("d", "d", 3);
-    tree.insert("e", "e", 3);
-    tree.insert("f", "f", 3);
+    let batch_seqno = seqno.next();
+    tree.insert("d", "d", batch_seqno);
+    tree.insert("e", "e", batch_seqno);
+    tree.insert("f", "f", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.insert("g", "g", 3);
+    tree.insert("g", "g", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(b"A", &*tree.get("a", SeqNo::MAX)?.unwrap());
     assert_eq!(b"B", &*tree.get("b", SeqNo::MAX)?.unwrap());

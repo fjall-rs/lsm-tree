@@ -1,5 +1,6 @@
 use lsm_tree::{
     get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -9,6 +10,7 @@ use xxhash_rust::xxh3::xxh3_128;
 fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -16,12 +18,13 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
             .open()?;
 
+        let batch_seqno = seqno.next();
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
-            tree.insert(key, value.as_bytes(), 0);
+            tree.insert(key, value.as_bytes(), batch_seqno);
         }
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
@@ -57,6 +60,7 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
 fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -64,12 +68,13 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
             .open()?;
 
+        let batch_seqno = seqno.next();
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
-            tree.insert(key, value.as_bytes(), 0);
+            tree.insert(key, value.as_bytes(), batch_seqno);
         }
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();

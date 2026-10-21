@@ -1,4 +1,7 @@
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider, SeqNo};
+use lsm_tree::{
+    AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
 use std::{path::Path, sync::Arc};
 use test_log::test;
 
@@ -27,6 +30,7 @@ fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     copy_dir_all(folder, &dir)?;
 
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let seqno = SequenceNumberCounter::new(1_000);
 
     let tree = Config::new(dir.path(), version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -40,37 +44,37 @@ fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_000,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_001,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_002,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_003,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_004,
+        seqno.next(),
         SeqNo::MAX,
     )?;
 
-    tree.insert("a", "def", 1_005);
+    tree.insert("a", "def", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree, 1_006, SeqNo::MAX)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), SeqNo::MAX)?;
 
     assert_eq!(
         Some(b"def".as_slice()),
@@ -80,31 +84,31 @@ fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_007,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_008,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_009,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_010,
+        seqno.next(),
         SeqNo::MAX,
     )?;
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1_011,
+        seqno.next(),
         SeqNo::MAX,
     )?;
 

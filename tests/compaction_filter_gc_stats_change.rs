@@ -4,6 +4,7 @@ use lsm_tree::{
         CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
     get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -44,6 +45,7 @@ fn compaction_filter_gc_stats_change() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let other_big_value = b"asdasd".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -55,13 +57,14 @@ fn compaction_filter_gc_stats_change() -> lsm_tree::Result<()> {
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("changethis", &other_big_value, 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("changethis", &other_big_value, batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
@@ -69,7 +72,7 @@ fn compaction_filter_gc_stats_change() -> lsm_tree::Result<()> {
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            2,
+            seqno.next(),
             1_000,
         )?;
 
@@ -134,6 +137,7 @@ fn compaction_filter_gc_stats_change_non_blob() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let small_value = b"asdasd";
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -145,13 +149,14 @@ fn compaction_filter_gc_stats_change_non_blob() -> lsm_tree::Result<()> {
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("changethis", small_value, 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("changethis", small_value, batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
@@ -159,7 +164,7 @@ fn compaction_filter_gc_stats_change_non_blob() -> lsm_tree::Result<()> {
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            2,
+            seqno.next(),
             1_000,
         )?;
 
@@ -216,6 +221,7 @@ fn compaction_filter_gc_stats_change_blob_writer_rotation() -> lsm_tree::Result<
     let big_value = b"neptune!".repeat(128_000);
     let other_big_value = b"asdasd".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -229,14 +235,15 @@ fn compaction_filter_gc_stats_change_blob_writer_rotation() -> lsm_tree::Result<
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("changethis", &other_big_value, 0);
-        tree.insert("changethis2", &other_big_value, 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("changethis", &other_big_value, batch_seqno);
+        tree.insert("changethis2", &other_big_value, batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        version_set_provider.flush_active_memtable(&tree, 2, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(3, tree.blob_file_count());
@@ -244,7 +251,7 @@ fn compaction_filter_gc_stats_change_blob_writer_rotation() -> lsm_tree::Result<
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
-            2,
+            seqno.next(),
             1_000,
         )?;
 

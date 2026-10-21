@@ -11,14 +11,15 @@ const ITEM_COUNT: usize = 10_000;
 fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone()).open()?;
         assert_eq!(0, tree.table_count());
 
-        tree.insert("a", "a", 0);
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        tree.insert("a", "a", seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert!(tree.contains_key("a", SeqNo::MAX)?);
@@ -37,6 +38,7 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
 fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let large_value = "a".repeat(10_000);
 
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
@@ -48,8 +50,8 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
 
         assert_eq!(0, tree.table_count());
 
-        tree.insert("a", &large_value, 0);
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        tree.insert("a", &large_value, seqno.next());
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert!(tree.contains_key("a", SeqNo::MAX)?);
@@ -98,6 +100,7 @@ fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
 fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
@@ -129,7 +132,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
         );
         assert_eq!(tree.tree_type(), TreeType::Standard);
 
-        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     }
 
     {
@@ -146,7 +149,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
         );
         assert_eq!(tree.tree_type(), TreeType::Standard);
 
-        version_set_provider.flush_active_memtable(&tree, 2, 0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     }
 
     {

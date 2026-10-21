@@ -9,6 +9,7 @@ use test_log::test;
 fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
@@ -17,22 +18,22 @@ fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
     let value = "oldvalue".as_bytes();
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-    tree.insert(key, value, 0);
+    tree.insert(key, value, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
     let value = "newvalue".as_bytes();
 
-    tree.insert(key, value, 2);
+    tree.insert(key, value, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
@@ -44,6 +45,7 @@ fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
 fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
@@ -54,22 +56,22 @@ fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
     let value = "oldvalue".as_bytes();
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-    tree.insert(key, value, 0);
+    tree.insert(key, value, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
     let value = "newvalue".as_bytes();
 
-    tree.insert(key, value, 2);
+    tree.insert(key, value, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
@@ -81,6 +83,7 @@ fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
 fn tree_shadowing_delete() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
@@ -89,20 +92,20 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
     let value = "oldvalue".as_bytes();
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-    tree.insert(key, value, 0);
+    tree.insert(key, value, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    tree.remove(key, 2);
+    tree.remove(key, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.get(key, SeqNo::MAX)?.is_none());
 
-    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.get(key, SeqNo::MAX)?.is_none());
@@ -113,6 +116,7 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
 #[test]
 fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
@@ -123,20 +127,20 @@ fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
     let value = "oldvalue".as_bytes();
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-    tree.insert(key, value, 0);
+    tree.insert(key, value, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert_eq!(tree.get(key, SeqNo::MAX)?, Some(value.into()));
 
-    tree.remove(key, 2);
+    tree.remove(key, seqno.next());
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.get(key, SeqNo::MAX)?.is_none());
 
-    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.get(key, SeqNo::MAX)?.is_none());

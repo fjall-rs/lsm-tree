@@ -23,9 +23,9 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
     for _ in 0..ITEM_COUNT {
         tree.insert("a", "", seqno.next());
     }
-    tree.insert("b", "", 0);
+    tree.insert("b", "", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     let version = tree.current_version();
 
@@ -62,9 +62,9 @@ fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     for _ in 0..ITEM_COUNT {
         tree.insert("a", "neptune".repeat(10_000), seqno.next());
     }
-    tree.insert("b", "", 0);
+    tree.insert("b", "", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     let version = tree.current_version();
 
