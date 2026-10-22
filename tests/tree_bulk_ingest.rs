@@ -1,6 +1,8 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, MemoryVersionSetProvider,
+    SeqNo, SequenceNumberCounter,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 100_000;
@@ -10,9 +12,9 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let visible_seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let mut ingestion = tree.ingestion()?;
     for x in 0..ITEM_COUNT as u64 {
@@ -20,9 +22,13 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    ingestion.finish()?;
-
-    assert_eq!(visible_seqno.get(), seqno.get());
+    let (ingestion_result, ingestion_seqno) = ingestion
+        .finish(
+            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -43,11 +49,10 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 #[test]
 fn tree_copy() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
-
     let seqno = SequenceNumberCounter::default();
-    let visible_seqno = SequenceNumberCounter::default();
+    let source_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let src = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+    let src = Config::new(&folder, source_version_set_provider.clone()).open()?;
 
     let mut ingestion = src.ingestion()?;
     for x in 0..ITEM_COUNT as u64 {
@@ -55,9 +60,13 @@ fn tree_copy() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    ingestion.finish()?;
-
-    assert_eq!(visible_seqno.get(), seqno.get());
+    let (ingestion_result, ingestion_seqno) = ingestion
+        .finish(
+            || source_version_set_provider.flush_active_memtable(&src, seqno.next(), 0),
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    source_version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -73,16 +82,21 @@ fn tree_copy() -> lsm_tree::Result<()> {
     );
 
     let folder = get_tmp_folder();
-    let dest = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+    let dest_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let dest = Config::new(&folder, dest_version_set_provider.clone()).open()?;
 
     let mut ingestion = dest.ingestion()?;
     for item in src.iter(SeqNo::MAX, None) {
         let (k, v) = item.into_inner().unwrap();
         ingestion.write(k, v)?;
     }
-    ingestion.finish()?;
-
-    assert_eq!(visible_seqno.get(), seqno.get());
+    let (ingestion_result, ingestion_seqno) = ingestion
+        .finish(
+            || dest_version_set_provider.flush_active_memtable(&dest, seqno.next(), 0),
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    dest_version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -105,9 +119,9 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let visible_seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone())
+    let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -117,9 +131,13 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    ingestion.finish()?;
-
-    assert_eq!(visible_seqno.get(), seqno.get());
+    let (ingestion_result, ingestion_seqno) = ingestion
+        .finish(
+            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -143,9 +161,9 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let visible_seqno = SequenceNumberCounter::default();
+    let source_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let src = Config::new(&folder, seqno.clone(), visible_seqno.clone())
+    let src = Config::new(&folder, source_version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -155,9 +173,13 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    ingestion.finish()?;
-
-    assert_eq!(visible_seqno.get(), seqno.get());
+    let (ingestion_result, ingestion_seqno) = ingestion
+        .finish(
+            || source_version_set_provider.flush_active_memtable(&src, seqno.next(), 0),
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    source_version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -174,7 +196,8 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(1, src.blob_file_count());
 
     let folder = get_tmp_folder();
-    let dest = Config::new(&folder, seqno.clone(), visible_seqno.clone())
+    let dest_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let dest = Config::new(&folder, dest_version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -183,9 +206,13 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         let (k, v) = item.into_inner().unwrap();
         ingestion.write(k, v)?;
     }
-    ingestion.finish()?;
-
-    assert_eq!(visible_seqno.get(), seqno.get());
+    let (ingestion_result, ingestion_seqno) = ingestion
+        .finish(
+            || dest_version_set_provider.flush_active_memtable(&dest, seqno.next(), 0),
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    dest_version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
