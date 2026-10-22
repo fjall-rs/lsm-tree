@@ -210,47 +210,6 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
-        let (bounds, is_empty) = Self::range_bounds_to_owned_bounds(&range);
-
-        if is_empty {
-            return Ok(());
-        }
-
-        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
-
-        // IMPORTANT: Write lock so we can be the only compaction going on
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let _lock = self
-            .0
-            .major_compaction_lock
-            .write()
-            .expect("lock is poisoned");
-
-        log::info!("Starting drop_range compaction");
-        self.inner_compact(strategy, 0)
-    }
-
-    fn clear(&self) -> crate::Result<()> {
-        let config = self.tree_config();
-        // let mut versions = self.get_version_history_lock();
-
-        /*versions.upgrade_version(
-            &config.path,
-            |v| {
-                let mut copy = v.clone();
-                copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
-                copy.sealed_memtables = Arc::default();
-                copy.version = Version::new(v.version.id() + 1, self.tree_type());
-                Ok(copy)
-            },
-            &config.seqno,
-            &config.visible_seqno,
-        )*/
-
-        todo!()
-    }
-
     /// TODO: WIP
     fn run_compaction(
         &self,
@@ -591,43 +550,6 @@ impl Tree {
         self.tree_config()
             .version_set_provider
             .get_version_for_seqno(seqno)
-    }
-
-    /// Normalizes a user-provided range into owned `Bound<Slice>` values.
-    ///
-    /// Returns a tuple containing:
-    /// - the `OwnedBounds` that mirror the original bounds semantics (including
-    ///   inclusive/exclusive markers and unbounded endpoints), and
-    /// - a `bool` flag indicating whether the normalized range is logically
-    ///   empty (e.g., when the lower bound is greater than the upper bound).
-    ///
-    /// Callers can use the flag to detect empty ranges and skip further work
-    /// while still having access to the normalized bounds for non-empty cases.
-    fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        range: &R,
-    ) -> (OwnedBounds, bool) {
-        use Bound::{Excluded, Included, Unbounded};
-
-        let start = match range.start_bound() {
-            Included(key) => Included(Slice::from(key.as_ref())),
-            Excluded(key) => Excluded(Slice::from(key.as_ref())),
-            Unbounded => Unbounded,
-        };
-
-        let end = match range.end_bound() {
-            Included(key) => Included(Slice::from(key.as_ref())),
-            Excluded(key) => Excluded(Slice::from(key.as_ref())),
-            Unbounded => Unbounded,
-        };
-
-        let is_empty =
-            if let (Included(lo) | Excluded(lo), Included(hi) | Excluded(hi)) = (&start, &end) {
-                lo.as_ref() > hi.as_ref()
-            } else {
-                false
-            };
-
-        (OwnedBounds { start, end }, is_empty)
     }
 
     /// Opens an LSM-tree in the given directory.

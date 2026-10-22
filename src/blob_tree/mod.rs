@@ -251,31 +251,6 @@ impl AbstractTree for BlobTree {
         self.index.weak_tombstone_reclaimable_count()
     }
 
-    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
-        self.index.drop_range(range)
-    }
-
-    fn clear(&self) -> crate::Result<()> {
-        let config = self.tree_config();
-        // let mut versions = self.get_version_history_lock();
-
-        /*versions.upgrade_version(
-            &config.path,
-            |v| {
-                let mut copy = v.clone();
-                copy.active_memtable =
-                    Arc::new(Memtable::new(self.index.memtable_id_counter.next()));
-                copy.sealed_memtables = Arc::default();
-                copy.version = Version::new(v.version.id() + 1, self.tree_type());
-                Ok(copy)
-            },
-            &config.seqno,
-            &config.visible_seqno,
-        )*/
-
-        todo!()
-    }
-
     fn l0_run_count(&self) -> usize {
         self.index.l0_run_count()
     }

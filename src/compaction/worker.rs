@@ -629,28 +629,6 @@ fn drop_tables(
 
     log::debug!("Dropping tables: {ids_to_drop:?}");
 
-    let mut dropped_blob_files = Vec::<BlobFile>::new();
-
-    /*
-    // NOTE: If the application were to crash >here< it's fine
-    // The tables are not referenced anymore, and will be
-    // cleaned up upon recovery
-    for table in tables {
-        table.mark_as_deleted();
-    }
-
-    for blob_file in dropped_blob_files {
-        blob_file.mark_as_deleted();
-    }
-
-    drop(compaction_state);
-
-    log::trace!("Dropped {} tables", ids_to_drop.len());
-
-    Ok(())*/
-
-    // TODO: dropped blob files etc.
-
     NewCompactionResult {
         inner: CompactionOperation::Drop { tables },
         version_edit: VersionEdit::new(vec![EditRecord::DropTables(ids_to_drop.to_vec())]),

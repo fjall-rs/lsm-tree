@@ -103,24 +103,6 @@ pub trait AbstractTree {
     /// Returns the approximate number of values reclaimable once weak tombstones can be GC'd.
     fn weak_tombstone_reclaimable_count(&self) -> u64;
 
-    /// Drops tables that are fully contained in a given range.
-    ///
-    /// Accepts any `RangeBounds`, including unbounded or exclusive endpoints.
-    /// If the normalized lower bound is greater than the upper bound, the
-    /// method returns without performing any work.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` only if an IO error occurs.
-    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()>;
-
-    /// Drops all tables and clears all memtables atomically.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` only if an IO error occurs.
-    fn clear(&self) -> crate::Result<()>;
-
     /// Returns the disk space used by stale blobs.
     fn stale_blob_bytes(&self) -> u64 {
         0
