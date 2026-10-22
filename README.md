@@ -12,7 +12,7 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 
 > [!NOTE]
 > This crate only provides a primitive LSM-tree, not a full storage engine.
-> For example, it does not ship with a write-ahead log.
+> Most importantly, it does not ship with a persistence (e.g. write-ahead log).
 > You probably want to use https://github.com/fjall-rs/fjall instead.
 
 ## About
