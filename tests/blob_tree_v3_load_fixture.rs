@@ -1,6 +1,6 @@
 use lsm_tree::{
-    AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
-    SequenceNumberCounter,
+    AbstractTree, Cache, Config, DescriptorTable, KvSeparationOptions, MemoryVersionSetProvider,
+    SeqNo, SequenceNumberCounter,
 };
 use std::{path::Path, sync::Arc};
 use test_log::test;
@@ -21,7 +21,6 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result
 
 // v4 supports v3 blob files, so we need to check
 #[test]
-#[ignore = "create a new provider that reads v3 manifest etc. (we need to provide loading v3 manifests as lsm_tree::legacy anyway)"]
 fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     let dir = tempfile::tempdir()?;
     let folder = Path::new("test_fixture/v3_blob_tree");
@@ -29,7 +28,15 @@ fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     // Copy the fixture data, so we can safely mutate it
     copy_dir_all(folder, &dir)?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let cache = Arc::new(Cache::with_capacity_bytes(1_000));
+    let descriptor_table = Arc::new(DescriptorTable::new(10));
+
+    let current_version = lsm_tree::legacy::v3::load_manifest(&dir, &cache, &descriptor_table)?;
+
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::with_initial_version(
+        current_version,
+    ));
+
     let seqno = SequenceNumberCounter::new(1_000);
 
     let tree = Config::new(dir.path(), version_set_provider.clone())

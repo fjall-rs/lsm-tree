@@ -4,8 +4,8 @@
 
 use super::Tree;
 use crate::{
-    config::FilterPolicyEntry, table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey,
-    UserValue,
+    abstract_tree::NewFlushToTablesResult, config::FilterPolicyEntry,
+    table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey, UserValue,
 };
 use std::path::PathBuf;
 
@@ -229,12 +229,16 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn finish(self) -> crate::Result<()> {
+    pub fn finish(
+        self,
+        maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
+        get_seqno: impl FnOnce() -> SeqNo,
+    ) -> crate::Result<Option<(NewFlushToTablesResult, SeqNo)>> {
         use crate::{AbstractTree, Table};
 
         if self.last_key.is_none() {
             log::trace!("No data written to Ingestion, returning early");
-            return Ok(());
+            return Ok(None);
         }
 
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
@@ -260,7 +264,7 @@ impl<'a> Ingestion<'a> {
         // consistent snapshot and lookup order remains correct.
         // We call rotate + flush directly because we already hold the lock.
         // self.tree.rotate_memtable();
-        todo!();
+        maybe_rotate_and_flush()?;
 
         // self.tree.flush(&flush_lock, 0)?;
 
@@ -278,7 +282,7 @@ impl<'a> Ingestion<'a> {
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables and the version that registers them, ensuring
         // consistent MVCC snapshots.
-        let global_seqno = todo!();
+        let global_seqno = get_seqno();
 
         // Recover all created tables, assigning them the global_seqno we just
         // allocated. This ensures all ingested tables share the same sequence
@@ -287,7 +291,7 @@ impl<'a> Ingestion<'a> {
         // We intentionally do NOT pin filter/index blocks here. Large ingests
         // are typically placed in level 1, and pinning would increase memory
         // pressure unnecessarily.
-        let created_tables = results
+        let tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
                 Table::recover(
@@ -329,6 +333,15 @@ impl<'a> Ingestion<'a> {
             log::warn!("Version GC failed: {e:?}");
         }*/
 
-        Ok(())
+        Ok(Some((
+            NewFlushToTablesResult {
+                tables,
+                blob_files: None,
+                evicted_sealed_memtables: Vec::new(),
+                flushed_size: 0,
+                frag_map: None,
+            },
+            global_seqno,
+        )))
     }
 }

@@ -93,6 +93,10 @@ pub mod descriptor_table;
 #[doc(hidden)]
 pub mod file_accessor;
 
+/// Compatibility helpers for loading manifests from older on-disk formats.
+#[doc(hidden)]
+pub mod legacy;
+
 mod double_ended_peekable;
 mod error;
 

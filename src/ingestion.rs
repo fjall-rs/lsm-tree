@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::ingest::BlobIngestion, tree::ingest::Ingestion, AnyTree, UserKey, UserValue,
+    abstract_tree::NewFlushToTablesResult, blob_tree::ingest::BlobIngestion,
+    tree::ingest::Ingestion, AnyTree, SeqNo, UserKey, UserValue,
 };
 
 /// Unified ingestion builder over `AnyTree`
@@ -80,10 +81,14 @@ impl AnyIngestion<'_> {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn finish(self) -> crate::Result<()> {
+    pub fn finish(
+        self,
+        maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
+        get_seqno: impl FnOnce() -> SeqNo,
+    ) -> crate::Result<Option<(NewFlushToTablesResult, SeqNo)>> {
         match self {
-            Self::Standard(i) => i.finish(),
-            Self::Blob(b) => b.finish(),
+            Self::Standard(i) => i.finish(maybe_rotate_and_flush, get_seqno),
+            Self::Blob(b) => b.finish(maybe_rotate_and_flush, get_seqno),
         }
     }
 }

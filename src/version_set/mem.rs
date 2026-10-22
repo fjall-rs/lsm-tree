@@ -60,11 +60,16 @@ impl Default for MemoryVersionSetProvider {
 }
 
 impl MemoryVersionSetProvider {
-    pub fn new(inner: Arc<RwLock<SuperVersionSet>>) -> Self {
+    fn new(inner: Arc<RwLock<SuperVersionSet>>) -> Self {
         Self {
             inner,
             ..Default::default()
         }
+    }
+
+    #[must_use]
+    pub fn with_initial_version(version: Version) -> Self {
+        Self::new(Arc::new(RwLock::new(SuperVersionSet::new(version))))
     }
 
     #[expect(clippy::unwrap_used)]

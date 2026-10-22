@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER, table::Table,
-    tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey, UserValue,
+    abstract_tree::NewFlushToTablesResult, blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER,
+    table::Table, tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey,
+    UserValue,
 };
 
 /// Bulk ingestion for [`BlobTree`]
@@ -155,7 +156,11 @@ impl<'a> BlobIngestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn finish(self) -> crate::Result<()> {
+    pub fn finish(
+        self,
+        maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
+        get_seqno: impl FnOnce() -> SeqNo,
+    ) -> crate::Result<Option<(NewFlushToTablesResult, SeqNo)>> {
         use crate::AbstractTree;
 
         let index = self.index().clone();
@@ -184,7 +189,8 @@ impl<'a> BlobIngestion<'a> {
         // a consistent snapshot of the index.
         // We call rotate + flush directly because we already hold the lock.
         //index.rotate_memtable();
-        todo!();
+        //todo!();
+        maybe_rotate_and_flush()?;
 
         // index.flush(&flush_lock, 0)?;
 
@@ -206,7 +212,7 @@ impl<'a> BlobIngestion<'a> {
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables, blob files, and the version that registers
         // them, ensuring consistent MVCC snapshots across the value log.
-        let global_seqno = todo!();
+        let global_seqno = get_seqno();
 
         // Recover all created index tables, assigning them the global_seqno
         // we just allocated. These tables contain indirections to the blob
@@ -216,7 +222,7 @@ impl<'a> BlobIngestion<'a> {
         // We intentionally do NOT pin filter/index blocks here. Large ingests
         // are typically placed in level 1, and pinning would increase memory
         // pressure unnecessarily.
-        let created_tables = results
+        let tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
                 Table::recover(
@@ -237,8 +243,6 @@ impl<'a> BlobIngestion<'a> {
                 )
             })
             .collect::<crate::Result<Vec<_>>>()?;
-
-        todo!();
 
         /*  // Upgrade the version with our ingested tables and blob files, using
         // the global_seqno we allocated earlier. This ensures the version,
@@ -268,7 +272,16 @@ impl<'a> BlobIngestion<'a> {
         //    log::warn!("Version GC failed: {e:?}");
         //}
 
-        Ok(())
+        Ok(Some((
+            NewFlushToTablesResult {
+                tables,
+                blob_files: Some(blob_files),
+                evicted_sealed_memtables: Vec::new(),
+                flushed_size: 0,
+                frag_map: None,
+            },
+            global_seqno,
+        )))
     }
 
     #[inline]
