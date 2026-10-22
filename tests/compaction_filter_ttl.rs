@@ -2,7 +2,7 @@ use lsm_tree::{
     compaction::filter::{
         CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
-    AbstractTree, Config, MemoryVersionSetProvider,
+    AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
 };
 use std::sync::{
     atomic::{AtomicU64, Ordering::Relaxed},
@@ -48,49 +48,50 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
     let watermark: Arc<AtomicU64> = Arc::default();
     let factory = TtlFilterFactory(watermark.clone());
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(folder, version_set_provider.clone())
         .with_compaction_filter_factory(Some(Arc::new(factory)))
         .open()?;
 
-    tree.insert(1_000u64.to_be_bytes(), "my_value", 0);
-    tree.insert(1_001u64.to_be_bytes(), "my_value2", 1);
+    tree.insert(1_000u64.to_be_bytes(), "my_value", seqno.next());
+    tree.insert(1_001u64.to_be_bytes(), "my_value2", seqno.next());
 
-    version_set_provider.flush_active_memtable(&tree, 2, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    assert_eq!(2, tree.len(100_000, None)?);
+    assert_eq!(2, tree.len(seqno.get(), None)?);
 
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        3,
+        seqno.next(),
         100_000,
     )?;
 
-    assert_eq!(2, tree.len(100_000, None)?);
+    assert_eq!(2, tree.len(seqno.get(), None)?);
 
     watermark.store(1_000, Relaxed);
 
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        4,
+        seqno.next(),
         100_000,
     )?;
 
-    assert_eq!(2, tree.len(100_000, None)?);
+    assert_eq!(2, tree.len(seqno.get(), None)?);
 
     watermark.store(1_001, Relaxed);
 
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        5,
+        seqno.next(),
         100_000,
     )?;
 
-    assert_eq!(1, tree.len(100_000, None)?);
+    assert_eq!(1, tree.len(seqno.get(), None)?);
 
     Ok(())
 }

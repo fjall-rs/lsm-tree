@@ -18,12 +18,14 @@ fn tree_snapshot_404() -> lsm_tree::Result<()> {
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
+    let empty_snapshot_seqno = seqno.get();
+
     let batch_seqno = seqno.next();
     tree.insert("a", "a", batch_seqno);
     tree.insert("a2", "a2", batch_seqno);
     tree.insert("c", "c", batch_seqno);
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     let snapshot_seqno = seqno.get();
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
@@ -31,10 +33,10 @@ fn tree_snapshot_404() -> lsm_tree::Result<()> {
     assert!(tree.get("b", snapshot_seqno)?.is_none());
     assert_eq!(b"c", &*tree.get("c", snapshot_seqno)?.unwrap());
 
-    assert!(tree.get("a", 0)?.is_none());
-    assert!(tree.get("a2", 0)?.is_none());
-    assert!(tree.get("b", 0)?.is_none());
-    assert!(tree.get("c", 0)?.is_none());
+    assert!(tree.get("a", empty_snapshot_seqno)?.is_none());
+    assert!(tree.get("a2", empty_snapshot_seqno)?.is_none());
+    assert!(tree.get("b", empty_snapshot_seqno)?.is_none());
+    assert!(tree.get("c", empty_snapshot_seqno)?.is_none());
 
     assert_eq!(b"a2", &*tree.get("a2", SeqNo::MAX)?.unwrap());
     assert!(tree.get("b", SeqNo::MAX)?.is_none());
@@ -58,17 +60,19 @@ fn tree_snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     let key = "abc";
 
-    for seqno in 0u64..version_count {
-        tree.insert(key, format!("abc{version_count}").as_bytes(), seqno);
+    let seqno = SequenceNumberCounter::default();
+
+    for _ in 0..version_count {
+        tree.insert(key, format!("abc{version_count}").as_bytes(), seqno.next());
     }
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
 
-    for seqno in 1..version_count {
+    for snapshot_seqno in 1..=version_count {
         let item = tree
-            .get_internal_entry(key.as_bytes(), seqno)?
+            .get_internal_entry(key.as_bytes(), snapshot_seqno)?
             .expect("should exist");
 
         assert_eq!(format!("abc{}", version_count).as_bytes(), &*item.value);
@@ -103,7 +107,7 @@ fn tree_snapshot_disk_point_reads() -> lsm_tree::Result<()> {
         }
     }
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
 
@@ -127,7 +131,7 @@ fn tree_snapshot_disk_point_reads() -> lsm_tree::Result<()> {
             tree.insert(key, format!("def{batch}").as_bytes(), batch_seqno);
         }
     }
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -164,7 +168,7 @@ fn tree_snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
         }
     }
 
-    version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
 

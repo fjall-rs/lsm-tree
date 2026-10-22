@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -6,6 +8,7 @@ use test_log::test;
 fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
@@ -14,13 +17,14 @@ fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
     assert!(tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 0);
 
-    tree.insert("a", "", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 1);
 
-    tree.insert("b", "", 0);
+    tree.insert("b", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
@@ -39,6 +43,7 @@ fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
 fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
@@ -49,13 +54,14 @@ fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
     assert!(tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 0);
 
-    tree.insert("a", "", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 1);
 
-    tree.insert("b", "", 0);
+    tree.insert("b", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
@@ -74,6 +80,7 @@ fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
 fn tree_approx_len() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
@@ -82,44 +89,45 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
     assert!(tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 0);
 
-    tree.insert("a", "", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 1);
 
-    tree.insert("b", "", 0);
+    tree.insert("b", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 2);
 
-    tree.insert("a", "", 1);
+    tree.insert("a", "", seqno.next());
 
     // Approximate count diverges
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 3);
 
-    tree.remove("a", 2);
+    tree.remove("a", seqno.next());
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 4);
 
-    version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 4);
 
-    tree.remove("b", 4);
+    tree.remove("b", seqno.next());
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 5);
 
-    version_set_provider.flush_active_memtable(&tree, 6, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -128,7 +136,7 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1,
+        seqno.next(),
         5,
     )?;
 
@@ -144,6 +152,7 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
 fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
     let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
@@ -154,44 +163,45 @@ fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     assert!(tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 0);
 
-    tree.insert("a", "", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 1);
 
-    tree.insert("b", "", 0);
+    tree.insert("b", "", batch_seqno);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 2);
 
-    tree.insert("a", "", 1);
+    tree.insert("a", "", seqno.next());
 
     // Approximate count diverges
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 3);
 
-    tree.remove("a", 2);
+    tree.remove("a", seqno.next());
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 4);
 
-    version_set_provider.flush_active_memtable(&tree, 5, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 1);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 4);
 
-    tree.remove("b", 4);
+    tree.remove("b", seqno.next());
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 5);
 
-    version_set_provider.flush_active_memtable(&tree, 6, 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -200,7 +210,7 @@ fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     version_set_provider.compact(
         &tree,
         Arc::new(lsm_tree::compaction::Major::default()),
-        1,
+        seqno.next(),
         5,
     )?;
 
