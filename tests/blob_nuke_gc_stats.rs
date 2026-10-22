@@ -6,7 +6,6 @@ use std::sync::Arc;
 use test_log::test;
 
 #[test]
-#[ignore = "v4 restore drop_range"]
 fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
@@ -34,9 +33,7 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        todo!();
-
-        tree.drop_range::<&[u8], _>(..)?;
+        version_set_provider.drop_range::<&[u8], _>(&tree, .., seqno.next(), 0)?;
 
         // NOTE: Because the blob does not have any incoming references anymore
         // it is pruned from the Version
@@ -61,7 +58,6 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "v4 restore drop_range"]
 fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
@@ -90,9 +86,7 @@ fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        todo!();
-
-        tree.drop_range::<&[u8], _>(..)?;
+        version_set_provider.drop_range::<&[u8], _>(&tree, .., seqno.next(), 0)?;
 
         // NOTE: Because the blob does not have any incoming references anymore
         // it is pruned from the Version

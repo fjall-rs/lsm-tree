@@ -8,7 +8,6 @@ use std::sync::Arc;
 use test_log::test;
 
 #[test]
-#[ignore = "restore drop_range"]
 fn model_2() -> Result<()> {
     let folder = get_tmp_folder();
 
@@ -26,25 +25,23 @@ fn model_2() -> Result<()> {
 
     tree.insert("a", value, seqno.next());
     version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
-    tree.compact(compaction.clone(), seqno.next())?;
+    version_set_provider.compact(&tree, compaction.clone(), seqno.next(), 0)?;
     assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
     tree.insert("b", value, seqno.next());
     version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
-    tree.compact(compaction.clone(), seqno.next())?;
+    version_set_provider.compact(&tree, compaction.clone(), seqno.next(), 0)?;
     assert_eq!(2, tree.table_count());
     assert_eq!(2, tree.blob_file_count());
 
     tree.insert("a", value, seqno.next());
     version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
-    tree.compact(compaction.clone(), seqno.next())?;
+    version_set_provider.compact(&tree, compaction.clone(), seqno.next(), 0)?;
     assert_eq!(3, tree.table_count());
     assert_eq!(3, tree.blob_file_count());
 
-    todo!();
-
-    tree.drop_range::<&[u8], _>(..)?;
+    version_set_provider.drop_range::<&[u8], _>(&tree, .., seqno.next(), 0)?;
 
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.blob_file_count());

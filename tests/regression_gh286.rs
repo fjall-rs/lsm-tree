@@ -2,7 +2,6 @@ use lsm_tree::{AbstractTree, MemoryVersionSetProvider, SequenceNumberCounter};
 use std::sync::Arc;
 
 #[test_log::test]
-#[ignore = "restore clear"]
 fn regression_286() -> lsm_tree::Result<()> {
     let folder = lsm_tree::get_tmp_folder();
 
@@ -15,7 +14,8 @@ fn regression_286() -> lsm_tree::Result<()> {
             .open()?;
 
         tree.insert("foo", b"1", seqno.next());
-        tree.clear()?;
+
+        version_set_provider.clear(&tree, seqno.next())?;
     }
 
     {

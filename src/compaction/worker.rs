@@ -236,7 +236,7 @@ fn move_tables(
         // `Version::with_moved` asserts that every input table is still present, so committing a
         // stale move would panic while holding both the compaction state mutex and the version
         // history write lock, poisoning them.
-        log::debug!("{table_ids:?} are not referenced anymore; skipping move");
+        log::debug!("Tables {table_ids:?} are not referenced anymore; skipping move");
         return NewCompactionResult::empty();
     };
 
@@ -541,7 +541,10 @@ fn merge_tables(
         .iter()
         .any(|&id| version.get_table(id).is_none())
     {
-        log::debug!("Input table(s) are not referenced anymore; skipping result installation");
+        log::debug!(
+            "Input table(s) ({:?}) are not referenced anymore; skipping result installation",
+            payload.table_ids,
+        );
 
         compaction_state
             .hidden_set_mut()
@@ -621,7 +624,7 @@ fn drop_tables(
 
     let Some(tables) = tables else {
         log::warn!(
-            "Compaction task created by {:?} contained tables not referenced in the level manifest",
+            "Compaction task created by {:?} contained tables ({ids_to_drop:?}) not referenced in the level manifest",
             opts.strategy.get_name(),
         );
         return NewCompactionResult::empty();
@@ -859,7 +862,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn blob_file_picking_simple() -> crate::Result<()> {
         struct InPlaceStrategy(Vec<TableId>);
 
@@ -905,15 +907,18 @@ mod tests {
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        // tree.major_compact(1, 1_000)?;
-        todo!();
+        version_set_provider.compact(
+            &tree,
+            Arc::new(crate::compaction::Major::new(/* 1 byte */ 1)),
+            2,
+            1_000,
+        )?;
 
         assert_eq!(3, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
         // We now have tables [1, 2, 3] pointing into blob file 0
 
-        //tree.drop_range("a"..="a")?;
-        todo!();
+        version_set_provider.drop_range(&tree, "a"..="a", 3, 0)?;
 
         assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
@@ -931,7 +936,8 @@ mod tests {
 
         // Even though we are compacting table #2, blob file is not rewritten
         // because table #3 still points into it
-        tree.compact(Arc::new(InPlaceStrategy(vec![2])), 1_000)?;
+        version_set_provider.compact(&tree, Arc::new(InPlaceStrategy(vec![2])), 4, 1_000)?;
+
         assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -948,7 +954,8 @@ mod tests {
 
         // Because tables #3 & #4 both point into the blob file
         // Only selecting both for compaction will actually rewrite the file
-        tree.compact(Arc::new(InPlaceStrategy(vec![3, 4])), 1_000)?;
+        version_set_provider.compact(&tree, Arc::new(InPlaceStrategy(vec![3, 4])), 5, 1_000)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -986,7 +993,6 @@ mod tests {
 
     // Regression test for https://github.com/fjall-rs/fjall/issues/287
     #[test]
-    #[ignore]
     fn compaction_move_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
 
@@ -1006,12 +1012,12 @@ mod tests {
 
         assert_eq!(1, table_ids.len());
 
-        todo!();
+        version_set_provider.clear(&tree, 2)?;
 
-        tree.clear()?;
         assert_eq!(0, tree.table_count());
 
-        tree.compact(Arc::new(StaleMove(table_ids)), 0)?;
+        version_set_provider.compact(&tree, Arc::new(StaleMove(table_ids)), 3, 0)?;
+
         assert_eq!(0, tree.table_count());
 
         Ok(())
@@ -1019,7 +1025,8 @@ mod tests {
 
     /// Calls `clear()` on the first filtered item, which happens
     /// while the compaction worker holds no lock at all
-    struct ClearMidCompaction(Arc<Mutex<Option<AnyTree>>>);
+    #[expect(clippy::type_complexity)]
+    struct ClearMidCompaction(Arc<Mutex<Option<(AnyTree, Arc<MemoryVersionSetProvider>)>>>);
 
     impl Factory for ClearMidCompaction {
         fn name(&self) -> &'static str {
@@ -1031,7 +1038,8 @@ mod tests {
         }
     }
 
-    struct ClearMidCompactionFilter(Arc<Mutex<Option<AnyTree>>>);
+    #[expect(clippy::type_complexity)]
+    struct ClearMidCompactionFilter(Arc<Mutex<Option<(AnyTree, Arc<MemoryVersionSetProvider>)>>>);
 
     impl CompactionFilter for ClearMidCompactionFilter {
         #[allow(clippy::unwrap_used)]
@@ -1040,8 +1048,8 @@ mod tests {
             _: ItemAccessor<'_>,
             _: &FilterContext,
         ) -> crate::Result<Verdict> {
-            if let Some(tree) = self.0.lock().unwrap().take() {
-                tree.clear()?;
+            if let Some((tree, version_set_provider)) = self.0.lock().unwrap().take() {
+                version_set_provider.clear(&tree, 2)?;
             }
             Ok(Verdict::Keep)
         }
@@ -1050,7 +1058,6 @@ mod tests {
     // Regression test for https://github.com/fjall-rs/fjall/issues/287
     #[test]
     #[allow(clippy::unwrap_used)]
-    #[ignore = "compact"]
     fn compaction_merge_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
 
@@ -1068,9 +1075,15 @@ mod tests {
 
         assert_eq!(1, tree.table_count());
 
-        *handle.lock().unwrap() = Some(tree.clone());
+        *handle.lock().unwrap() = Some((tree.clone(), version_set_provider.clone()));
 
-        tree.compact(Arc::new(crate::compaction::major::Strategy::default()), 0)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(crate::compaction::major::Strategy::default()),
+            3,
+            0,
+        )?;
+
         assert_eq!(0, tree.table_count());
 
         Ok(())
