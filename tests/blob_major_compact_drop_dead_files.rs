@@ -99,15 +99,35 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
             );
         }
 
+        for blob_file_id in 0..4 {
+            assert!(
+                path.join("blobs")
+                    .join(blob_file_id.to_string())
+                    .try_exists()?,
+                "blob file {blob_file_id} should exist",
+            );
+        }
+
         version_set_provider.compact(
             &tree,
             Arc::new(lsm_tree::compaction::Major::default()),
             seqno.next(),
             1_000,
         )?;
+        version_set_provider.prune();
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
+
+        for blob_file_id in 0..4 {
+            assert!(
+                !path
+                    .join("blobs")
+                    .join(blob_file_id.to_string())
+                    .try_exists()?,
+                "blob file {blob_file_id} should have been deleted",
+            );
+        }
 
         {
             let gc_stats = tree.current_version().gc_stats().clone();

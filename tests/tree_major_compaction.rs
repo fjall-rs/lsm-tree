@@ -70,3 +70,45 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn tree_major_compaction_evict_file() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let path = folder.path();
+
+    let seqno = SequenceNumberCounter::default();
+
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(path, version_set_provider.clone()).open()?;
+
+    tree.insert("a".as_bytes(), "abc", seqno.next());
+    tree.insert("b".as_bytes(), "abc", seqno.next());
+    tree.insert("c".as_bytes(), "abc", seqno.next());
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+    assert_eq!(1, tree.table_count());
+
+    assert!(
+        path.join("tables").join("0").try_exists()?,
+        "table should exist",
+    );
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        1_000, // NOTE: Simulate some time passing
+    )?;
+    assert_eq!(1, tree.table_count());
+
+    version_set_provider.prune();
+
+    assert!(
+        !path.join("tables").join("0").try_exists()?,
+        "table should have been deleted",
+    );
+
+    Ok(())
+}

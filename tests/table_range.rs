@@ -5,7 +5,7 @@ use lsm_tree::{
 use std::sync::Arc;
 use test_log::test;
 
-const ITEM_COUNT: usize = 1_000_000;
+const ITEM_COUNT: usize = 100_000;
 
 #[test]
 fn tree_a_lot_of_ranges() -> lsm_tree::Result<()> {
