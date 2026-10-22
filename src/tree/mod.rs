@@ -10,10 +10,7 @@ pub mod sealed;
 pub mod test;
 
 use crate::{
-    compaction::{
-        drop_range::OwnedBounds, state::CompactionState, worker::NewCompactionResult,
-        CompactionStrategy,
-    },
+    compaction::{state::CompactionState, worker::NewCompactionResult, CompactionStrategy},
     config::Config,
     file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
@@ -381,7 +378,6 @@ impl AbstractTree for Tree {
     }
 
     fn approximate_len(&self) -> usize {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self.tree_config().version_set_provider.latest_version();
 
         let tables_item_count = self
@@ -411,7 +407,6 @@ impl AbstractTree for Tree {
     }
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let version = self.tree_config().version_set_provider.latest_version();
 
         let active = version.active_memtable.get_highest_seqno();

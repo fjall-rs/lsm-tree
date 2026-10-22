@@ -19,7 +19,7 @@ fn blob_tree_fifo_limit() -> lsm_tree::Result<()> {
 
     let compaction = Arc::new(lsm_tree::compaction::Fifo::new(10, None));
 
-    for i in 0..100 {
+    for _ in 0..100 {
         tree.insert(nanoid::nanoid!(), "$", seqno.next());
 
         version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
