@@ -4,11 +4,42 @@
 
 use crate::{
     abstract_tree::NewFlushToTablesResult,
-    compaction::worker::NewCompactionResult,
-    version::{SuperVersionSet, Version},
-    AbstractTree, MemtableId, SeqNo, SequenceNumberCounter, VersionSetProvider,
+    compaction::{drop_range::OwnedBounds, worker::NewCompactionResult},
+    memtable::Memtable,
+    version::{SuperVersion, SuperVersionSet, Version},
+    AbstractTree, MemtableId, SeqNo, SequenceNumberCounter, Slice, VersionSetProvider,
 };
-use std::sync::{Arc, RwLock};
+use std::{
+    ops::{Bound, RangeBounds},
+    sync::{Arc, RwLock},
+};
+
+fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
+    range: &R,
+) -> (OwnedBounds, bool) {
+    let start = match range.start_bound() {
+        Bound::Included(key) => Bound::Included(Slice::from(key.as_ref())),
+        Bound::Excluded(key) => Bound::Excluded(Slice::from(key.as_ref())),
+        Bound::Unbounded => Bound::Unbounded,
+    };
+    let end = match range.end_bound() {
+        Bound::Included(key) => Bound::Included(Slice::from(key.as_ref())),
+        Bound::Excluded(key) => Bound::Excluded(Slice::from(key.as_ref())),
+        Bound::Unbounded => Bound::Unbounded,
+    };
+
+    let is_empty = if let (
+        Bound::Included(lo) | Bound::Excluded(lo),
+        Bound::Included(hi) | Bound::Excluded(hi),
+    ) = (&start, &end)
+    {
+        lo.as_ref() > hi.as_ref()
+    } else {
+        false
+    };
+
+    (OwnedBounds { start, end }, is_empty)
+}
 
 /// This is only used for ephemeral tests.
 pub struct MemoryVersionSetProvider {
@@ -34,6 +65,15 @@ impl MemoryVersionSetProvider {
             inner,
             ..Default::default()
         }
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn prune(&self) {
+        let mut lock = self.inner.write().unwrap();
+
+        let seqno = lock.latest_version().seqno;
+
+        lock.maintenance(seqno);
     }
 
     /// Helper function to rotate and flush the active memtable.
@@ -73,6 +113,43 @@ impl MemoryVersionSetProvider {
         Ok(())
     }
 
+    /// Runs and registers a drop-range compaction.
+    pub fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        tree: &impl AbstractTree,
+        range: R,
+        version_seqno: SeqNo,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<()> {
+        let (bounds, is_empty) = range_bounds_to_owned_bounds(&range);
+
+        if is_empty {
+            return Ok(());
+        }
+
+        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
+        let compaction_result = tree.run_compaction(strategy, gc_watermark)?;
+
+        self.register_compaction(compaction_result, version_seqno)
+    }
+
+    /// Appends a fresh, empty version while preserving the existing version history.
+    #[expect(clippy::unwrap_used)]
+    #[expect(clippy::significant_drop_tightening)]
+    pub fn clear(&self, tree: &impl AbstractTree, version_seqno: SeqNo) -> crate::Result<()> {
+        let mut lock = self.inner.write().unwrap();
+        let previous_version = lock.latest_version();
+
+        lock.append_version(SuperVersion {
+            active_memtable: Arc::new(Memtable::new(self.memtable_id_generator.next())),
+            sealed_memtables: Arc::default(),
+            version: Version::new(previous_version.version.id() + 1, tree.tree_type()),
+            seqno: version_seqno,
+        });
+
+        Ok(())
+    }
+
     #[expect(clippy::unwrap_used)]
     #[expect(clippy::significant_drop_tightening)]
     fn register_compaction(
@@ -82,11 +159,15 @@ impl MemoryVersionSetProvider {
     ) -> crate::Result<()> {
         let mut lock = self.inner.write().unwrap();
 
-        let version = lock
+        let (version, deleted) = lock
             .latest_version()
             .register_compaction(result, version_seqno)?;
 
         lock.append_version(version);
+
+        // Only mark files as deleted once version is actually stable
+        deleted.commit();
+
         Ok(())
     }
 
