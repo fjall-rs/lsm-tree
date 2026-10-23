@@ -6,15 +6,13 @@ use std::sync::Arc;
 use test_log::test;
 
 #[test]
-#[ignore = "restore recovery"]
 fn tree_first_last_kv() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
-
         let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -35,14 +33,14 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"b",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
 
         version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
@@ -52,20 +50,18 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"b",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
     }
 
     {
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
-
         let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -74,14 +70,14 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"b",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
 
         tree.insert("a", "a", seqno.next());
@@ -92,14 +88,14 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"b",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
 
         tree.insert("c", "c", seqno.next());
@@ -110,14 +106,14 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"c",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
 
         version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
@@ -127,20 +123,18 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"c",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
     }
 
     {
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
-
         let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
@@ -149,14 +143,14 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
             &*tree
                 .first_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
         assert_eq!(
             b"c",
             &*tree
                 .last_key_value(SeqNo::MAX, None)
                 .map(|x| x.key().unwrap())
-                .unwrap()
+                .unwrap(),
         );
     }
 

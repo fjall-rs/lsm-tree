@@ -3,10 +3,14 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::FragmentationMap, compaction::worker::NewCompactionResult,
-    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
-    Config, Guard, InternalValue, KvPair, Memtable, MemtableId, SeqNo, TableId, Tree, UserKey,
-    UserValue,
+    blob_tree::FragmentationMap,
+    compaction::worker::NewCompactionResult,
+    iter_guard::IterGuardImpl,
+    table::Table,
+    version::{SuperVersion, Version},
+    vlog::BlobFile,
+    AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, MemtableId, SeqNo, TableId,
+    Tree, UserKey, UserValue,
 };
 use std::{
     ops::RangeBounds,
@@ -55,12 +59,19 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
 
+    // TODO: rename latest_*
     #[doc(hidden)]
-    fn current_version(&self) -> Version {
+    fn current_super_version(&self) -> SuperVersion {
         self.tree_config()
             .version_set_provider
+            // TODO: rename latest_super_version
             .latest_version()
-            .version
+    }
+
+    // TODO: rename latest_*
+    #[doc(hidden)]
+    fn current_version(&self) -> Version {
+        self.current_super_version().version
     }
 
     /// Returns an iterator that scans through the entire tree.

@@ -49,7 +49,6 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "compact"]
 fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
@@ -77,7 +76,6 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "compact"]
 fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 

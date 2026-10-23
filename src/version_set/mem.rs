@@ -54,7 +54,7 @@ impl Default for MemoryVersionSetProvider {
                 0,
                 crate::TreeType::Standard,
             )))),
-            memtable_id_generator: Arc::new(SequenceNumberCounter::default()),
+            memtable_id_generator: Arc::new(SequenceNumberCounter::new(1)),
         }
     }
 }
