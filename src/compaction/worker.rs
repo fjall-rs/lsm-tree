@@ -402,7 +402,6 @@ fn merge_tables(
         return Ok(NewCompactionResult::empty());
     };
 
-    let dst_lvl = payload.canonical_level.into();
     let last_level = opts.config.level_count - 1;
 
     // NOTE: Only evict tombstones when reaching the last level,
@@ -574,7 +573,7 @@ fn merge_tables(
             &version,
             opts,
             payload,
-            dst_lvl,
+            usize::from(payload.dest_level),
             blob_frag_map,
             extra_blob_files,
         )
