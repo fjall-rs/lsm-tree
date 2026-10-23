@@ -4,10 +4,39 @@
 
 use lsm_tree::{
     get_tmp_folder,
-    AbstractTree, KvSeparationOptions, Result, SequenceNumberCounter, config::{BlockSizePolicy, CompressionPolicy}
+    AbstractTree, AnyTree, KvSeparationOptions, MemoryVersionSetProvider, Result, SeqNo,
+    SequenceNumberCounter, config::{BlockSizePolicy, CompressionPolicy}
 };
-use std::sync::Arc;
+use std::{ops::RangeBounds, sync::Arc};
 use test_log::test;
+
+fn flush_active_memtable(
+    tree: &AnyTree,
+    version_set_provider: &MemoryVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    gc_watermark: SeqNo,
+) -> Result<()> {
+    version_set_provider.flush_active_memtable(tree, seqno.next(), gc_watermark)
+}
+
+fn compact(
+    tree: &AnyTree,
+    version_set_provider: &MemoryVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    strategy: Arc<dyn lsm_tree::compaction::CompactionStrategy>,
+    gc_watermark: SeqNo,
+) -> Result<()> {
+    version_set_provider.compact(tree, strategy, seqno.next(), gc_watermark)
+}
+
+fn drop_range<R: RangeBounds<&'static str>>(
+    tree: &AnyTree,
+    version_set_provider: &MemoryVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    range: R,
+) -> Result<()> {
+    version_set_provider.drop_range(tree, range, seqno.next(), 0)
+}
 
 // Yes this file is very large, it's hard to condense it to a more minimal repro
 #[test]
@@ -15,8 +44,10 @@ fn model_6() -> Result<()> {
     let folder = get_tmp_folder();
 
     let path = folder.path();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
         .data_block_compression_policy(CompressionPolicy::disabled())
         .index_block_compression_policy(CompressionPolicy::disabled())
         .data_block_size_policy(BlockSizePolicy::all(100))
@@ -31,7 +62,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 3, 152], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170598);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 9], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170599);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 184], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170600);
-    tree.flush_active_memtable(170501)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 170501)?;
     tree.insert([0, 0, 0, 0, 0, 0, 3, 1], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170601);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 31], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170602);
     tree.insert([0, 0, 0, 0, 0, 0, 3, 95], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170603);
@@ -189,7 +220,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 3, 91], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170797);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 199], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170798);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 247], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170799);
-    tree.flush_active_memtable(170701)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 170701)?;
     tree.insert([0, 0, 0, 0, 0, 0, 1, 192], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170801);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 165], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170802);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 116], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170804);
@@ -340,7 +371,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 38], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170998);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 174], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170999);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 90], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171000);
-    tree.flush_active_memtable(170901)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 170901)?;
     tree.insert([0, 0, 0, 0, 0, 0, 2, 163], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171001);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 195], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171003);
     tree.insert([0, 0, 0, 0, 0, 0, 3, 86], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171004);
@@ -404,8 +435,8 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 0, 224], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171174);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 152], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171175);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 16], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171180);
-    tree.flush_active_memtable(171101)?;
-    tree.compact(compaction.clone(), 171101)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 171101)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 171101)?;
     tree.insert([0, 0, 0, 0, 0, 0, 3, 6], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171201);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 217], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171202);
     tree.insert([0, 0, 0, 0, 0, 0, 3, 80], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171203);
@@ -596,7 +627,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 2, 198], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171397);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 93], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171398);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 128], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171400);
-    tree.flush_active_memtable(171301)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 171301)?;
     tree.insert([0, 0, 0, 0, 0, 0, 3, 199], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171401);
     tree.insert([0, 0, 0, 0, 0, 0, 3, 2], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171402);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 139], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171403);
@@ -752,7 +783,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 0, 52], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171596);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 47], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171597);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 32], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171599);
-    tree.flush_active_memtable(171501)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 171501)?;
     tree.insert([0, 0, 0, 0, 0, 0, 1, 224], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171601);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 77], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171602);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 93], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171604);
@@ -838,7 +869,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 123], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171794);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 193], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171797);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 125], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171799);
-    tree.flush_active_memtable(171701)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 171701)?;
     tree.insert([0, 0, 0, 0, 0, 0, 1, 8], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171805);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 111], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171806);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 27], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171809);
@@ -908,10 +939,10 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 42], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171987);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 162], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171993);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 208], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171997);
-    tree.flush_active_memtable(171901)?;
-    tree.compact(compaction.clone(), 171901)?;
-    
-    
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 171901)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 171901)?;
+
+
     tree.insert([0, 0, 0, 0, 0, 0, 3, 78], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172007);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 37], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172008);
     tree.insert([0, 0, 0, 0, 0, 0, 3, 71], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172009);
@@ -1017,8 +1048,8 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 234], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172163);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 196], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172164);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 153], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172167);
-    tree.flush_active_memtable(172101)?;
-    tree.compact(compaction.clone(), 172101)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 172101)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 172101)?;
     tree.insert([0, 0, 0, 0, 0, 0, 0, 219], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172222);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 124], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172225);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 192], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172226);
@@ -1120,7 +1151,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 0, 95], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172398);
     tree.insert([0, 0, 0, 0, 0, 0, 3, 63], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172399);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 66], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172400);
-    tree.flush_active_memtable(172301)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 172301)?;
     tree.insert([0, 0, 0, 0, 0, 0, 1, 27], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172402);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 187], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172404);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 211], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172408);
@@ -1219,7 +1250,7 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 17], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172591);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 91], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172595);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 33], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172599);
-    tree.flush_active_memtable(172501)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 172501)?;
     tree.insert([0, 0, 0, 0, 0, 0, 0, 114], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172602);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 113], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172605);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 100], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172609);
@@ -1277,14 +1308,14 @@ fn model_6() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 0, 199], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172774);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 106], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172786);
     tree.insert([0, 0, 0, 0, 0, 0, 1, 34], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172788);
-    tree.flush_active_memtable(172701)?;
-    tree.compact(compaction.clone(), 172701)?;
-    
-    tree.compact(compaction.clone(), 172901)?;
-    
-    tree.compact(compaction.clone(), 173101)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 172701)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 172701)?;
 
-    tree.drop_range::<&[u8], _>(..)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 172901)?;
+
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 173101)?;
+
+    drop_range(&tree, &version_set_provider, &seqno, ..)?;
 
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.blob_file_count());

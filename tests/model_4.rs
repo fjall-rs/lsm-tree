@@ -1,26 +1,52 @@
 // Found by model testing
 
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, KvSeparationOptions, Result,
-    SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, AnyTree, KvSeparationOptions,
+    MemoryVersionSetProvider, Result, SeqNo, SequenceNumberCounter,
 };
-use std::sync::Arc;
+use std::{ops::RangeBounds, sync::Arc};
 use test_log::test;
+
+fn flush_active_memtable(
+    tree: &AnyTree,
+    version_set_provider: &MemoryVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    gc_watermark: SeqNo,
+) -> Result<()> {
+    version_set_provider.flush_active_memtable(tree, seqno.next(), gc_watermark)
+}
+
+fn compact(
+    tree: &AnyTree,
+    version_set_provider: &MemoryVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    strategy: Arc<dyn lsm_tree::compaction::CompactionStrategy>,
+    gc_watermark: SeqNo,
+) -> Result<()> {
+    version_set_provider.compact(tree, strategy, seqno.next(), gc_watermark)
+}
+
+fn drop_range<R: RangeBounds<&'static str>>(
+    tree: &AnyTree,
+    version_set_provider: &MemoryVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    range: R,
+) -> Result<()> {
+    version_set_provider.drop_range(tree, range, seqno.next(), 0)
+}
 
 #[test]
 fn model_4() -> Result<()> {
     let folder = get_tmp_folder();
 
     let path = folder.path();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
-    .data_block_size_policy(BlockSizePolicy::all(100))
-    .open()?;
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
+        .data_block_size_policy(BlockSizePolicy::all(100))
+        .open()?;
 
     let compaction =
         Arc::new(lsm_tree::compaction::Leveled::default().with_table_target_size(1_000));
@@ -78,32 +104,32 @@ fn model_4() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 22, 24], value, 182);
     tree.insert([0, 0, 0, 0, 0, 0, 33, 247], value, 183);
     tree.insert([0, 0, 0, 0, 0, 0, 26, 236], value, 185);
-    tree.flush_active_memtable(86)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 86)?;
 
     tree.insert([0], value, 186);
-    tree.flush_active_memtable(87)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 87)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 7, 49], value, 187);
-    tree.flush_active_memtable(88)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 88)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 18, 134], value, 188);
-    tree.flush_active_memtable(89)?;
-    tree.compact(compaction.clone(), 89)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 89)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 89)?;
 
     tree.insert([0], value, 189);
-    tree.flush_active_memtable(90)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 90)?;
 
     tree.insert([0], value, 190);
-    tree.flush_active_memtable(91)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 91)?;
 
     tree.insert([0], value, 191);
-    tree.flush_active_memtable(92)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 92)?;
 
     tree.insert([0], value, 192);
-    tree.flush_active_memtable(93)?;
-    tree.compact(compaction.clone(), 93)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 93)?;
+    compact(&tree, &version_set_provider, &seqno, compaction.clone(), 93)?;
 
-    tree.drop_range::<&[u8], _>(..)?;
+    drop_range(&tree, &version_set_provider, &seqno, ..)?;
 
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.blob_file_count());
