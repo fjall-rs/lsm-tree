@@ -217,17 +217,6 @@ pub trait AbstractTree {
             .len()
     }
 
-    /// Performs compaction on the tree's levels, blocking the caller until it's done.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn compact(
-        &self,
-        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<()>;
-
     /// Returns the next table's ID.
     fn get_next_table_id(&self) -> TableId;
 

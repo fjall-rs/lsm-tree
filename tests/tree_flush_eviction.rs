@@ -62,13 +62,19 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     // NOTE: Should evict old value, but tombstone should stay until last level
-    version_set_provider.flush_active_memtable(&tree, seqno.next(), 1)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 1_000)?;
 
     assert_eq!(1, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     // NOTE: Should evict tombstone because last level
-    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 6)), seqno.next())?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::PullDown(0, 6)),
+        seqno.next(),
+        1_000,
+    )?;
+
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
@@ -104,11 +110,16 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
             .first()
             .expect("should have one table")
             .metadata
-            .tombstone_count
+            .tombstone_count,
     );
 
     // NOTE: Should evict tombstone because last level
-    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 6)), seqno.next())?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::PullDown(0, 6)),
+        seqno.next(),
+        seqno.get() + 1,
+    )?;
 
     assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -122,7 +133,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
             .first()
             .expect("should have one table")
             .metadata
-            .tombstone_count
+            .tombstone_count,
     );
 
     Ok(())

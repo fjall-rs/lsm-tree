@@ -343,24 +343,6 @@ impl AbstractTree for Tree {
         Ok(Some((tables, None)))
     }
 
-    fn compact(
-        &self,
-        strategy: Arc<dyn CompactionStrategy>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<()> {
-        // NOTE: Read lock major compaction lock
-        // That way, if a major compaction is running, we cannot proceed
-        // But in general, parallel (non-major) compactions can occur
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let _lock = self
-            .0
-            .major_compaction_lock
-            .read()
-            .expect("lock is poisoned");
-
-        self.inner_compact(strategy, seqno_threshold)
-    }
-
     fn get_next_table_id(&self) -> TableId {
         self.0.get_next_table_id()
     }

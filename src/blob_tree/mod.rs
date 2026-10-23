@@ -458,14 +458,6 @@ impl AbstractTree for BlobTree {
         self.index.run_compaction(strategy, gc_watermark)
     }
 
-    fn compact(
-        &self,
-        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<()> {
-        self.index.compact(strategy, seqno_threshold)
-    }
-
     fn get_next_table_id(&self) -> TableId {
         self.index.get_next_table_id()
     }
