@@ -34,3 +34,37 @@ fn tree_clear() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn tree_clear_between_flush() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+
+    tree.insert("a", "a", seqno.next());
+    assert!(tree.contains_key("a", SeqNo::MAX)?);
+    assert_eq!(1, tree.len(SeqNo::MAX, None)?);
+
+    version_set_provider.rotate_active_memtable().unwrap();
+    let flush_result = tree.new_flush(0)?.unwrap();
+    assert_eq!(1, tree.len(SeqNo::MAX, None)?);
+
+    // Flush is now "in flight" - it was not yet registered
+
+    version_set_provider.clear(&tree, seqno.next())?;
+    assert!(!tree.contains_key("a", SeqNo::MAX)?);
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+
+    version_set_provider.register_flush(flush_result, seqno.next());
+
+    // We cleared before the flush finished, meaning the flush should
+    // not be registered
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+
+    Ok(())
+}

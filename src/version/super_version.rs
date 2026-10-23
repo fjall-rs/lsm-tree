@@ -112,7 +112,18 @@ impl SuperVersion {
         Ok((copy, deleted))
     }
 
-    pub(crate) fn register_flush(&self, flush_result: NewFlushToTablesResult) -> Self {
+    pub(crate) fn register_flush(&self, flush_result: NewFlushToTablesResult) -> Option<Self> {
+        // NOTE: Check for race condition
+        // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
+        if flush_result
+            .evicted_sealed_memtables
+            .iter()
+            .any(|id| !self.sealed_memtables.contains(id))
+        {
+            log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
+            return None;
+        }
+
         let mut copy = self.clone();
 
         copy.version = copy.version.with_new_l0_run(
@@ -126,7 +137,7 @@ impl SuperVersion {
             copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
         }
 
-        copy
+        Some(copy)
     }
 
     pub fn rotate_active_memtable(&self, memtable_id: MemtableId) -> Option<Self> {

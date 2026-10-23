@@ -180,7 +180,9 @@ impl MemoryVersionSetProvider {
     #[expect(clippy::must_use_candidate)]
     pub fn register_flush(&self, flush_result: NewFlushToTablesResult, seqno: SeqNo) -> u64 {
         let mut lock = self.inner.write().unwrap();
-        let mut version = lock.latest_version().register_flush(flush_result);
+        let Some(mut version) = lock.latest_version().register_flush(flush_result) else {
+            return 0;
+        };
         version.seqno = seqno;
         lock.append_version(version);
         0
