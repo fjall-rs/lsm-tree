@@ -127,7 +127,6 @@ pub(super) trait CompactionFlavour {
         version: &Version,
         opts: &Options,
         payload: &CompactionPayload,
-        dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
     ) -> crate::Result<NewCompactionResult>;
@@ -261,7 +260,6 @@ impl CompactionFlavour for RelocatingCompaction {
         version: &Version,
         opts: &Options,
         payload: &CompactionPayload,
-        dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
     ) -> crate::Result<NewCompactionResult> {
@@ -271,6 +269,7 @@ impl CompactionFlavour for RelocatingCompaction {
         );
 
         let tables_to_delete = std::mem::take(&mut self.inner.tables_to_rewrite);
+        let dst_lvl = payload.dest_level as usize;
 
         let created_tables = self.inner.consume_writer(opts, dst_lvl)?;
         let mut created_blob_files = self.blob_writer.finish()?;
@@ -415,12 +414,12 @@ impl CompactionFlavour for StandardCompaction {
         version: &Version,
         opts: &Options,
         payload: &CompactionPayload,
-        dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
     ) -> crate::Result<NewCompactionResult> {
         log::debug!("Compaction done in {:?}", self.start.elapsed());
 
+        let dst_lvl = usize::from(payload.dest_level);
         let tables_to_delete = std::mem::take(&mut self.tables_to_rewrite);
         let created_tables = self.consume_writer(opts, dst_lvl)?;
 

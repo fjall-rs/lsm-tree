@@ -747,6 +747,7 @@ impl Tree {
         Ok(Self(Arc::new(inner)))
     }
 
+    /*
     /// Recovers the level manifest, loading all tables from disk.
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
@@ -922,4 +923,5 @@ impl Tree {
 
         Ok(())
     }
+    */
 }

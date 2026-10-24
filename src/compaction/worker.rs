@@ -569,14 +569,7 @@ fn merge_tables(
         .unwrap_or_default();
 
     let result = compactor
-        .finish(
-            &version,
-            opts,
-            payload,
-            usize::from(payload.dest_level),
-            blob_frag_map,
-            extra_blob_files,
-        )
+        .finish(&version, opts, payload, blob_frag_map, extra_blob_files)
         .inspect_err(|e| {
             // NOTE: We cannot use hidden_guard here because we already locked the compaction state
 
