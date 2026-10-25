@@ -19,6 +19,9 @@ pub mod v3 {
         descriptor_table: &Arc<DescriptorTable>,
     ) -> crate::Result<Version> {
         let folder = folder.as_ref();
+
+        log::trace!("Loading current v3-manifest at {}", folder.display());
+
         let tree_id = get_next_tree_id();
 
         let recovery = recover(folder)?;

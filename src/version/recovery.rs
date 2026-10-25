@@ -31,6 +31,7 @@ pub struct Recovery {
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
 
+// TODO: v4 move into legacy, because this is an old v3 file format
 pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     let curr_version_id = get_current_version(folder)?;
     let version_file_path = folder.join(format!("v{curr_version_id}"));

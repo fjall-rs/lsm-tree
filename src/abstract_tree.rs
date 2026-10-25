@@ -47,6 +47,32 @@ pub trait AbstractTree {
         todo!()
     }
 
+    /// Returns a new [`SuperVersion`] with the active memtable removed.
+    fn clear_active_memtable(&self) -> Option<SuperVersion> {
+        let super_version = self.current_super_version();
+
+        if super_version.active_memtable.is_empty() {
+            return None;
+        }
+
+        let mut copy = super_version.clone();
+        copy.active_memtable = Arc::new(Memtable::new(
+            1, // TODO: we need a counter
+        ));
+        copy.sealed_memtables = Arc::new(crate::tree::sealed::SealedMemtables::default());
+
+        // Clear active is only used for recovery where snapshots do not exist yet
+        copy.seqno = super_version.seqno;
+
+        Some(copy)
+    }
+
+    // TODO: remove this? just provide active_memtable_size and write_buffer_size?
+    /// Returns the active memtable.
+    fn active_memtable(&self) -> Arc<Memtable> {
+        self.current_super_version().active_memtable
+    }
+
     #[doc(hidden)]
     fn next_table_id(&self) -> TableId;
 
@@ -141,14 +167,22 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    /// TODO: WIP
+    /// Runs a compaction.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     fn run_compaction(
         &self,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
         gc_watermark: SeqNo,
     ) -> crate::Result<NewCompactionResult>;
 
-    /// TODO: WIP
+    /// Flushes the write buffer.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     fn new_flush(&self, gc_watermark: SeqNo) -> crate::Result<Option<NewFlushToTablesResult>> {
         use crate::{compaction::stream::CompactionStream, merge::Merger};
 

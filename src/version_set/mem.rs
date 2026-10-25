@@ -67,6 +67,12 @@ impl MemoryVersionSetProvider {
         }
     }
 
+    #[expect(clippy::unwrap_used)]
+    pub fn overwrite(&self, super_version: SuperVersion) {
+        let mut lock = self.inner.write().unwrap();
+        lock.replace_latest_version(super_version);
+    }
+
     #[must_use]
     pub fn with_initial_version(version: Version) -> Self {
         Self::new(Arc::new(RwLock::new(SuperVersionSet::new(version))))
@@ -88,18 +94,16 @@ impl MemoryVersionSetProvider {
         tree: &impl AbstractTree,
         version_seqno: SeqNo,
         gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<u64> {
         if self.rotate_active_memtable().is_none() {
-            return Ok(());
+            return Ok(0);
         }
 
         let flush_result = tree
             .new_flush(gc_watermark)?
             .expect("should flush to table files");
 
-        let _flushed_bytes = self.register_flush(flush_result, version_seqno);
-
-        Ok(())
+        Ok(self.register_flush(flush_result, version_seqno))
     }
 
     /// Helper function to run and register a compaction.
@@ -185,7 +189,7 @@ impl MemoryVersionSetProvider {
         };
         version.seqno = seqno;
         lock.append_version(version);
-        0
+        0 // TODO:
     }
 
     #[expect(clippy::unwrap_used)]

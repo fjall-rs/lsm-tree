@@ -645,6 +645,7 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(config: Config) -> crate::Result<Self> {
+        use crate::file::{fsync_directory, TABLES_FOLDER};
         use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
@@ -707,6 +708,16 @@ impl Tree {
                 "Cache shard capacity is less than 1 MB, which may cause non-partitioned filter blocks to be uncacheable, greatly read latencies. Consider increasing the cache size.",
             );
         }
+
+        let table_base_folder = config.path.join(TABLES_FOLDER);
+
+        if !table_base_folder.try_exists()? {
+            std::fs::create_dir_all(&table_base_folder)?;
+            fsync_directory(&table_base_folder)?;
+            fsync_directory(&config.path)?;
+        }
+
+        // TODO: also do blobs folder
 
         let inner = TreeInner {
             id: tree_id,
