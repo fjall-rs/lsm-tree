@@ -163,6 +163,29 @@ impl BlobTree {
             blobs_folder: Arc::new(blobs_folder),
         })
     }
+
+    /// Resolves a single key against a pre-acquired [`SuperVersion`].
+    fn resolve_key(
+        &self,
+        super_version: &crate::version::SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<UserValue>> {
+        let Some(item) = crate::Tree::get_internal_entry_from_version(super_version, key, seqno)?
+        else {
+            return Ok(None);
+        };
+
+        let (_, v) = resolve_value_handle(
+            self.id(),
+            self.blobs_folder.as_path(),
+            &self.index.config.cache,
+            &super_version.version,
+            item,
+        )?;
+
+        Ok(Some(v))
+    }
 }
 
 impl AbstractTree for BlobTree {
@@ -597,30 +620,20 @@ impl AbstractTree for BlobTree {
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
-        let key = key.as_ref();
+        let super_version = self.index.get_version_for_snapshot(seqno);
+        self.resolve_key(&super_version, key.as_ref(), seqno)
+    }
 
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .index
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .get_version_for_snapshot(seqno);
+    fn multi_get<K: AsRef<[u8]>>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<crate::UserValue>>> {
+        let super_version = self.index.get_version_for_snapshot(seqno);
 
-        let Some(item) = crate::Tree::get_internal_entry_from_version(&super_version, key, seqno)?
-        else {
-            return Ok(None);
-        };
-
-        let (_, v) = resolve_value_handle(
-            self.id(),
-            self.blobs_folder.as_path(),
-            &self.index.config.cache,
-            &super_version.version,
-            item,
-        )?;
-
-        Ok(Some(v))
+        keys.into_iter()
+            .map(|key| self.resolve_key(&super_version, key.as_ref(), seqno))
+            .collect()
     }
 
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
