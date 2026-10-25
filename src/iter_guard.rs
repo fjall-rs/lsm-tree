@@ -19,6 +19,19 @@ pub trait IterGuard {
         pred: impl Fn(&UserKey) -> bool,
     ) -> crate::Result<(UserKey, Option<UserValue>)>;
 
+    /// Accesses the key-value pair if the predicate returns `Some(T)`.
+    ///
+    /// The predicate receives the key - if returning None, the value
+    /// may not be loaded if the tree is key-value separated.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn into_inner_if_some<T>(
+        self,
+        pred: impl Fn(&UserKey) -> Option<T>,
+    ) -> crate::Result<Result<(T, UserValue), UserKey>>;
+
     /// Accesses the key-value pair.
     ///
     /// # Errors
