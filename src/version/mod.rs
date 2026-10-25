@@ -22,7 +22,7 @@ use crate::version::recovery::Recovery;
 use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, Table, TableId,
+    HashSet, KeyRange, SeqNo, Table, TableId,
 };
 use optimize::optimize_runs;
 use run::Ranged;
@@ -158,6 +158,9 @@ pub struct VersionInner {
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
+
+    /// The external sequence number at which this version was cleared
+    pub(crate) cleared_seqno: Option<SeqNo>,
 }
 
 /// A version is an immutable, point-in-time view of a tree's structure
@@ -209,6 +212,15 @@ impl Version {
 
     /// Creates a new empty version.
     pub fn new(id: VersionId, tree_type: TreeType) -> Self {
+        Self::new_cleared(id, tree_type, None)
+    }
+
+    /// Creates a new empty version with a populated `cleared_seqno`
+    pub(crate) fn new_cleared(
+        id: VersionId,
+        tree_type: TreeType,
+        cleared_seqno: Option<SeqNo>,
+    ) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
@@ -218,6 +230,7 @@ impl Version {
                 levels,
                 blob_files: Arc::default(),
                 gc_stats: Arc::default(),
+                cleared_seqno,
             }),
         }
     }
@@ -259,13 +272,18 @@ impl Version {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        Ok(Self::from_levels(
-            recovery.curr_version_id,
-            recovery.tree_type,
-            version_levels,
-            BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
-            recovery.gc_stats,
-        ))
+        Ok(Self {
+            inner: Arc::new(VersionInner {
+                id: recovery.curr_version_id,
+                tree_type: recovery.tree_type,
+                levels: version_levels,
+                blob_files: Arc::new(BlobFileList::new(
+                    blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect(),
+                )),
+                gc_stats: Arc::new(recovery.gc_stats),
+                cleared_seqno: recovery.cleared_seqno,
+            }),
+        })
     }
 
     /// Creates a new pre-populated version.
@@ -283,6 +301,7 @@ impl Version {
                 levels,
                 blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
+                cleared_seqno: None,
             }),
         }
     }
@@ -391,6 +410,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
+                cleared_seqno: self.cleared_seqno,
             }),
         }
     }
@@ -475,6 +495,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
+                cleared_seqno: self.cleared_seqno,
             }),
         })
     }
@@ -556,6 +577,7 @@ impl Version {
                 levels,
                 blob_files: value_log,
                 gc_stats,
+                cleared_seqno: self.cleared_seqno,
             }),
         }
     }
@@ -604,6 +626,7 @@ impl Version {
                 levels,
                 blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),
+                cleared_seqno: self.cleared_seqno,
             }),
         }
     }
@@ -698,6 +721,12 @@ impl Version {
         writer.start("blob_gc_stats")?;
 
         self.gc_stats.encode_into(writer)?;
+
+        if let Some(seqno) = self.cleared_seqno {
+            writer.start("cleared_seqno")?;
+
+            writer.write_u64::<LittleEndian>(seqno)?;
+        }
 
         Ok(())
     }
