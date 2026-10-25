@@ -34,6 +34,11 @@ pub struct PartitionedFilterWriter {
 
     last_key: Option<UserKey>,
 
+    /// When true, sort+dedup per-partition hash buffer to eliminate duplicate
+    /// prefix hashes. Enabled by `enable_dedup()` when a prefix extractor is
+    /// configured.
+    needs_dedup: bool,
+
     compression: CompressionType,
 }
 
@@ -52,12 +57,18 @@ impl PartitionedFilterWriter {
             relative_file_pos: 0,
 
             last_key: None,
+            needs_dedup: false,
 
             compression: CompressionType::None,
         }
     }
 
     fn spill_filter_partition(&mut self, key: &UserKey) -> crate::Result<()> {
+        if self.needs_dedup {
+            self.bloom_hash_buffer.sort_unstable();
+            self.bloom_hash_buffer.dedup();
+        }
+
         let filter_bytes = {
             let mut builder = self.bloom_policy.init(self.bloom_hash_buffer.len());
 
@@ -160,18 +171,77 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         self
     }
 
+    fn notify_key(&mut self, key: &UserKey) -> crate::Result<()> {
+        // If the buffered partition is over the threshold, spill it now,
+        // before any of the new key's hashes are buffered. The spilled
+        // partition's TLI key is the *previous* user key, whose hashes are
+        // all already committed. register_bytes never spills; register_key
+        // may spill at the end of a user key, after all of that key's
+        // hashes (prefixes + full) have been buffered.
+        if self.approx_filter_size >= self.partition_size as usize {
+            if let Some(prev_key) = self.last_key.clone() {
+                self.spill_filter_partition(&prev_key)?;
+            }
+        }
+        self.last_key = Some(key.clone());
+        Ok(())
+    }
+
+    fn enable_dedup(&mut self) {
+        self.needs_dedup = true;
+    }
+
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
+        // Protocol invariant: the writer must call `notify_key(key)` before
+        // any `register_*` for the same user key. `notify_key` sets
+        // `self.last_key = Some(key.clone())`, so by the time we get here
+        // `last_key` should match `key`. If a future contributor removes the
+        // unconditional `notify_key` call in `Writer::write`, this assert
+        // catches the regression before it can silently produce empty
+        // filters at finish() time (which checks `last_key.is_none()`).
+        // This is a protocol-level invariant that must hold in release
+        // builds too — a violation indicates a logic bug, and surfacing it
+        // loudly is preferable to silent data loss.
+        assert!(
+            self.last_key.as_deref().map(AsRef::as_ref) == Some(key.as_ref()),
+            "register_key called without preceding notify_key — writer protocol violation"
+        );
+
         self.bloom_hash_buffer.push(Builder::get_hash(key));
 
         self.approx_filter_size = self
             .bloom_policy
             .estimated_filter_size(self.bloom_hash_buffer.len());
 
-        self.last_key = Some(key.clone());
+        // NOTE: `self.last_key` is intentionally NOT updated here. The
+        // writer's protocol calls `notify_key(key)` before any registers for
+        // a user key, which already sets `self.last_key = Some(key.clone())`.
+        // Setting it again here would be a redundant Arc clone on the writer
+        // hot path (once per user key, every key). The fallthrough spill
+        // below uses the function parameter `key` directly for the TLI
+        // boundary, so this method does not depend on `self.last_key`.
 
+        // Spilling here is safe because register_key is called once per user
+        // key, after all of that key's prefix hashes (if any) have been
+        // registered. The spilled partition's TLI key correctly maps to a
+        // key whose hashes are fully present in the partition.
         if self.approx_filter_size >= self.partition_size as usize {
             self.spill_filter_partition(key)?;
         }
+
+        Ok(())
+    }
+
+    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
+        // Buffer the hash without spilling. Mid-key spills are deferred to
+        // the next `notify_key` (or `register_key` for the same user key)
+        // so the spilled partition's TLI key always reflects fully committed
+        // hashes for that key.
+        self.bloom_hash_buffer.push(Builder::get_hash(bytes));
+
+        self.approx_filter_size = self
+            .bloom_policy
+            .estimated_filter_size(self.bloom_hash_buffer.len());
 
         Ok(())
     }
@@ -192,6 +262,14 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
             )]
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
+        }
+
+        // If no filter partitions were created (e.g. a prefix extractor was
+        // configured but every key was shorter than the required prefix length,
+        // so no hashes were registered), skip writing the empty filter.
+        if self.tli_handles.is_empty() {
+            log::trace!("No filter partitions created - not building filter");
+            return Ok(0);
         }
 
         let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);
