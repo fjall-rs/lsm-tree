@@ -4,13 +4,11 @@
 
 mod blob_file_list;
 mod optimize;
-mod persist;
 pub mod recovery;
 pub mod run;
 mod super_version;
 
 pub use blob_file_list::BlobFileList;
-pub use persist::persist_version;
 pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersionSet};
 

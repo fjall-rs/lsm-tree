@@ -3,11 +3,12 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    coding::Decode, file::CURRENT_VERSION_FILE, version::VersionId, vlog::BlobFileId, Checksum,
-    SeqNo, TableId, TreeType,
+    coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, SeqNo, TableId, TreeType,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
+
+const CURRENT_VERSION_FILE: &str = "current";
 
 pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId> {
     use byteorder::{LittleEndian, ReadBytesExt};

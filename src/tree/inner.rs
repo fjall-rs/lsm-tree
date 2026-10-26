@@ -3,10 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::state::CompactionState,
-    config::Config,
-    stop_signal::StopSignal,
-    version::{persist_version, Version},
+    compaction::state::CompactionState, config::Config, stop_signal::StopSignal,
     SequenceNumberCounter, TableId,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
