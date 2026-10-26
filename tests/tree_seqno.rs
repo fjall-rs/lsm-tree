@@ -48,7 +48,7 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
     assert_eq!(tree.get_highest_memtable_seqno(), Some(5));
     assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
 
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert_eq!(tree.get_highest_seqno(), Some(5));
     assert_eq!(tree.get_highest_memtable_seqno(), Some(5));

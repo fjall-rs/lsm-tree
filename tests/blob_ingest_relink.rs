@@ -26,7 +26,11 @@ fn blob_tree_ingest_relink() -> lsm_tree::Result<()> {
         ingestion.write("smol", "small value")?;
         let (ingestion_result, ingestion_seqno) = ingestion
             .finish(
-                || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+                || {
+                    version_set_provider
+                        .flush_active_memtable(&tree, seqno.next(), 0)
+                        .map(|_| ())
+                },
                 || seqno.next(),
             )?
             .expect("ingestion should contain writes");

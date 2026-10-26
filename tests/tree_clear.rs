@@ -50,7 +50,7 @@ fn tree_clear_between_flush() -> lsm_tree::Result<()> {
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
-    version_set_provider.rotate_active_memtable().unwrap();
+    version_set_provider.rotate_active_memtable(&tree).unwrap();
     let flush_result = tree.new_flush(0)?.unwrap();
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 

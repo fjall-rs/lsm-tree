@@ -16,7 +16,8 @@ fn flush_active_memtable(
     seqno: &SequenceNumberCounter,
     gc_watermark: SeqNo,
 ) -> Result<()> {
-    version_set_provider.flush_active_memtable(tree, seqno.next(), gc_watermark)
+    version_set_provider.flush_active_memtable(tree, seqno.next(), gc_watermark)?;
+    Ok(())
 }
 
 fn compact(

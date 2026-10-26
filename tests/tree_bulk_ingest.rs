@@ -24,7 +24,11 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     }
     let (ingestion_result, ingestion_seqno) = ingestion
         .finish(
-            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
@@ -62,7 +66,11 @@ fn tree_copy() -> lsm_tree::Result<()> {
     }
     let (ingestion_result, ingestion_seqno) = ingestion
         .finish(
-            || source_version_set_provider.flush_active_memtable(&src, seqno.next(), 0),
+            || {
+                source_version_set_provider
+                    .flush_active_memtable(&src, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
@@ -92,7 +100,11 @@ fn tree_copy() -> lsm_tree::Result<()> {
     }
     let (ingestion_result, ingestion_seqno) = ingestion
         .finish(
-            || dest_version_set_provider.flush_active_memtable(&dest, seqno.next(), 0),
+            || {
+                dest_version_set_provider
+                    .flush_active_memtable(&dest, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
@@ -133,7 +145,11 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     }
     let (ingestion_result, ingestion_seqno) = ingestion
         .finish(
-            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
@@ -175,7 +191,11 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     }
     let (ingestion_result, ingestion_seqno) = ingestion
         .finish(
-            || source_version_set_provider.flush_active_memtable(&src, seqno.next(), 0),
+            || {
+                source_version_set_provider
+                    .flush_active_memtable(&src, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
@@ -208,7 +228,11 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     }
     let (ingestion_result, ingestion_seqno) = ingestion
         .finish(
-            || dest_version_set_provider.flush_active_memtable(&dest, seqno.next(), 0),
+            || {
+                dest_version_set_provider
+                    .flush_active_memtable(&dest, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");

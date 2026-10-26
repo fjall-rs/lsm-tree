@@ -44,7 +44,6 @@ fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
 /// This is only used for ephemeral tests.
 pub struct MemoryVersionSetProvider {
     pub inner: Arc<RwLock<SuperVersionSet>>,
-    memtable_id_generator: Arc<SequenceNumberCounter>,
 }
 
 impl Default for MemoryVersionSetProvider {
@@ -54,17 +53,13 @@ impl Default for MemoryVersionSetProvider {
                 0,
                 crate::TreeType::Standard,
             )))),
-            memtable_id_generator: Arc::new(SequenceNumberCounter::new(1)),
         }
     }
 }
 
 impl MemoryVersionSetProvider {
     fn new(inner: Arc<RwLock<SuperVersionSet>>) -> Self {
-        Self {
-            inner,
-            ..Default::default()
-        }
+        Self { inner }
     }
 
     #[expect(clippy::unwrap_used)]
@@ -95,7 +90,7 @@ impl MemoryVersionSetProvider {
         version_seqno: SeqNo,
         gc_watermark: SeqNo,
     ) -> crate::Result<u64> {
-        if self.rotate_active_memtable().is_none() {
+        if self.rotate_active_memtable(tree).is_none() {
             return Ok(0);
         }
 
@@ -150,7 +145,7 @@ impl MemoryVersionSetProvider {
         let previous_version = lock.latest_version();
 
         lock.append_version(SuperVersion {
-            active_memtable: Arc::new(Memtable::new(self.memtable_id_generator.next())),
+            active_memtable: Arc::new(Memtable::new(tree.inner().memtable_id_counter.next())),
             sealed_memtables: Arc::default(),
             version: Version::new(previous_version.version.id() + 1, tree.tree_type()),
             seqno: version_seqno,
@@ -195,12 +190,12 @@ impl MemoryVersionSetProvider {
     #[expect(clippy::unwrap_used)]
     #[expect(clippy::significant_drop_tightening)]
     #[expect(clippy::must_use_candidate)]
-    pub fn rotate_active_memtable(&self) -> Option<MemtableId> {
+    pub fn rotate_active_memtable(&self, tree: &impl AbstractTree) -> Option<MemtableId> {
         log::trace!("Rotating active memtable");
 
         let mut lock = self.inner.write().unwrap();
 
-        let memtable_id = self.memtable_id_generator.next();
+        let memtable_id = tree.inner().memtable_id_counter.next();
 
         if let Some(version) = lock.latest_version().rotate_active_memtable(memtable_id) {
             lock.replace_latest_version(version);

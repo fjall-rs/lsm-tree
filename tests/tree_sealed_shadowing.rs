@@ -23,7 +23,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     tree.remove("a", seqno.next());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 

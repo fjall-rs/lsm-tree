@@ -47,6 +47,9 @@ pub trait AbstractTree {
         todo!()
     }
 
+    #[doc(hidden)]
+    fn inner(&self) -> &crate::tree::inner::TreeInner;
+
     /// Returns a new [`SuperVersion`] with the active memtable removed.
     fn clear_active_memtable(&self) -> Option<SuperVersion> {
         let super_version = self.current_super_version();
@@ -56,9 +59,7 @@ pub trait AbstractTree {
         }
 
         let mut copy = super_version.clone();
-        copy.active_memtable = Arc::new(Memtable::new(
-            1, // TODO: we need a counter
-        ));
+        copy.active_memtable = Arc::new(Memtable::new(self.inner().memtable_id_counter.next()));
         copy.sealed_memtables = Arc::new(crate::tree::sealed::SealedMemtables::default());
 
         // Clear active is only used for recovery where snapshots do not exist yet

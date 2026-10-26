@@ -27,7 +27,11 @@ fn blob_ingest_gc_stats() -> lsm_tree::Result<()> {
         ingestion.write("smol", "small value")?;
         let (ingestion_result, ingestion_seqno) = ingestion
             .finish(
-                || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+                || {
+                    version_set_provider
+                        .flush_active_memtable(&tree, seqno.next(), 0)
+                        .map(|_| ())
+                },
                 || seqno.next(),
             )?
             .expect("ingestion should contain writes");
@@ -42,7 +46,11 @@ fn blob_ingest_gc_stats() -> lsm_tree::Result<()> {
         ingestion.write("big", &new_big_value)?;
         let (ingestion_result, ingestion_seqno) = ingestion
             .finish(
-                || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+                || {
+                    version_set_provider
+                        .flush_active_memtable(&tree, seqno.next(), 0)
+                        .map(|_| ())
+                },
                 || seqno.next(),
             )?
             .expect("ingestion should contain writes");

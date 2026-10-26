@@ -22,7 +22,7 @@ fn tree_smoke_test_flush() -> crate::Result<()> {
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.sealed_memtable_count());
 
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert_eq!(Some(b"a".as_slice()), tree.get(b"a", 1)?.as_deref());
     assert_eq!(Some(b"b".as_slice()), tree.get(b"b", 1)?.as_deref());
@@ -54,13 +54,13 @@ fn tree_smoke_test_flush_many_sealed() -> crate::Result<()> {
     let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 
     tree.insert("a", "a", 0);
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     tree.insert("b", "b", 0);
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     tree.insert("c", "c", 0);
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert_eq!(Some(b"a".as_slice()), tree.get(b"a", 1)?.as_deref());
     assert_eq!(Some(b"b".as_slice()), tree.get(b"b", 1)?.as_deref());
@@ -105,7 +105,7 @@ fn tree_smoke_test_flush_blob() -> crate::Result<()> {
     assert_eq!(0, tree.blob_file_count());
     assert_eq!(0, tree.sealed_memtable_count());
 
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert_eq!(Some(b"a".as_slice()), tree.get(b"a", 1)?.as_deref());
     assert_eq!(Some(b"bbbbb".as_slice()), tree.get(b"b", 1)?.as_deref());

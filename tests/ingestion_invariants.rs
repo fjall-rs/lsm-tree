@@ -14,7 +14,11 @@ fn finish_ingestion(
     seqno: &SequenceNumberCounter,
 ) -> lsm_tree::Result<()> {
     if let Some((ingestion_result, ingestion_seqno)) = ingestion.finish(
-        || version_set_provider.flush_active_memtable(tree, seqno.next(), 0),
+        || {
+            version_set_provider
+                .flush_active_memtable(tree, seqno.next(), 0)
+                .map(|_| ())
+        },
         || seqno.next(),
     )? {
         version_set_provider.register_flush(ingestion_result, ingestion_seqno);
@@ -75,7 +79,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
         let k = format!("s{:03}", i);
         tree.insert(k.as_bytes(), b"x", seqno.next());
     }
-    assert!(version_set_provider.rotate_active_memtable().is_some());
+    assert!(version_set_provider.rotate_active_memtable(&tree).is_some());
     assert!(tree.sealed_memtable_count() > 0);
 
     let tables_before = tree.table_count();
@@ -86,7 +90,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     let (ingestion_result, ingestion_seqno) = ingest
         .finish(
             || {
-                let _ = version_set_provider.rotate_active_memtable();
+                let _ = version_set_provider.rotate_active_memtable(&tree);
                 if let Some(flush_result) = tree.new_flush(0)? {
                     version_set_provider.register_flush(flush_result, seqno.next());
                 }

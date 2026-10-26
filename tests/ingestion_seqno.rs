@@ -16,7 +16,11 @@ fn ingestion_persisted_seqno() -> lsm_tree::Result<()> {
     ingest.write("a", "a")?;
     let (ingestion_result, ingestion_seqno) = ingest
         .finish(
-            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .unwrap();
@@ -28,7 +32,11 @@ fn ingestion_persisted_seqno() -> lsm_tree::Result<()> {
     ingest.write("b", "b")?;
     let (ingestion_result, ingestion_seqno) = ingest
         .finish(
-            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .unwrap();

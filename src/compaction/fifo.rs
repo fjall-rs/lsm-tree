@@ -183,7 +183,7 @@ mod tests {
         for i in 0..4u8 {
             tree.insert([b'k', i].as_slice(), "v", u64::from(i));
 
-            version_set_provider.rotate_active_memtable();
+            version_set_provider.rotate_active_memtable(&tree);
             let flush_result = tree
                 .new_flush(u64::from(i))?
                 .expect("should flush to table files");
@@ -211,7 +211,7 @@ mod tests {
         for i in 0..4u8 {
             tree.insert([b'k', i].as_slice(), "v", u64::from(i));
 
-            version_set_provider.rotate_active_memtable();
+            version_set_provider.rotate_active_memtable(&tree);
             let flush_result = tree
                 .new_flush(u64::from(i))?
                 .expect("should flush to table files");
@@ -242,7 +242,7 @@ mod tests {
         for i in 0..3u8 {
             tree.insert([b'k', i].as_slice(), "$", u64::from(i));
 
-            version_set_provider.rotate_active_memtable();
+            version_set_provider.rotate_active_memtable(&tree);
             let flush_result = tree
                 .new_flush(u64::from(i))?
                 .expect("should flush to table files");
@@ -277,7 +277,7 @@ mod tests {
         crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(1_005)));
         tree.insert("b", "2", 1);
 
-        version_set_provider.rotate_active_memtable();
+        version_set_provider.rotate_active_memtable(&tree);
         let flush_result = tree.new_flush(1)?.expect("should flush to table files");
         version_set_provider.register_flush(flush_result, 2);
 
@@ -313,7 +313,7 @@ mod tests {
 
         tree.insert("b", "$", 1);
 
-        version_set_provider.rotate_active_memtable();
+        version_set_provider.rotate_active_memtable(&tree);
         let flush_result = tree.new_flush(1)?.expect("should flush to table files");
         version_set_provider.register_flush(flush_result, 1);
 

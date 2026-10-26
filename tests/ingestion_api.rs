@@ -11,7 +11,11 @@ fn finish_ingestion(
     seqno: &SequenceNumberCounter,
 ) -> lsm_tree::Result<()> {
     if let Some((ingestion_result, ingestion_seqno)) = ingestion.finish(
-        || version_set_provider.flush_active_memtable(tree, seqno.next(), 0),
+        || {
+            version_set_provider
+                .flush_active_memtable(tree, seqno.next(), 0)
+                .map(|_| ())
+        },
         || seqno.next(),
     )? {
         version_set_provider.register_flush(ingestion_result, ingestion_seqno);
@@ -66,7 +70,7 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
 
     // Newer value in memtable, then seal it
     tree.insert(b"k", b"new", seqno.next());
-    let _ = version_set_provider.rotate_active_memtable(); // move active -> sealed
+    let _ = version_set_provider.rotate_active_memtable(&tree); // move active -> sealed
 
     // Read should return the sealed memtable value
     assert_eq!(
@@ -94,7 +98,7 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
 
     // Newer tombstone in memtable, then seal it
     tree.remove(b"k", seqno.next());
-    let _ = version_set_provider.rotate_active_memtable();
+    let _ = version_set_provider.rotate_active_memtable(&tree);
 
     // Read should see the delete from sealed memtable
     assert!(tree.get(b"k", lsm_tree::SeqNo::MAX)?.is_none());

@@ -166,6 +166,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn inner(&self) -> &crate::tree::inner::TreeInner {
+        self.index.inner()
+    }
+
     fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
         self.index.print_trace(key)
     }

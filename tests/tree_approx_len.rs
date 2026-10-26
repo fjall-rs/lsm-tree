@@ -30,7 +30,7 @@ fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 2);
 
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
@@ -67,7 +67,7 @@ fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
     assert!(!tree.is_empty(SeqNo::MAX, None)?);
     assert_eq!(tree.approximate_len(), 2);
 
-    version_set_provider.rotate_active_memtable();
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 2);
     assert!(!tree.is_empty(SeqNo::MAX, None)?);

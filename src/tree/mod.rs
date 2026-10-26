@@ -87,6 +87,10 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn inner(&self) -> &crate::tree::inner::TreeInner {
+        &self.0
+    }
+
     fn table_file_cache_size(&self) -> usize {
         self.config
             .descriptor_table

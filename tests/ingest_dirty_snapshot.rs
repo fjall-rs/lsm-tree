@@ -21,7 +21,11 @@ fn ingestion_dirty_snapshot() -> lsm_tree::Result<()> {
     ingest.write("b", "b")?;
     let (ingestion_result, ingestion_seqno) = ingest
         .finish(
-            || version_set_provider.flush_active_memtable(&tree, seqno.next(), 0),
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
