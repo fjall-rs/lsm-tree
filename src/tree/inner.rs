@@ -67,23 +67,6 @@ pub struct TreeInner {
 }
 
 impl TreeInner {
-    pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        Ok(Self {
-            id: get_next_tree_id(),
-            memtable_id_counter: SequenceNumberCounter::new(1),
-            table_id_counter: SequenceNumberCounter::default(),
-            blob_file_id_counter: SequenceNumberCounter::default(),
-            config: Arc::new(config),
-            stop_signal: StopSignal::default(),
-            major_compaction_lock: RwLock::default(),
-            flush_lock: Mutex::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
-
-            #[cfg(feature = "metrics")]
-            metrics: Metrics::default().into(),
-        })
-    }
-
     pub fn get_next_table_id(&self) -> TableId {
         self.table_id_counter.next()
     }

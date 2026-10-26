@@ -12,7 +12,7 @@ pub mod test;
 use crate::{
     compaction::{state::CompactionState, worker::NewCompactionResult, CompactionStrategy},
     config::Config,
-    file::CURRENT_VERSION_FILE,
+    file::{BLOBS_FOLDER, TABLES_FOLDER},
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     key::InternalKey,
@@ -20,15 +20,13 @@ use crate::{
     slice::Slice,
     table::Table,
     value::InternalValue,
-    version::{recovery::recover, SuperVersion, Version},
+    version::{SuperVersion, Version},
     vlog::BlobFile,
-    AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
-    ValueType,
+    AbstractTree, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue, ValueType,
 };
 use inner::{TreeId, TreeInner};
 use std::{
-    ops::{Bound, RangeBounds},
-    path::Path,
+    ops::RangeBounds,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -533,36 +531,6 @@ impl Tree {
             .get_version_for_seqno(seqno)
     }
 
-    /// Opens an LSM-tree in the given directory.
-    ///
-    /// Will recover previous state if the folder was previously
-    /// occupied by an LSM-tree, including the previous configuration.
-    /// If not, a new tree will be initialized with the given config.
-    ///
-    /// After recovering a previous state, use [`Tree::set_active_memtable`]
-    /// to fill the memtable with data from a write-ahead log for full durability.
-    ///
-    /// # Errors
-    ///
-    /// Returns error, if an IO error occurred.
-    pub(crate) fn open(config: Config) -> crate::Result<Self> {
-        log::debug!("Opening LSM-tree at {}", config.path.display());
-
-        // Check for old version
-        if config.path.join("version").try_exists()? {
-            log::error!("It looks like you are trying to open a V1 database - the database needs a manual migration, however a migration tool is not provided, as V1 is extremely outdated.");
-            return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
-        }
-
-        let tree = if config.path.join(CURRENT_VERSION_FILE).try_exists()? {
-            Self::recover(config)
-        } else {
-            Self::create_new(config)
-        }?;
-
-        Ok(tree)
-    }
-
     /// Returns `true` if there are some tables that are being compacted.
     #[doc(hidden)]
     #[must_use]
@@ -643,65 +611,65 @@ impl Tree {
             .insert(value)
     }
 
-    /// Recovers previous state, by loading the level manifest, tables and blob files.
+    /// Opens an LSM-tree in the given directory.
+    ///
+    /// Will recover previous state if the folder was previously
+    /// occupied by an LSM-tree, including the previous configuration.
+    /// If not, a new tree will be initialized with the given config.
+    ///
+    /// After recovering a previous state, use [`Tree::set_active_memtable`]
+    /// to fill the memtable with data from a write-ahead log for full durability.
     ///
     /// # Errors
     ///
     /// Returns error, if an IO error occurred.
-    fn recover(config: Config) -> crate::Result<Self> {
+    pub(crate) fn open(config: Config) -> crate::Result<Self> {
         use crate::file::{fsync_directory, TABLES_FOLDER};
         use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
-        log::info!("Recovering LSM-tree at {}", config.path.display());
+        log::info!("Opening LSM-tree at {}", config.path.display());
+
+        // Check for old version
+        if config.path.join("version").try_exists()? {
+            log::error!("It looks like you are trying to open a V1 database - the database needs a manual migration, however a migration tool is not provided, as V1 is extremely outdated.");
+            return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
+        }
 
         let tree_id = get_next_tree_id();
 
         #[cfg(feature = "metrics")]
         let metrics = Arc::new(Metrics::default());
 
-        /*let version = Self::recover_levels(
-            &config.path,
-            tree_id,
-            &config,
-            #[cfg(feature = "metrics")]
-            &metrics,
-        )?;
-
-        {
-            let manifest_path = config.path.join(format!("v{}", version.id()));
-            let reader = sfa::Reader::new(&manifest_path)?;
-            let manifest = Manifest::decode_from(&manifest_path, &reader)?;
-
-            if manifest.version != FormatVersion::V3 {
-                return Err(crate::Error::InvalidVersion(manifest.version.into()));
-            }
-
-            let requested_tree_type = match config.kv_separation_opts {
-                Some(_) => crate::TreeType::Blob,
-                None => crate::TreeType::Standard,
-            };
-
-            if version.tree_type() != requested_tree_type {
-                log::error!(
-                    "Tried to open a {requested_tree_type:?}Tree, but the existing tree is of type {:?}Tree. This indicates a misconfiguration or corruption.",
-                    version.tree_type(),
-                );
-                return Err(crate::Error::Unrecoverable);
-            }
-
-            // IMPORTANT: Restore persisted config
-            config.level_count = manifest.level_count;
-        }*/
-
-        let highest_table_id: TableId = config
+        let next_table_id: TableId = config
             .version_set_provider
             .latest_version()
             .version
             .iter_tables()
             .map(Table::id)
             .max()
+            .map(|max| max + 1)
             .unwrap_or_default();
+
+        let mut need_sync = false;
+
+        let table_base_folder = config.path.join(TABLES_FOLDER);
+        if !table_base_folder.try_exists()? {
+            std::fs::create_dir_all(&table_base_folder)?;
+            fsync_directory(&table_base_folder)?;
+            need_sync = true;
+        }
+
+        let blobs_base_folder = config.path.join(BLOBS_FOLDER);
+        if !blobs_base_folder.try_exists()? {
+            std::fs::create_dir_all(&blobs_base_folder)?;
+            fsync_directory(&blobs_base_folder)?;
+            need_sync = true;
+        }
+
+        if need_sync {
+            fsync_directory(&config.path)?;
+        }
 
         // Check for < 1 MB shards, which may not be able to
         // hold filter blocks, causing high read latencies
@@ -713,20 +681,10 @@ impl Tree {
             );
         }
 
-        let table_base_folder = config.path.join(TABLES_FOLDER);
-
-        if !table_base_folder.try_exists()? {
-            std::fs::create_dir_all(&table_base_folder)?;
-            fsync_directory(&table_base_folder)?;
-            fsync_directory(&config.path)?;
-        }
-
-        // TODO: also do blobs folder
-
         let inner = TreeInner {
             id: tree_id,
             memtable_id_counter: SequenceNumberCounter::new(1),
-            table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
+            table_id_counter: SequenceNumberCounter::new(next_table_id),
             blob_file_id_counter: SequenceNumberCounter::default(),
             stop_signal: StopSignal::default(),
             config: Arc::new(config),
@@ -740,203 +698,4 @@ impl Tree {
 
         Ok(Self(Arc::new(inner)))
     }
-
-    /// Creates a new LSM-tree in a directory.
-    fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, TABLES_FOLDER};
-        use std::fs::create_dir_all;
-
-        let path = config.path.clone();
-        log::trace!("Creating LSM-tree at {}", path.display());
-
-        create_dir_all(&path)?;
-
-        let table_folder_path = path.join(TABLES_FOLDER);
-        create_dir_all(&table_folder_path)?;
-
-        // IMPORTANT: fsync folders on Unix
-        fsync_directory(&table_folder_path)?;
-        fsync_directory(&path)?;
-
-        let inner = TreeInner::create_new(config)?;
-        Ok(Self(Arc::new(inner)))
-    }
-
-    /*
-    /// Recovers the level manifest, loading all tables from disk.
-    fn recover_levels<P: AsRef<Path>>(
-        tree_path: P,
-        tree_id: TreeId,
-        config: &Config,
-        #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
-    ) -> crate::Result<Version> {
-        use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
-
-        let tree_path = tree_path.as_ref();
-
-        let recovery = recover(tree_path)?;
-
-        let table_map = {
-            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum, SeqNo)> =
-                crate::HashMap::default();
-
-            for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
-                for run in table_ids {
-                    for table in run {
-                        #[expect(
-                            clippy::expect_used,
-                            reason = "there are always less than 256 levels"
-                        )]
-                        result.insert(
-                            table.id,
-                            (
-                                level_idx
-                                    .try_into()
-                                    .expect("there are less than 256 levels"),
-                                table.checksum,
-                                table.global_seqno,
-                            ),
-                        );
-                    }
-                }
-            }
-
-            result
-        };
-
-        let cnt = table_map.len();
-
-        log::debug!("Recovering {cnt} tables from {}", tree_path.display());
-
-        let progress_mod = match cnt {
-            _ if cnt <= 20 => 1,
-            _ if cnt <= 100 => 10,
-            _ => 100,
-        };
-
-        let mut tables = vec![];
-
-        let table_base_folder = tree_path.join(TABLES_FOLDER);
-
-        if !table_base_folder.try_exists()? {
-            std::fs::create_dir_all(&table_base_folder)?;
-            fsync_directory(&table_base_folder)?;
-        }
-
-        let mut orphaned_tables = vec![];
-
-        for (idx, dirent) in std::fs::read_dir(&table_base_folder)?.enumerate() {
-            let dirent = dirent?;
-            let file_name = dirent.file_name();
-
-            // https://en.wikipedia.org/wiki/.DS_Store
-            if file_name == ".DS_Store" {
-                continue;
-            }
-
-            // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
-            if file_name.to_string_lossy().starts_with("._") {
-                continue;
-            }
-
-            let table_file_name = file_name.to_str().ok_or_else(|| {
-                log::error!("invalid table file name {}", file_name.display());
-                crate::Error::Unrecoverable
-            })?;
-
-            let table_file_path = dirent.path();
-            assert!(!table_file_path.is_dir());
-
-            let table_id = table_file_name.parse::<TableId>().map_err(|e| {
-                log::error!("invalid table file name {table_file_name:?}: {e:?}");
-                crate::Error::Unrecoverable
-            })?;
-
-            if let Some(&(level_idx, checksum, global_seqno)) = table_map.get(&table_id) {
-                let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
-                let pin_index = config.index_block_pinning_policy.get(level_idx.into());
-
-                let table = Table::recover(
-                    table_file_path,
-                    checksum,
-                    global_seqno,
-                    tree_id,
-                    config.cache.clone(),
-                    config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
-                    #[cfg(feature = "metrics")]
-                    metrics.clone(),
-                )?;
-
-                tables.push(table);
-
-                if idx % progress_mod == 0 {
-                    log::debug!("Recovered {idx}/{cnt} tables");
-                }
-            } else {
-                orphaned_tables.push(table_file_path);
-            }
-        }
-
-        if tables.len() < cnt {
-            log::error!(
-                "Recovered less tables than expected: {:?}",
-                table_map.keys(),
-            );
-            return Err(crate::Error::Unrecoverable);
-        }
-
-        log::debug!("Successfully recovered {} tables", tables.len());
-
-        let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
-            &tree_path.join(crate::file::BLOBS_FOLDER),
-            &recovery.blob_file_ids,
-            tree_id,
-            config.descriptor_table.as_ref(),
-        )?;
-
-        let version = Version::from_recovery(recovery, &tables, &blob_files)?;
-
-        // NOTE: Cleanup old versions
-        // But only after we definitely recovered the latest version
-        Self::cleanup_orphaned_version(tree_path, version.id())?;
-
-        for table_path in orphaned_tables {
-            log::debug!("Deleting orphaned table {}", table_path.display());
-            std::fs::remove_file(&table_path)?;
-        }
-
-        for blob_file_path in orphaned_blob_files {
-            log::debug!("Deleting orphaned blob file {}", blob_file_path.display());
-            std::fs::remove_file(&blob_file_path)?;
-        }
-
-        Ok(version)
-    }
-
-    fn cleanup_orphaned_version(
-        path: &Path,
-        latest_version_id: crate::version::VersionId,
-    ) -> crate::Result<()> {
-        let version_str = format!("v{latest_version_id}");
-
-        for file in std::fs::read_dir(path)? {
-            let dirent = file?;
-
-            if dirent.file_type()?.is_dir() {
-                continue;
-            }
-
-            let name = dirent.file_name();
-
-            if name.to_string_lossy().starts_with('v') && *name != *version_str {
-                log::trace!("Cleanup orphaned version {}", name.display());
-                std::fs::remove_file(dirent.path())?;
-            }
-        }
-
-        Ok(())
-    }
-    */
 }

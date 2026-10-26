@@ -10,12 +10,12 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     let folder1 = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
 
     {
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
         let tree0 = Config::new(&folder0, version_set_provider.clone()).open()?;
         assert_eq!(tree0.id(), 0);
-
         assert_eq!(0, tree0.next_table_id());
 
         tree0.insert("a", "a", seqno.next());
@@ -40,9 +40,10 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     }
 
     {
+        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
         let tree1 = Config::new(&folder1, version_set_provider.clone()).open()?;
         assert_eq!(tree1.id(), 1);
-
         assert_eq!(0, tree1.next_table_id());
 
         tree1.insert("a", "a", seqno.next());
