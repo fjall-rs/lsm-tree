@@ -9,8 +9,8 @@ use crate::{
     table::Table,
     version::{SuperVersion, Version},
     vlog::BlobFile,
-    AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, MemtableId, SeqNo, TableId,
-    Tree, UserKey, UserValue,
+    AnyTree, BlobTree, Config, EditRecord, Guard, InternalValue, KvPair, Memtable, MemtableId,
+    SeqNo, TableId, Tree, UserKey, UserValue, VersionEdit,
 };
 use std::{
     ops::RangeBounds,
@@ -28,6 +28,8 @@ pub struct NewFlushToTablesResult {
     pub frag_map: Option<FragmentationMap>,
     pub evicted_sealed_memtables: Vec<MemtableId>,
     pub flushed_size: u64,
+
+    pub version_edit: VersionEdit,
 }
 
 /// Generic Tree API
@@ -217,12 +219,29 @@ pub trait AbstractTree {
             return Ok(None);
         };
 
+        let mut version_edit = vec![EditRecord::AddTables {
+            level: 0,
+            tables: tables.iter().map(Table::id).collect(),
+        }];
+
+        if let Some(blob_files) = &blob_files {
+            if !blob_files.is_empty() {
+                version_edit.push(EditRecord::AddBlobFiles {
+                    blob_files: blob_files.iter().map(BlobFile::id).collect(),
+                });
+            }
+        }
+
+        let version_edit = VersionEdit::new(version_edit);
+
         Ok(Some(NewFlushToTablesResult {
             tables,
             blob_files,
             frag_map: None,
             evicted_sealed_memtables: sealed_ids,
             flushed_size,
+
+            version_edit,
         }))
     }
 

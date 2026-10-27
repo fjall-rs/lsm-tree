@@ -340,6 +340,7 @@ impl<'a> Ingestion<'a> {
                 evicted_sealed_memtables: Vec::new(),
                 flushed_size: 0,
                 frag_map: None,
+                version_edit: todo!(),
             },
             global_seqno,
         )))

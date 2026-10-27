@@ -283,15 +283,26 @@ impl CompactionFlavour for RelocatingCompaction {
             }
         }
 
+        let mut version_edit = vec![
+            EditRecord::AddTables {
+                level: dst_lvl,
+                tables: created_tables.iter().map(Table::id).collect(),
+            },
+            EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
+        ];
+
+        if !blob_frag_map.is_empty() {
+            version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
+        }
+
+        if !blob_files_to_drop.is_empty() {
+            version_edit.push(EditRecord::DropBlobFiles(
+                blob_files_to_drop.iter().map(BlobFile::id).collect(),
+            ));
+        }
+
         Ok(NewCompactionResult {
-            version_edit: VersionEdit::new(vec![
-                EditRecord::AddTables {
-                    level: dst_lvl,
-                    tables: created_tables.iter().map(Table::id).collect(),
-                },
-                EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
-                // TODO: add more if necessary
-            ]),
+            version_edit: VersionEdit::new(version_edit),
             inner: crate::compaction::worker::CompactionOperation::Merge {
                 created_tables,
                 tables_to_delete,
@@ -431,15 +442,26 @@ impl CompactionFlavour for StandardCompaction {
             }
         }
 
+        let mut version_edit = vec![
+            EditRecord::AddTables {
+                level: dst_lvl,
+                tables: created_tables.iter().map(Table::id).collect(),
+            },
+            EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
+        ];
+
+        if !blob_frag_map.is_empty() {
+            version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
+        }
+
+        if !blob_files_to_drop.is_empty() {
+            version_edit.push(EditRecord::DropBlobFiles(
+                blob_files_to_drop.iter().map(BlobFile::id).collect(),
+            ));
+        }
+
         Ok(NewCompactionResult {
-            version_edit: VersionEdit::new(vec![
-                EditRecord::AddTables {
-                    level: dst_lvl,
-                    tables: created_tables.iter().map(Table::id).collect(),
-                },
-                EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
-                // TODO: add more if necessary
-            ]),
+            version_edit: VersionEdit::new(version_edit),
             inner: crate::compaction::worker::CompactionOperation::Merge {
                 created_tables,
                 tables_to_delete,
@@ -449,12 +471,6 @@ impl CompactionFlavour for StandardCompaction {
                 blob_files_to_drop,
             },
         })
-
-        //
-
-        //    let current_version = super_version.latest_version();
-
-        /*  */
 
         /*super_version.upgrade_version(
             &opts.config.path,
