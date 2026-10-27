@@ -149,7 +149,10 @@ pub mod util;
 mod value;
 mod value_type;
 mod version;
+
+#[warn(missing_docs)]
 mod version_set;
+
 mod vlog;
 
 /// User defined key (byte array)
@@ -173,8 +176,10 @@ pub use {
     tree::inner::TreeId,
     tree::Guard as StandardGuard,
     value::InternalValue,
-    version_set::MemoryVersionSetProvider,
-    version_set::VersionSetProvider,
+    version_set::{EditRecord, VersionEdit, VersionSetProvider},
+    version_set::{
+        IoVersionSetProvider, MemoryVersionSetProvider, Persister as VersionEditPersister,
+    },
 };
 
 pub use {
