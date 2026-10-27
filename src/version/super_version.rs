@@ -154,7 +154,7 @@ impl SuperVersion {
         copy.sealed_memtables = Arc::new(self.sealed_memtables.add(yanked_memtable.clone()));
 
         log::trace!(
-            "rotate: added memtable id={} to sealed memtables",
+            "Added memtable id={} to sealed memtables",
             yanked_memtable.id,
         );
 
