@@ -8,7 +8,7 @@ use crate::{
     BlobFile, DescriptorTable, TreeId,
 };
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::{atomic::AtomicBool, Arc},
 };
 
@@ -17,9 +17,9 @@ pub fn recover_blob_files(
     ids: &[RecoveredBlobFile],
     tree_id: TreeId,
     descriptor_table: Option<&Arc<DescriptorTable>>,
-) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
+) -> crate::Result<Vec<BlobFile>> {
     if !folder.try_exists()? {
-        return Ok((vec![], vec![]));
+        return Ok(vec![]);
     }
 
     let cnt = ids.len();
@@ -33,7 +33,6 @@ pub fn recover_blob_files(
     log::debug!("Recovering {cnt} blob files from {:?}", folder.display());
 
     let mut blob_files = Vec::with_capacity(ids.len());
-    let mut orphaned_blob_files = vec![];
 
     for (idx, dirent) in std::fs::read_dir(folder)?.enumerate() {
         let dirent = dirent?;
@@ -108,8 +107,6 @@ pub fn recover_blob_files(
             if idx % progress_mod == 0 {
                 log::debug!("Recovered {idx}/{cnt} blob files");
             }
-        } else {
-            orphaned_blob_files.push(blob_file_path.clone());
         }
     }
 
@@ -119,7 +116,7 @@ pub fn recover_blob_files(
 
     log::debug!("Successfully recovered {} blob files", blob_files.len());
 
-    Ok((blob_files, orphaned_blob_files))
+    Ok(blob_files)
 }
 
 #[cfg(test)]

@@ -211,7 +211,7 @@ pub mod v3 {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        let (blob_files, _) = blob::recover_blob_files(
+        let blob_files = blob::recover_blob_files(
             &folder.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
             tree_id,
