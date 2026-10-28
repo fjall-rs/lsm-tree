@@ -24,9 +24,6 @@ pub struct SuperVersion {
 
     /// Current tree version
     pub(crate) version: Version,
-
-    // v---- TODO: move into Version
-    pub(crate) seqno: SeqNo,
 }
 
 #[derive(Default)]
@@ -51,14 +48,12 @@ impl DeletedFiles {
 }
 
 impl SuperVersion {
-    // TODO: v----- TODO: move this into Version
     pub fn register_compaction(
         &self,
         result: NewCompactionResult,
         version_seqno: SeqNo,
     ) -> crate::Result<(Self, DeletedFiles)> {
         let mut copy = self.clone();
-        copy.seqno = version_seqno;
 
         let mut deleted = DeletedFiles::default();
 
@@ -86,15 +81,18 @@ impl SuperVersion {
                         .iter()
                         .map(BlobFile::id)
                         .collect::<Vec<_>>(),
+                    version_seqno,
                 );
 
                 deleted.tables.extend(tables_to_delete);
                 deleted.blob_files.extend(blob_files_to_drop);
             }
             CompactionOperation::Move { dst_lvl, tables } => {
-                copy.version = copy
-                    .version
-                    .with_moved(&tables.iter().map(Table::id).collect::<Vec<_>>(), dst_lvl);
+                copy.version = copy.version.with_moved(
+                    &tables.iter().map(Table::id).collect::<Vec<_>>(),
+                    dst_lvl,
+                    version_seqno,
+                );
             }
             CompactionOperation::Drop { tables } => {
                 let mut blob_files_to_drop = vec![];
@@ -103,6 +101,7 @@ impl SuperVersion {
                     &tables.iter().map(Table::id).collect::<Vec<_>>(),
                     // TODO: -> we need to drop blob files from disk; and tables too; need tests for that
                     &mut blob_files_to_drop,
+                    version_seqno,
                 )?;
 
                 deleted.blob_files.extend(blob_files_to_drop);
@@ -112,7 +111,11 @@ impl SuperVersion {
         Ok((copy, deleted))
     }
 
-    pub(crate) fn register_flush(&self, flush_result: NewFlushToTablesResult) -> Option<Self> {
+    pub(crate) fn register_flush(
+        &self,
+        flush_result: NewFlushToTablesResult,
+        version_seqno: SeqNo,
+    ) -> Option<Self> {
         // NOTE: Check for race condition
         // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
         if flush_result
@@ -130,6 +133,7 @@ impl SuperVersion {
             &flush_result.tables,
             flush_result.blob_files.as_deref(),
             flush_result.frag_map.filter(|x| !x.is_empty()),
+            version_seqno,
         );
 
         for table_id in flush_result.evicted_sealed_memtables {
@@ -171,7 +175,6 @@ impl SuperVersionSet {
                 active_memtable: Arc::new(Memtable::new(0)),
                 sealed_memtables: Arc::default(),
                 version,
-                seqno: 0,
             }]
             .into(),
         )
@@ -214,7 +217,11 @@ impl SuperVersionSet {
 
         log::trace!("Running manifest GC with watermark={gc_watermark}");
 
-        if let Some(hi_idx) = self.0.iter().rposition(|x| x.seqno < gc_watermark) {
+        if let Some(hi_idx) = self
+            .0
+            .iter()
+            .rposition(|x| x.version.seqno() < gc_watermark)
+        {
             for _ in 0..=hi_idx {
                 let Some(head) = self.0.front() else {
                     break;
@@ -223,7 +230,7 @@ impl SuperVersionSet {
                 log::trace!(
                     "Removing version #{} (seqno={})",
                     head.version.id(),
-                    head.seqno,
+                    head.version.seqno(),
                 );
 
                 self.0.pop_front();
@@ -266,7 +273,7 @@ impl SuperVersionSet {
             .0
             .iter()
             .rev()
-            .find(|version| version.seqno < seqno)
+            .find(|version| version.version.seqno() < seqno)
             .cloned();
 
         if version.is_none() {
@@ -274,7 +281,11 @@ impl SuperVersionSet {
             log::error!("SuperVersions:");
 
             for version in self.0.iter().rev() {
-                log::error!("-> {}, seqno={}", version.version.id(), version.seqno);
+                log::error!(
+                    "-> {}, seqno={}",
+                    version.version.id(),
+                    version.version.seqno(),
+                );
             }
         }
 

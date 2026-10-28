@@ -201,11 +201,18 @@ impl RawVersionData {
 mod tests {
     use super::*;
     use crate::{
-        blob_tree::FragmentationEntry, vlog::BlobFileId, Checksum, EditRecord, TableId, VersionEdit,
+        blob_tree::FragmentationEntry,
+        coding::{Decode, Encode},
+        vlog::BlobFileId,
+        Checksum, EditRecord, TableId, VersionEdit,
     };
 
     fn table(id: TableId, checksum: u128) -> TableRef {
         TableRef::new(id, Checksum::from_raw(checksum))
+    }
+
+    fn table_with_global_seqno(id: TableId, checksum: u128, global_seqno: SeqNo) -> TableRef {
+        TableRef::with_global_seqno(id, Checksum::from_raw(checksum), global_seqno)
     }
 
     fn blob_file(id: BlobFileId, checksum: u128) -> BlobFileRef {
@@ -237,7 +244,7 @@ mod tests {
 
         raw.apply(&VersionEdit::new(vec![EditRecord::AddTables {
             level: 0,
-            tables: vec![table(1, 11), table(2, 12)],
+            tables: vec![table_with_global_seqno(1, 11, 7), table(2, 12)],
         }]));
         raw.apply(&VersionEdit::new(vec![EditRecord::AddBlobFiles {
             blob_files: vec![blob_file(3, 13)],
@@ -252,11 +259,26 @@ mod tests {
 
         assert_eq!(
             raw.table_ids.first(),
-            Some(&vec![vec![table(1, 11), table(2, 12)]]),
+            Some(&vec![
+                vec![table_with_global_seqno(1, 11, 7), table(2, 12),]
+            ]),
         );
         assert_eq!(raw.blob_file_ids, vec![blob_file(3, 13)]);
         assert_eq!(raw.version_seqno, 42);
         assert_eq!(raw.gc_stats, frag_map);
+    }
+
+    #[test]
+    fn table_global_seqno_roundtrips_in_version_edit() {
+        let edit = VersionEdit::new(vec![EditRecord::AddTables {
+            level: 0,
+            tables: vec![table_with_global_seqno(1, 11, 7)],
+        }]);
+
+        let encoded = edit.encode_into_vec();
+        let decoded = VersionEdit::decode_from(&mut &encoded[..]).expect("should decode edit");
+
+        assert_eq!(edit, decoded);
     }
 
     #[test]

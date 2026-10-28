@@ -51,6 +51,7 @@ impl Default for Inner {
         Self(SuperVersionSet::new(Version::new(
             0,
             crate::TreeType::Standard,
+            0,
         )))
     }
 }
@@ -70,7 +71,7 @@ impl Inner {
     }
 
     fn prune(&mut self) {
-        let seqno = self.0.latest_version().seqno;
+        let seqno = self.0.latest_version().version.seqno();
         self.0.maintenance(seqno);
     }
 
@@ -81,8 +82,11 @@ impl Inner {
         self.0.append_version(SuperVersion {
             active_memtable: Arc::new(Memtable::new(tree.inner().memtable_id_counter.next())),
             sealed_memtables: Arc::default(),
-            version: Version::new(previous_version.version.id() + 1, tree.tree_type()),
-            seqno: version_seqno,
+            version: Version::new(
+                previous_version.version.id() + 1,
+                tree.tree_type(),
+                version_seqno,
+            ),
         });
     }
 
@@ -104,14 +108,22 @@ impl Inner {
         Ok(())
     }
 
-    fn register_flush(&mut self, flush_result: NewFlushToTablesResult, seqno: SeqNo) -> u64 {
+    fn register_flush(
+        &mut self,
+        flush_result: NewFlushToTablesResult,
+        version_seqno: SeqNo,
+    ) -> u64 {
         log::trace!("Registering flush result");
 
-        let Some(mut version) = self.0.latest_version().register_flush(flush_result) else {
+        let Some(super_version) = self
+            .0
+            .latest_version()
+            .register_flush(flush_result, version_seqno)
+        else {
             return 0;
         };
-        version.seqno = seqno;
-        self.0.append_version(version);
+
+        self.0.append_version(super_version);
         0 // TODO:
     }
 

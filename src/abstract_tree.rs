@@ -54,20 +54,18 @@ pub trait AbstractTree {
 
     /// Returns a new [`SuperVersion`] with the active memtable removed.
     fn clear_active_memtable(&self) -> Option<SuperVersion> {
-        let super_version = self.current_super_version();
+        let mut super_version = self.current_super_version();
 
         if super_version.active_memtable.is_empty() {
             return None;
         }
 
-        let mut copy = super_version.clone();
-        copy.active_memtable = Arc::new(Memtable::new(self.inner().memtable_id_counter.next()));
-        copy.sealed_memtables = Arc::new(crate::tree::sealed::SealedMemtables::default());
+        super_version.active_memtable =
+            Arc::new(Memtable::new(self.inner().memtable_id_counter.next()));
+        super_version.sealed_memtables = Arc::new(crate::tree::sealed::SealedMemtables::default());
 
         // Clear active is only used for recovery where snapshots do not exist yet
-        copy.seqno = super_version.seqno;
-
-        Some(copy)
+        Some(super_version)
     }
 
     // TODO: remove this? just provide active_memtable_size and write_buffer_size?

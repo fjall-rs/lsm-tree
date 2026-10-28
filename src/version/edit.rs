@@ -88,6 +88,7 @@ impl Encode for EditRecord {
                 for table in tables {
                     writer.write_u64_varint(table.id)?;
                     writer.write_u128::<LittleEndian>(table.checksum.into_u128())?;
+                    writer.write_u64_varint(table.global_seqno)?;
                 }
             }
             Self::AddBlobFiles { blob_files } => {
@@ -184,7 +185,13 @@ impl Decode for EditRecord {
                 for _ in 0..cnt {
                     let id = reader.read_u64_varint()?;
                     let checksum = Checksum::from_raw(reader.read_u128::<LittleEndian>()?);
-                    tables.push(TableRef { id, checksum });
+                    let global_seqno = reader.read_u64_varint()?;
+
+                    tables.push(TableRef {
+                        id,
+                        checksum,
+                        global_seqno,
+                    });
                 }
 
                 Self::AddTables { level, tables }

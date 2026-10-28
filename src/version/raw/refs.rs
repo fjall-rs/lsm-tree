@@ -8,13 +8,24 @@ use crate::{vlog::BlobFileId, Checksum, TableId};
 pub struct TableRef {
     pub(crate) id: TableId,
     pub(crate) checksum: Checksum,
+    pub(crate) global_seqno: crate::SeqNo,
 }
 
 impl TableRef {
     /// Creates a table reference from an ID and a full-file checksum.
     #[must_use]
     pub fn new(id: TableId, checksum: Checksum) -> Self {
-        Self { id, checksum }
+        Self::with_global_seqno(id, checksum, 0)
+    }
+
+    /// Creates a table reference with its full-file checksum and global sequence number.
+    #[must_use]
+    pub fn with_global_seqno(id: TableId, checksum: Checksum, global_seqno: crate::SeqNo) -> Self {
+        Self {
+            id,
+            checksum,
+            global_seqno,
+        }
     }
 
     /// Returns the table ID.
@@ -28,14 +39,17 @@ impl TableRef {
     pub fn checksum(&self) -> Checksum {
         self.checksum
     }
+
+    /// Returns the table's global sequence number.
+    #[must_use]
+    pub fn global_seqno(&self) -> crate::SeqNo {
+        self.global_seqno
+    }
 }
 
 impl From<&crate::Table> for TableRef {
     fn from(table: &crate::Table) -> Self {
-        Self {
-            id: table.id(),
-            checksum: table.checksum(),
-        }
+        Self::with_global_seqno(table.id(), table.checksum(), table.global_seqno())
     }
 }
 

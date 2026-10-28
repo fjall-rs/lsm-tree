@@ -20,7 +20,7 @@ use crate::compaction::state::hidden_set::HiddenSet;
 use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, Table, TableId,
+    HashSet, KeyRange, SeqNo, Table, TableId,
 };
 use optimize::optimize_runs;
 use run::Ranged;
@@ -140,6 +140,9 @@ pub struct VersionInner {
     /// The version's ID
     id: VersionId,
 
+    /// Sequence number at which this version became visible.
+    seqno: SeqNo,
+
     tree_type: TreeType,
 
     /// The individual LSM-tree levels which consist of runs of tables
@@ -186,6 +189,11 @@ impl Version {
         self.id
     }
 
+    /// Returns the sequence number at which this version became visible.
+    pub fn seqno(&self) -> SeqNo {
+        self.seqno
+    }
+
     pub fn gc_stats(&self) -> &FragmentationMap {
         &self.gc_stats
     }
@@ -206,12 +214,13 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub fn new(id: VersionId, tree_type: TreeType) -> Self {
+    pub fn new(id: VersionId, tree_type: TreeType, seqno: SeqNo) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                seqno,
                 tree_type,
                 levels,
                 blob_files: Arc::default(),
@@ -232,6 +241,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                seqno: 0,
                 tree_type,
                 levels,
                 blob_files: Arc::new(blob_files),
@@ -282,6 +292,7 @@ impl Version {
         run: &[Table],
         blob_files: Option<&[BlobFile]>,
         diff: Option<FragmentationMap>,
+        version_seqno: SeqNo,
     ) -> Self {
         let id = self.id + 1;
 
@@ -340,6 +351,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                seqno: version_seqno,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
@@ -355,6 +367,7 @@ impl Version {
         &self,
         ids: &[TableId],
         dropped_blob_files: &mut Vec<BlobFile>,
+        version_seqno: SeqNo,
     ) -> crate::Result<Self> {
         let id = self.id + 1;
 
@@ -424,6 +437,7 @@ impl Version {
         Ok(Self {
             inner: Arc::new(VersionInner {
                 id,
+                seqno: version_seqno,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
@@ -432,6 +446,7 @@ impl Version {
         })
     }
 
+    #[expect(clippy::too_many_arguments)]
     pub fn with_merge(
         &self,
         old_ids: &[TableId],
@@ -440,6 +455,7 @@ impl Version {
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
         blob_files_to_drop: &Vec<BlobFileId>,
+        version_seqno: SeqNo,
     ) -> Self {
         let id = self.id + 1;
 
@@ -505,6 +521,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                seqno: version_seqno,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
@@ -513,7 +530,7 @@ impl Version {
         }
     }
 
-    pub fn with_moved(&self, ids: &[TableId], dest_level: usize) -> Self {
+    pub fn with_moved(&self, ids: &[TableId], dest_level: usize, version_seqno: SeqNo) -> Self {
         let id = self.id + 1;
 
         let affected_tables = self
@@ -553,6 +570,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                seqno: version_seqno,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: self.blob_files.clone(),
