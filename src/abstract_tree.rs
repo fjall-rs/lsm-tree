@@ -221,13 +221,13 @@ pub trait AbstractTree {
 
         let mut version_edit = vec![EditRecord::AddTables {
             level: 0,
-            tables: tables.iter().map(Table::id).collect(),
+            tables: tables.iter().map(Into::into).collect(),
         }];
 
         if let Some(blob_files) = &blob_files {
             if !blob_files.is_empty() {
                 version_edit.push(EditRecord::AddBlobFiles {
-                    blob_files: blob_files.iter().map(BlobFile::id).collect(),
+                    blob_files: blob_files.iter().map(Into::into).collect(),
                 });
             }
         }

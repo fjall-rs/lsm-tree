@@ -286,7 +286,7 @@ impl CompactionFlavour for RelocatingCompaction {
         let mut version_edit = vec![
             EditRecord::AddTables {
                 level: dst_lvl,
-                tables: created_tables.iter().map(Table::id).collect(),
+                tables: created_tables.iter().map(Into::into).collect(),
             },
             EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
         ];
@@ -445,7 +445,7 @@ impl CompactionFlavour for StandardCompaction {
         let mut version_edit = vec![
             EditRecord::AddTables {
                 level: dst_lvl,
-                tables: created_tables.iter().map(Table::id).collect(),
+                tables: created_tables.iter().map(Into::into).collect(),
             },
             EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
         ];
