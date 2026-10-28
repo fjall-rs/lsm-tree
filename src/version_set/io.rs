@@ -189,8 +189,9 @@ impl VersionSetProvider for IoVersionSetProvider {
 mod tests {
     use super::*;
     use crate::{
-        blob_tree::FragmentationEntry, Config, EditRecord, KvSeparationOptions,
-        SequenceNumberCounter,
+        blob_tree::{FragmentationEntry, FragmentationMap},
+        BlobFileRef, Checksum, Config, EditRecord, KvSeparationOptions, RawVersionData,
+        SequenceNumberCounter, TableRef,
     };
     use std::{
         fs::{File, OpenOptions},
