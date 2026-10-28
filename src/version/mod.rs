@@ -3,20 +3,20 @@
 // (found in the LICENSE-* files in the repository)
 
 mod blob_file_list;
+mod edit;
 mod optimize;
-pub mod recovery;
+mod raw;
 pub mod run;
 mod super_version;
 
 pub use blob_file_list::BlobFileList;
+pub use edit::{EditRecord, VersionEdit};
+pub use raw::{BlobFileRef, RawVersionData, TableRef};
 pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersionSet};
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
-use crate::checksum::ChecksumType;
-use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
-use crate::version::recovery::Recovery;
 use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},

@@ -141,7 +141,7 @@ impl IoVersionSetProvider {
         version_seqno: SeqNo,
     ) -> crate::Result<()> {
         let mut edits = std::mem::take(&mut result.version_edit);
-        edits.0.push(EditRecord::SetVersionSeqno(version_seqno));
+        edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
         self.persister.persist(&edits)?;
         self.inner.register_compaction(result, version_seqno)
@@ -158,7 +158,7 @@ impl IoVersionSetProvider {
         version_seqno: SeqNo,
     ) -> crate::Result<u64> {
         let mut edits = std::mem::take(&mut result.version_edit);
-        edits.0.push(EditRecord::SetVersionSeqno(version_seqno));
+        edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
         self.persister.persist(&edits)?;
         Ok(self.inner.register_flush(result, version_seqno))

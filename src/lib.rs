@@ -146,8 +146,6 @@ pub mod util;
 mod value;
 mod value_type;
 mod version;
-
-#[warn(missing_docs)]
 mod version_set;
 
 mod vlog;

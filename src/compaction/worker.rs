@@ -17,8 +17,7 @@ use crate::{
     run_scanner::RunScanner,
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    version::{Run, Version},
-    version_set::{EditRecord, VersionEdit},
+    version::{EditRecord, Run, Version, VersionEdit},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
     BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, Table, TableId,
 };
