@@ -544,23 +544,6 @@ impl Tree {
             .is_empty()
     }
 
-    fn inner_compact(
-        &self,
-        strategy: Arc<dyn CompactionStrategy>,
-        mvcc_gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
-        use crate::compaction::worker::{do_compaction, Options};
-
-        let mut opts = Options::from_tree(self, strategy);
-        opts.mvcc_gc_watermark = mvcc_gc_watermark;
-
-        do_compaction(&opts)?;
-
-        log::debug!("Compaction run over");
-
-        Ok(())
-    }
-
     #[doc(hidden)]
     pub fn create_iter(
         &self,

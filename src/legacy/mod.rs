@@ -1,0 +1,269 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
+//! Compatibility helpers for loading legacy manifests.
+
+pub mod v3 {
+    mod blob;
+
+    use crate::version::{BlobFileList, Level, Run};
+    use crate::BlobFile;
+    use crate::{
+        coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, SeqNo, TableId, TreeType,
+    };
+    use crate::{tree::inner::get_next_tree_id, version::Version, Cache, DescriptorTable, Table};
+    use byteorder::{LittleEndian, ReadBytesExt};
+    use std::{path::Path, sync::Arc};
+
+    const CURRENT_VERSION_FILE: &str = "current";
+
+    fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId> {
+        use byteorder::{LittleEndian, ReadBytesExt};
+
+        std::fs::File::open(folder.join(CURRENT_VERSION_FILE))
+            .and_then(|mut f| f.read_u64::<LittleEndian>())
+            .map_err(Into::into)
+    }
+
+    struct RecoveredTable {
+        id: TableId,
+        checksum: Checksum,
+        global_seqno: SeqNo,
+    }
+
+    struct RecoveredBlobFile {
+        id: BlobFileId,
+        checksum: Checksum,
+    }
+
+    /// Raw version data (without table/blob file handles)
+    pub struct Recovery {
+        tree_type: TreeType,
+        curr_version_id: VersionId,
+        table_ids: Vec<Vec<Vec<RecoveredTable>>>,
+        blob_file_ids: Vec<RecoveredBlobFile>,
+        gc_stats: crate::blob_tree::FragmentationMap,
+    }
+
+    fn recover(folder: &Path) -> crate::Result<Recovery> {
+        let curr_version_id = get_current_version(folder)?;
+        let version_file_path = folder.join(format!("v{curr_version_id}"));
+
+        log::info!(
+            "Recovering current manifest at {}",
+            version_file_path.display(),
+        );
+
+        let reader = sfa::Reader::new(&version_file_path)?;
+        let toc = reader.toc();
+
+        let mut levels = vec![];
+
+        {
+            let mut reader = toc
+                .section(b"tables")
+                .ok_or(crate::Error::Unrecoverable)
+                .inspect_err(|_| {
+                    log::error!("tables section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                })?
+                .buf_reader(&version_file_path)?;
+
+            let level_count = reader.read_u8()?;
+
+            for _ in 0..level_count {
+                let mut level = vec![];
+                let run_count = reader.read_u8()?;
+
+                for _ in 0..run_count {
+                    let mut run = vec![];
+                    let table_count = reader.read_u32::<LittleEndian>()?;
+
+                    for _ in 0..table_count {
+                        let id = reader.read_u64::<LittleEndian>()?;
+                        let checksum_type = reader.read_u8()?;
+
+                        if checksum_type != 0 {
+                            return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
+                        }
+
+                        let checksum = reader.read_u128::<LittleEndian>()?;
+                        let checksum = Checksum::from_raw(checksum);
+
+                        let global_seqno = reader.read_u64::<LittleEndian>()?;
+
+                        run.push(RecoveredTable {
+                            id,
+                            checksum,
+                            global_seqno,
+                        });
+                    }
+
+                    level.push(run);
+                }
+
+                levels.push(level);
+            }
+        }
+
+        let blob_file_ids = {
+            let mut reader = toc
+                .section(b"blob_files")
+                .ok_or(crate::Error::Unrecoverable)
+                .inspect_err(|_| {
+                    log::error!("blob_files section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                })?
+                .buf_reader(&version_file_path)?;
+
+            let blob_file_count = reader.read_u32::<LittleEndian>()?;
+            let mut blob_file_ids = Vec::with_capacity(blob_file_count as usize);
+
+            for _ in 0..blob_file_count {
+                let id = reader.read_u64::<LittleEndian>()?;
+
+                let checksum_type = reader.read_u8()?;
+
+                if checksum_type != 0 {
+                    return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
+                }
+
+                let checksum = reader.read_u128::<LittleEndian>()?;
+                let checksum = Checksum::from_raw(checksum);
+
+                blob_file_ids.push(RecoveredBlobFile { id, checksum });
+            }
+
+            blob_file_ids.sort_by_key(|bf| bf.id);
+            blob_file_ids
+        };
+
+        debug_assert!(blob_file_ids.is_sorted_by_key(|bf| bf.id));
+
+        let gc_stats = {
+            let mut reader = toc
+                .section(b"blob_gc_stats")
+                .ok_or(crate::Error::Unrecoverable)
+                .inspect_err(|_| {
+                    log::error!("blob_gc_stats section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                })?
+                .buf_reader(&version_file_path)?;
+
+            crate::blob_tree::FragmentationMap::decode_from(&mut reader)?
+        };
+
+        Ok(Recovery {
+            tree_type: {
+                let byte = toc.section(b"tree_type").ok_or(crate::Error::Unrecoverable)
+                .inspect_err(|_|{
+                    log::error!("tree_type section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                })?
+                .buf_reader(
+                    &version_file_path
+                )?
+                .read_u8()?;
+
+                TreeType::try_from(byte).map_err(|()| crate::Error::InvalidHeader("TreeType"))?
+            },
+            curr_version_id,
+            table_ids: levels,
+            blob_file_ids,
+            gc_stats,
+        })
+    }
+
+    /// Load a v3 manifest into the current in-memory version representation.
+    pub fn load_manifest<P: AsRef<Path>>(
+        folder: P,
+        cache: &Arc<Cache>,
+        descriptor_table: &Arc<DescriptorTable>,
+    ) -> crate::Result<Version> {
+        let folder = folder.as_ref();
+
+        log::trace!("Loading current v3-manifest at {}", folder.display());
+
+        let tree_id = get_next_tree_id();
+
+        let recovery = recover(folder)?;
+
+        #[cfg(feature = "metrics")]
+        let metrics = Arc::new(crate::Metrics::default());
+
+        let tables = recovery
+            .table_ids
+            .iter()
+            .flat_map(|level| level.iter())
+            .flat_map(|run| run.iter())
+            .map(|table| {
+                Table::recover(
+                    folder
+                        .join(crate::file::TABLES_FOLDER)
+                        .join(table.id.to_string()),
+                    table.checksum,
+                    table.global_seqno,
+                    tree_id,
+                    cache.clone(),
+                    Some(descriptor_table.clone()),
+                    false,
+                    false,
+                    #[cfg(feature = "metrics")]
+                    metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        let (blob_files, _) = blob::recover_blob_files(
+            &folder.join(crate::file::BLOBS_FOLDER),
+            &recovery.blob_file_ids,
+            tree_id,
+            Some(descriptor_table),
+        )?;
+
+        hydrate_version(recovery, &tables, &blob_files)
+    }
+
+    fn hydrate_version(
+        recovery: Recovery,
+        tables: &[Table],
+        blob_files: &[BlobFile],
+    ) -> crate::Result<Version> {
+        let version_levels = recovery
+            .table_ids
+            .iter()
+            .map(|level| {
+                let level_runs = level
+                    .iter()
+                    .map(|run| {
+                        let run_tables = run
+                            .iter()
+                            .map(|table| {
+                                tables
+                                    .iter()
+                                    .find(|x| x.id() == table.id)
+                                    .cloned()
+                                    .ok_or(crate::Error::Unrecoverable)
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?;
+
+                        Ok(Arc::new(
+                            #[expect(
+                                clippy::expect_used,
+                                reason = "empty runs should not exist, so there should not be any empty persisted runs"
+                            )]
+                            Run::new(run_tables).expect("persisted runs should not be empty"),
+                        ))
+                    })
+                    .collect::<crate::Result<Vec<_>>>()?;
+
+                Ok(Level::from_runs(level_runs))
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        Ok(Version::from_levels(
+            recovery.curr_version_id,
+            recovery.tree_type,
+            version_levels,
+            BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
+            recovery.gc_stats,
+        ))
+    }
+}

@@ -220,52 +220,7 @@ impl Version {
         }
     }
 
-    pub(crate) fn from_recovery(
-        recovery: Recovery,
-        tables: &[Table],
-        blob_files: &[BlobFile],
-    ) -> crate::Result<Self> {
-        let version_levels = recovery
-            .table_ids
-            .iter()
-            .map(|level| {
-                let level_runs = level
-                    .iter()
-                    .map(|run| {
-                        let run_tables = run
-                            .iter()
-                            .map(|table| {
-                                tables
-                                    .iter()
-                                    .find(|x| x.id() == table.id)
-                                    .cloned()
-                                    .ok_or(crate::Error::Unrecoverable)
-                            })
-                            .collect::<crate::Result<Vec<_>>>()?;
-
-                        Ok(Arc::new(
-                            #[expect(
-                                clippy::expect_used,
-                                reason = "empty runs should not exist, so there should not be any empty persisted runs"
-                            )]
-                            Run::new(run_tables).expect("persisted runs should not be empty"),
-                        ))
-                    })
-                    .collect::<crate::Result<Vec<_>>>()?;
-
-                Ok(Level::from_runs(level_runs))
-            })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        Ok(Self::from_levels(
-            recovery.curr_version_id,
-            recovery.tree_type,
-            version_levels,
-            BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
-            recovery.gc_stats,
-        ))
-    }
-
+    // TODO: v4 maybe move into legacy
     /// Creates a new pre-populated version.
     pub fn from_levels(
         id: VersionId,
