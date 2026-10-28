@@ -15,6 +15,10 @@ use std::{ops::RangeBounds, sync::Arc};
 /// Persists changes to the version set
 pub trait Persister: Send + Sync {
     /// Persists a version edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an I/O error occurs.
     fn persist(&self, edit: &VersionEdit) -> crate::Result<()>;
 }
 
@@ -64,8 +68,7 @@ impl IoVersionSetProvider {
     ///
     /// # Errors
     ///
-    /// Returns an error if flushing or persisting the resulting version edit
-    /// fails.
+    /// Returns an error if an I/O error occurs.
     #[expect(clippy::expect_used)]
     pub fn flush_active_memtable(
         &self,
@@ -90,7 +93,7 @@ impl IoVersionSetProvider {
     ///
     /// # Errors
     ///
-    /// Returns an error if compaction or persisting its version edit fails.
+    /// Returns an error if an I/O error occurs.
     pub fn compact(
         &self,
         tree: &impl AbstractTree,
@@ -106,7 +109,7 @@ impl IoVersionSetProvider {
     ///
     /// # Errors
     ///
-    /// Returns an error if compaction or persisting its version edit fails.
+    /// Returns an error if an I/O error occurs.
     pub fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         tree: &impl AbstractTree,
@@ -134,7 +137,7 @@ impl IoVersionSetProvider {
     ///
     /// # Errors
     ///
-    /// Returns an error if persistence or registering the compaction fails.
+    /// Returns an error if an I/O error occurs.
     pub fn register_compaction(
         &self,
         mut result: NewCompactionResult,
@@ -151,7 +154,7 @@ impl IoVersionSetProvider {
     ///
     /// # Errors
     ///
-    /// Returns an error if persistence fails.
+    /// Returns an error if an I/O error occurs.
     pub fn register_flush(
         &self,
         mut result: NewFlushToTablesResult,

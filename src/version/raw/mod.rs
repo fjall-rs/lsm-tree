@@ -14,12 +14,12 @@ pub use refs::{BlobFileRef, TableRef};
 /// for a [`VersionSetProvider`](crate::VersionSetProvider).
 #[derive(Debug, PartialEq, Eq)]
 pub struct RawVersionData {
-    tree_type: TreeType,
-    version_id: VersionId,
-    version_seqno: SeqNo,
-    table_ids: Vec<Vec<Vec<TableRef>>>,
-    blob_file_ids: Vec<BlobFileRef>,
-    gc_stats: FragmentationMap,
+    pub(crate) tree_type: TreeType,
+    pub(crate) version_id: VersionId,
+    pub(crate) version_seqno: SeqNo,
+    pub(crate) table_ids: Vec<Vec<Vec<TableRef>>>,
+    pub(crate) blob_file_ids: Vec<BlobFileRef>,
+    pub(crate) gc_stats: FragmentationMap,
 }
 
 impl Default for RawVersionData {

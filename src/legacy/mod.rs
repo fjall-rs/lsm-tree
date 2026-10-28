@@ -264,6 +264,7 @@ pub mod v3 {
             version_levels,
             BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,
+            0,
         ))
     }
 }

@@ -214,13 +214,13 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub fn new(id: VersionId, tree_type: TreeType, seqno: SeqNo) -> Self {
+    pub fn new(id: VersionId, tree_type: TreeType, version_seqno: SeqNo) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                seqno,
+                seqno: version_seqno,
                 tree_type,
                 levels,
                 blob_files: Arc::default(),
@@ -237,11 +237,12 @@ impl Version {
         levels: Vec<Level>,
         blob_files: BlobFileList,
         gc_stats: FragmentationMap,
+        version_seqno: SeqNo,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                seqno: 0,
+                seqno: version_seqno,
                 tree_type,
                 levels,
                 blob_files: Arc::new(blob_files),
