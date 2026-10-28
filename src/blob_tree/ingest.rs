@@ -183,16 +183,11 @@ impl<'a> BlobIngestion<'a> {
         //
         // This prevents race conditions where blob files and their index
         // entries could have mismatched sequence numbers.
-        let flush_lock = index.get_flush_lock();
+        let _flush_lock = index.get_flush_lock();
 
         // Flush any pending index memtable writes to ensure ingestion sees
         // a consistent snapshot of the index.
-        // We call rotate + flush directly because we already hold the lock.
-        //index.rotate_memtable();
-        //todo!();
         maybe_rotate_and_flush()?;
-
-        // index.flush(&flush_lock, 0)?;
 
         // Finalize the blob writer first, ensuring all large values are
         // written to blob files before we finalize the index tables that
@@ -244,33 +239,18 @@ impl<'a> BlobIngestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        /*  // Upgrade the version with our ingested tables and blob files, using
-        // the global_seqno we allocated earlier. This ensures the version,
-        // tables, and blob files all share the same sequence number, which is
-        // critical for GC correctness - we must not delete blob files that are
-        // still referenced by visible snapshots.
-        //
-        // We use upgrade_version_with_seqno (instead of upgrade_version) because
-        // we need precise control over the seqno: it must match the seqno we
-        // already assigned to the recovered tables.
-        version_lock.upgrade_version_with_seqno(
-            &index.config.path,
-            |current| {
-                let mut copy = current.clone();
-                copy.version =
-                    copy.version
-                        .with_new_l0_run(&created_tables, Some(&blob_files), None);
-                Ok(copy)
-            },
-            global_seqno,
-            &self.tree.index.config.visible_seqno,
-        )?;*/
-
-        // Perform maintenance on the version history (e.g., clean up old versions).
-        // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        //if let Err(e) = version_lock.maintenance(&index.config.path, 0) {
-        //    log::warn!("Version GC failed: {e:?}");
-        //}
+        let version_edit = crate::VersionEdit::new({
+            let mut edits = vec![crate::EditRecord::AddTables {
+                level: 0,
+                tables: tables.iter().map(Into::into).collect(),
+            }];
+            if !blob_files.is_empty() {
+                edits.push(crate::EditRecord::AddBlobFiles {
+                    blob_files: blob_files.iter().map(Into::into).collect(),
+                });
+            }
+            edits
+        });
 
         Ok(Some((
             NewFlushToTablesResult {
@@ -279,7 +259,7 @@ impl<'a> BlobIngestion<'a> {
                 evicted_sealed_memtables: Vec::new(),
                 flushed_size: 0,
                 frag_map: None,
-                version_edit: todo!(),
+                version_edit,
             },
             global_seqno,
         )))
