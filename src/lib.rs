@@ -108,7 +108,6 @@ mod ingestion;
 mod iter_guard;
 mod key;
 mod key_range;
-// mod manifest;
 mod memtable;
 mod run_reader;
 mod run_scanner;
@@ -118,8 +117,6 @@ pub mod merge;
 
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
-
-// mod multi_reader;
 
 #[doc(hidden)]
 pub mod mvcc_stream;

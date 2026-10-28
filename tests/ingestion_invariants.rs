@@ -87,6 +87,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     // Ingestion should flush sealed memtables and register resulting tables
     let mut ingest = tree.ingestion()?;
     ingest.write("a", "a")?;
+
     let (ingestion_result, ingestion_seqno) = ingest
         .finish(
             || {
@@ -99,6 +100,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
             || seqno.next(),
         )?
         .expect("ingestion should contain writes");
+
     version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(tree.sealed_memtable_count(), 0);

@@ -12,7 +12,7 @@ pub mod test;
 use crate::{
     compaction::{state::CompactionState, worker::NewCompactionResult, CompactionStrategy},
     config::Config,
-    file::{BLOBS_FOLDER, TABLES_FOLDER},
+    file::BLOBS_FOLDER,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     key::InternalKey,
