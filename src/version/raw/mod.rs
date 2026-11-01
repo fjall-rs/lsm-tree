@@ -191,7 +191,6 @@ impl RawVersionData {
                 EditRecord::UpdateFragMap(map) => {
                     map.clone().merge_into(&mut self.gc_stats);
                 }
-                EditRecord::Custom(_) => {}
             }
         }
     }
@@ -315,7 +314,6 @@ mod tests {
             },
             EditRecord::DropTables(vec![4, 999]),
             EditRecord::DropBlobFiles(vec![6, 999]),
-            EditRecord::Custom(vec![1, 2, 3]),
         ]));
 
         assert_eq!(

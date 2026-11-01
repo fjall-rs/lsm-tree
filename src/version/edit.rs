@@ -55,24 +55,11 @@ pub enum EditRecord {
 
     /// Merges a fragmentation-map diff into the current map.
     UpdateFragMap(FragmentationMap),
-
-    // TODO: remove?
-    /// An application-defined edit payload.
-    Custom(Vec<u8>),
 }
 
 impl Encode for EditRecord {
     fn encode_into<W: std::io::prelude::Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         match self {
-            Self::Custom(bytes) => {
-                writer.write_u8(0xFF)?; // enum discriminant
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "version edit payloads are bounded by practical limits"
-                )]
-                writer.write_u32_varint(bytes.len() as u32)?;
-                writer.write_all(bytes)?;
-            }
             Self::AddTables { level, tables } => {
                 writer.write_u8(0x0)?; // enum discriminant
 
@@ -87,6 +74,7 @@ impl Encode for EditRecord {
 
                 for table in tables {
                     writer.write_u64_varint(table.id)?;
+                    writer.write_u8(0x0)?; // Checksum type, 0 = XXH3; always 0x0 as of now
                     writer.write_u128::<LittleEndian>(table.checksum.into_u128())?;
                     writer.write_u64_varint(table.global_seqno)?;
                 }
@@ -102,6 +90,7 @@ impl Encode for EditRecord {
 
                 for blob_file in blob_files {
                     writer.write_u64_varint(blob_file.id)?;
+                    writer.write_u8(0x0)?; // Checksum type, 0 = XXH3; always 0x0 as of now
                     writer.write_u128::<LittleEndian>(blob_file.checksum.into_u128())?;
                 }
             }
@@ -168,14 +157,6 @@ impl Decode for EditRecord {
     {
         let tag = reader.read_u8()?;
         Ok(match tag {
-            0xFF => {
-                let len = reader.read_u32_varint()? as usize;
-
-                let mut buf = vec![0u8; len];
-                reader.read_exact(&mut buf)?;
-
-                Self::Custom(buf)
-            }
             0x00 => {
                 let level = reader.read_u32_varint()? as usize;
                 let cnt = reader.read_u32_varint()? as usize;
@@ -184,6 +165,12 @@ impl Decode for EditRecord {
 
                 for _ in 0..cnt {
                     let id = reader.read_u64_varint()?;
+
+                    let checksum_type = reader.read_u8()?;
+                    if checksum_type != 0x0 {
+                        return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
+                    }
+
                     let checksum = Checksum::from_raw(reader.read_u128::<LittleEndian>()?);
                     let global_seqno = reader.read_u64_varint()?;
 
@@ -203,6 +190,12 @@ impl Decode for EditRecord {
 
                 for _ in 0..cnt {
                     let id = reader.read_u64_varint()?;
+
+                    let checksum_type = reader.read_u8()?;
+                    if checksum_type != 0x0 {
+                        return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
+                    }
+
                     let checksum = Checksum::from_raw(reader.read_u128::<LittleEndian>()?);
                     blob_files.push(BlobFileRef { id, checksum });
                 }
