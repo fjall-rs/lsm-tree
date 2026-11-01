@@ -128,8 +128,30 @@ impl IoVersionSetProvider {
         self.register_compaction(compaction_result, version_seqno)
     }
 
-    /// Clears the in-memory version history's latest visible version.
+    /// Drops all tables, blob files and memtables by appending a new, empty version.
+    ///
+    /// The version edit is persisted before the new version is installed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an I/O error occurs.
     pub fn clear(&self, tree: &impl AbstractTree, version_seqno: SeqNo) -> crate::Result<()> {
+        let current = self.inner.latest_version().version;
+
+        let table_ids: Vec<_> = current.iter_tables().map(crate::Table::id).collect();
+        let blob_file_ids: Vec<_> = current.blob_files.list_ids().copied().collect();
+
+        let mut edits = Vec::new();
+
+        if !table_ids.is_empty() {
+            edits.push(EditRecord::DropTables(table_ids));
+        }
+        if !blob_file_ids.is_empty() {
+            edits.push(EditRecord::DropBlobFiles(blob_file_ids));
+        }
+        edits.push(EditRecord::SetVersionSeqno(version_seqno));
+
+        self.persister.persist(&VersionEdit::new(edits))?;
         self.inner.clear(tree, version_seqno)
     }
 

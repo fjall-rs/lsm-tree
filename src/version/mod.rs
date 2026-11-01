@@ -16,6 +16,7 @@ pub use hydrate::hydrate;
 pub use raw::{BlobFileRef, RawVersionData, TableRef};
 pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersionSet};
+pub(crate) use super_version::DeletedFiles;
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::compaction::state::hidden_set::HiddenSet;

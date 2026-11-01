@@ -33,6 +33,14 @@ pub struct DeletedFiles {
 }
 
 impl DeletedFiles {
+    /// Collects all tables and blob files of a version, e.g. when the whole version is dropped.
+    pub fn from_version(version: &Version) -> Self {
+        Self {
+            tables: version.iter_tables().cloned().collect(),
+            blob_files: version.blob_files.iter().cloned().collect(),
+        }
+    }
+
     pub fn commit(self) {
         log::trace!("Marking {} tables as deleted", self.tables.len());
         log::trace!("Marking {} blob_files as deleted", self.blob_files.len());
