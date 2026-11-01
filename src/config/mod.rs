@@ -21,7 +21,8 @@ pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
     compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, Tree, VersionSetProvider,
+    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
+    VersionSetProvider,
 };
 use std::{
     path::{Path, PathBuf},
@@ -231,6 +232,12 @@ pub struct Config {
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
     pub(crate) version_set_provider: Arc<dyn VersionSetProvider + Send + Sync>,
+
+    /// Table ID counter, may be shared between trees
+    pub(crate) table_id_counter: Option<SequenceNumberCounter>,
+
+    /// Blob file ID counter, may be shared between trees
+    pub(crate) blob_file_id_counter: Option<SequenceNumberCounter>,
 }
 
 impl Config {
@@ -291,7 +298,30 @@ impl Config {
             expect_point_read_hits: false,
 
             kv_separation_opts: None,
+
+            table_id_counter: None,
+            blob_file_id_counter: None,
         }
+    }
+
+    /// Sets the table ID counter.
+    ///
+    /// Can be shared between trees, so table IDs are unique across them.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn with_table_id_counter(mut self, counter: SequenceNumberCounter) -> Self {
+        self.table_id_counter = Some(counter);
+        self
+    }
+
+    /// Sets the blob file ID counter.
+    ///
+    /// Can be shared between trees, so blob file IDs are unique across them.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn with_blob_file_id_counter(mut self, counter: SequenceNumberCounter) -> Self {
+        self.blob_file_id_counter = Some(counter);
+        self
     }
 
     /// Sets the global cache.

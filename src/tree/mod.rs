@@ -624,15 +624,34 @@ impl Tree {
         #[cfg(feature = "metrics")]
         let metrics = Arc::new(Metrics::default());
 
-        let next_table_id: TableId = config
-            .version_set_provider
-            .latest_version()
-            .version
-            .iter_tables()
-            .map(Table::id)
-            .max()
-            .map(|max| max + 1)
-            .unwrap_or_default();
+        let (next_table_id, next_blob_file_id) = {
+            let latest = config.version_set_provider.latest_version();
+
+            let next_table_id: TableId = latest
+                .version
+                .iter_tables()
+                .map(Table::id)
+                .max()
+                .map(|max| max + 1)
+                .unwrap_or_default();
+
+            let next_blob_file_id = latest
+                .version
+                .blob_files
+                .list_ids()
+                .max()
+                .map(|max| max + 1)
+                .unwrap_or_default();
+
+            (next_table_id, next_blob_file_id)
+        };
+
+        // NOTE: Counters may be shared between trees, so only ever raise them
+        let table_id_counter = config.table_id_counter.clone().unwrap_or_default();
+        table_id_counter.fetch_max(next_table_id);
+
+        let blob_file_id_counter = config.blob_file_id_counter.clone().unwrap_or_default();
+        blob_file_id_counter.fetch_max(next_blob_file_id);
 
         let mut need_sync = false;
 
@@ -667,8 +686,8 @@ impl Tree {
         let inner = TreeInner {
             id: tree_id,
             memtable_id_counter: SequenceNumberCounter::new(1),
-            table_id_counter: SequenceNumberCounter::new(next_table_id),
-            blob_file_id_counter: SequenceNumberCounter::default(),
+            table_id_counter,
+            blob_file_id_counter,
             stop_signal: StopSignal::default(),
             config: Arc::new(config),
             major_compaction_lock: RwLock::default(),
