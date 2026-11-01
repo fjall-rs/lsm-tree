@@ -260,6 +260,44 @@ impl MemoryVersionSetProvider {
     pub fn rotate_active_memtable(&self, tree: &impl AbstractTree) -> Option<MemtableId> {
         self.inner.write().unwrap().rotate_active_memtable(tree)
     }
+
+    pub(crate) fn hydrate(
+        &self,
+        tree: &crate::AnyTree,
+        raw_state: &crate::RawVersionData,
+    ) -> crate::Result<()> {
+        let version = crate::version::hydrate(raw_state, tree)?;
+
+        let next_table_id = raw_state
+            .table_ids
+            .iter()
+            .flatten()
+            .flatten()
+            .map(crate::TableRef::id)
+            .max()
+            .map_or(0, |id| id.saturating_add(1));
+
+        let next_blob_file_id = raw_state
+            .blob_file_ids
+            .iter()
+            .map(crate::BlobFileRef::id)
+            .max()
+            .map_or(0, |id| id.saturating_add(1));
+
+        // IMPORTANT: Update the counters in the tree, so we do not get conflicting
+        // table/blob file IDs
+        tree.inner().table_id_counter.fetch_max(next_table_id);
+
+        tree.inner()
+            .blob_file_id_counter
+            .fetch_max(next_blob_file_id);
+
+        let mut super_version = self.latest_version();
+        super_version.version = version;
+        self.overwrite(super_version);
+
+        Ok(())
+    }
 }
 
 #[expect(clippy::unwrap_used)]

@@ -171,6 +171,19 @@ impl IoVersionSetProvider {
     pub fn rotate_active_memtable(&self, tree: &impl AbstractTree) -> Option<MemtableId> {
         self.inner.rotate_active_memtable(tree)
     }
+
+    /// Hydrates the current version from a recovered state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an I/O error occurs.
+    pub fn hydrate(
+        &self,
+        tree: &crate::AnyTree,
+        raw_state: &crate::RawVersionData,
+    ) -> crate::Result<()> {
+        self.inner.hydrate(tree, raw_state)
+    }
 }
 
 impl VersionSetProvider for IoVersionSetProvider {

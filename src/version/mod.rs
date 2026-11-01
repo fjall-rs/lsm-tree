@@ -4,6 +4,7 @@
 
 mod blob_file_list;
 mod edit;
+mod hydrate;
 mod optimize;
 mod raw;
 pub mod run;
@@ -11,6 +12,7 @@ mod super_version;
 
 pub use blob_file_list::BlobFileList;
 pub use edit::{EditRecord, VersionEdit};
+pub use hydrate::hydrate;
 pub use raw::{BlobFileRef, RawVersionData, TableRef};
 pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersionSet};
