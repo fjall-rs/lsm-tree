@@ -15,8 +15,8 @@ pub use edit::{EditRecord, VersionEdit};
 pub use hydrate::hydrate;
 pub use raw::{BlobFileRef, RawVersionData, TableRef};
 pub use run::Run;
-pub use super_version::{SuperVersion, SuperVersionSet};
 pub(crate) use super_version::DeletedFiles;
+pub use super_version::{SuperVersion, SuperVersionSet};
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::compaction::state::hidden_set::HiddenSet;
@@ -183,12 +183,12 @@ impl std::ops::Deref for Version {
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
     /// Returns the initial tree type.
-    pub fn tree_type(&self) -> TreeType {
+    pub(crate) fn tree_type(&self) -> TreeType {
         self.tree_type
     }
 
     /// Returns the version ID.
-    pub fn id(&self) -> VersionId {
+    pub(crate) fn id(&self) -> VersionId {
         self.id
     }
 
@@ -197,17 +197,17 @@ impl Version {
         self.seqno
     }
 
-    pub fn gc_stats(&self) -> &FragmentationMap {
+    pub(crate) fn gc_stats(&self) -> &FragmentationMap {
         &self.gc_stats
     }
 
-    pub fn l0(&self) -> &Level {
+    pub(crate) fn l0(&self) -> &Level {
         #[expect(clippy::expect_used)]
         self.levels.first().expect("L0 should exist")
     }
 
     #[must_use]
-    pub fn level_is_busy(&self, idx: usize, hidden_set: &HiddenSet) -> bool {
+    pub(crate) fn level_is_busy(&self, idx: usize, hidden_set: &HiddenSet) -> bool {
         self.level(idx).is_some_and(|level| {
             level
                 .iter()
@@ -217,7 +217,7 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub fn new(id: VersionId, tree_type: TreeType, version_seqno: SeqNo) -> Self {
+    pub(crate) fn new(id: VersionId, tree_type: TreeType, version_seqno: SeqNo) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
@@ -234,7 +234,7 @@ impl Version {
 
     // TODO: v4 maybe move into legacy
     /// Creates a new pre-populated version.
-    pub fn from_levels(
+    pub(crate) fn from_levels(
         id: VersionId,
         tree_type: TreeType,
         levels: Vec<Level>,
@@ -254,22 +254,59 @@ impl Version {
         }
     }
 
+    /// Returns edit records that rebuild this version
+    /// when applied to an empty [`RawVersionData`].
+    ///
+    /// Used to write a full snapshot of a version into a manifest,
+    /// e.g. when migrating a tree or rotating a manifest.
+    #[must_use]
+    pub fn get_edit_records(&self) -> Vec<EditRecord> {
+        let mut records = Vec::new();
+
+        for (level, lvl) in self.iter_levels().enumerate() {
+            // IMPORTANT: `RawVersionData::apply` puts every added run at the front
+            // of its level (newest first), so emit the oldest run first
+            // to rebuild the same run order
+            for run in lvl.iter().rev() {
+                records.push(EditRecord::AddTables {
+                    level,
+                    tables: run.iter().map(TableRef::from).collect(),
+                });
+            }
+        }
+
+        if self.blob_file_count() > 0 {
+            records.push(EditRecord::AddBlobFiles {
+                blob_files: self.blob_files.iter().map(BlobFileRef::from).collect(),
+            });
+        }
+
+        if !self.gc_stats.is_empty() {
+            records.push(EditRecord::UpdateFragMap(self.gc_stats().clone()));
+        }
+
+        records.push(EditRecord::SetVersionSeqno(self.seqno()));
+
+        records
+    }
+
     /// Returns the number of levels.
-    pub fn level_count(&self) -> usize {
+    pub(crate) fn level_count(&self) -> usize {
         self.levels.len()
     }
 
     /// Returns an iterator through all levels.
-    pub fn iter_levels(&self) -> impl Iterator<Item = &Level> {
+    pub(crate) fn iter_levels(&self) -> impl Iterator<Item = &Level> {
         self.levels.iter()
     }
 
     /// Returns the number of tables in all levels.
-    pub fn table_count(&self) -> usize {
+    pub(crate) fn table_count(&self) -> usize {
         self.iter_levels().map(|x| x.table_count()).sum()
     }
 
-    pub fn blob_file_count(&self) -> usize {
+    /// Returns the number of blob files.
+    pub(crate) fn blob_file_count(&self) -> usize {
         self.blob_files.len()
     }
 
@@ -286,12 +323,12 @@ impl Version {
     }
 
     /// Gets the n-th level.
-    pub fn level(&self, n: usize) -> Option<&Level> {
+    pub(crate) fn level(&self, n: usize) -> Option<&Level> {
         self.levels.get(n)
     }
 
     /// Creates a new version with the additional run added to the "top" of L0.
-    pub fn with_new_l0_run(
+    pub(crate) fn with_new_l0_run(
         &self,
         run: &[Table],
         blob_files: Option<&[BlobFile]>,
@@ -367,7 +404,7 @@ impl Version {
     /// Returns a new version with a list of tables removed.
     ///
     /// The table files are not immediately deleted, this is handled by the version system's free list.
-    pub fn with_dropped(
+    pub(crate) fn with_dropped(
         &self,
         ids: &[TableId],
         dropped_blob_files: &mut Vec<BlobFile>,
@@ -451,7 +488,7 @@ impl Version {
     }
 
     #[expect(clippy::too_many_arguments)]
-    pub fn with_merge(
+    pub(crate) fn with_merge(
         &self,
         old_ids: &[TableId],
         new_tables: &[Table],
@@ -534,7 +571,12 @@ impl Version {
         }
     }
 
-    pub fn with_moved(&self, ids: &[TableId], dest_level: usize, version_seqno: SeqNo) -> Self {
+    pub(crate) fn with_moved(
+        &self,
+        ids: &[TableId],
+        dest_level: usize,
+        version_seqno: SeqNo,
+    ) -> Self {
         let id = self.id + 1;
 
         let affected_tables = self

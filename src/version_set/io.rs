@@ -194,6 +194,15 @@ impl IoVersionSetProvider {
         self.inner.rotate_active_memtable(tree)
     }
 
+    /// Returns edit records that rebuild the latest version
+    /// when applied to an empty [`crate::RawVersionData`].
+    ///
+    /// See [`crate::version::Version::get_edit_records`].
+    #[must_use]
+    pub fn get_edit_records(&self) -> Vec<EditRecord> {
+        self.inner.latest_version().version.get_edit_records()
+    }
+
     /// Hydrates the current version from a recovered state.
     ///
     /// # Errors

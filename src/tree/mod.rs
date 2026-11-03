@@ -596,13 +596,6 @@ impl Tree {
 
     /// Opens an LSM-tree in the given directory.
     ///
-    /// Will recover previous state if the folder was previously
-    /// occupied by an LSM-tree, including the previous configuration.
-    /// If not, a new tree will be initialized with the given config.
-    ///
-    /// After recovering a previous state, use [`Tree::set_active_memtable`]
-    /// to fill the memtable with data from a write-ahead log for full durability.
-    ///
     /// # Errors
     ///
     /// Returns error, if an IO error occurred.
@@ -612,12 +605,6 @@ impl Tree {
         use inner::get_next_tree_id;
 
         log::info!("Opening LSM-tree at {}", config.path.display());
-
-        // Check for old version
-        if config.path.join("version").try_exists()? {
-            log::error!("It looks like you are trying to open a V1 database - the database needs a manual migration, however a migration tool is not provided, as V1 is extremely outdated.");
-            return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
-        }
 
         let tree_id = get_next_tree_id();
 

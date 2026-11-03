@@ -171,7 +171,7 @@ pub use {
     tree::inner::TreeId,
     tree::Guard as StandardGuard,
     value::InternalValue,
-    version::{BlobFileRef, EditRecord, RawVersionData, TableRef, VersionEdit},
+    version::{BlobFileRef, EditRecord, RawVersionData, TableRef, Version, VersionEdit},
     version_set::VersionSetProvider,
     version_set::{
         IoVersionSetProvider, MemoryVersionSetProvider, Persister as VersionEditPersister,

@@ -46,6 +46,9 @@ impl RawVersionData {
 
     /// Applies a version edit to this raw version.
     ///
+    /// Like in [`crate::version::Version`], the runs of a level are ordered
+    /// newest first, so added and moved runs are put at the front of their level.
+    ///
     /// # Panics
     ///
     /// Panics when an add record contains a duplicate ID or refers to a level
@@ -86,7 +89,8 @@ impl RawVersionData {
                         let Some(level_runs) = self.table_ids.get_mut(*level) else {
                             unreachable!("table level was validated above");
                         };
-                        level_runs.push(tables.clone());
+                        // NOTE: Newest run first, like in `Version`
+                        level_runs.insert(0, tables.clone());
                     }
                 }
                 EditRecord::AddBlobFiles { blob_files } => {
@@ -165,7 +169,8 @@ impl RawVersionData {
                         let Some(destination_runs) = self.table_ids.get_mut(*dst_lvl) else {
                             unreachable!("destination level was validated above");
                         };
-                        destination_runs.push(moved);
+                        // NOTE: Newest run first, like in `Version`
+                        destination_runs.insert(0, moved);
                     }
                 }
                 EditRecord::DropBlobFiles(blob_file_ids) => {
@@ -324,11 +329,48 @@ mod tests {
         assert_eq!(raw.table_ids.get(1).map(Vec::len), Some(0));
         assert_eq!(
             raw.table_ids.get(2),
-            Some(&vec![vec![table(1, 101), table(3, 103)]]),
-            "moved tables should form one new run in source order",
+            // NOTE: Like `Version::with_moved`, moved tables are collected in version order
+            // (newest run first), and table #3 is in the newer L0 run
+            Some(&vec![vec![table(3, 103), table(1, 101)]]),
+            "moved tables should form one new run in version order",
         );
         assert_eq!(raw.blob_file_ids, vec![blob_file(5, 105)]);
         assert_eq!(raw.version_seqno, 7);
+    }
+
+    #[test]
+    fn apply_puts_new_runs_first() {
+        let mut raw = RawVersionData::new();
+
+        raw.apply(&VersionEdit::new(vec![EditRecord::AddTables {
+            level: 0,
+            tables: vec![table(1, 101)],
+        }]));
+        raw.apply(&VersionEdit::new(vec![EditRecord::AddTables {
+            level: 0,
+            tables: vec![table(2, 102)],
+        }]));
+
+        assert_eq!(
+            raw.table_ids.first(),
+            Some(&vec![vec![table(2, 102)], vec![table(1, 101)]]),
+            "newer L0 run should be first",
+        );
+
+        raw.apply(&VersionEdit::new(vec![EditRecord::AddTables {
+            level: 1,
+            tables: vec![table(3, 103)],
+        }]));
+        raw.apply(&VersionEdit::new(vec![EditRecord::MoveTables {
+            dst_lvl: 1,
+            tables: vec![1],
+        }]));
+
+        assert_eq!(
+            raw.table_ids.get(1),
+            Some(&vec![vec![table(1, 101)], vec![table(3, 103)]]),
+            "moved run should be first in its destination level",
+        );
     }
 
     #[test]
