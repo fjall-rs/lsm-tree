@@ -36,6 +36,10 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
         let table_ids: HashSet<_> = version.iter_tables().map(Table::id).collect();
 
+        if table_ids.is_empty() {
+            return Choice::DoNothing;
+        }
+
         // NOTE: This should generally not occur because of the
         // tree-level major compaction lock
         // But just as a fail-safe...
