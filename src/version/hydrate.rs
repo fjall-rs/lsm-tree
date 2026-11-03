@@ -1,15 +1,13 @@
 use super::{BlobFileList, BlobFileRef, Level, RawVersionData, Run, Version};
 use crate::{
     abstract_tree::AbstractTree,
-    file::{BLOBS_FOLDER, TABLES_FOLDER},
     file_accessor::FileAccessor,
     table::Table,
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
-    BlobFile, DescriptorTable,
+    BlobFile, Config, DescriptorTable,
 };
 use std::{
     fs::File,
-    path::Path,
     sync::{atomic::AtomicBool, Arc},
 };
 
@@ -30,10 +28,7 @@ pub fn hydrate<T: AbstractTree>(raw: &RawVersionData, tree: &T) -> crate::Result
         for run in level {
             for table_ref in run {
                 let table = Table::recover(
-                    config
-                        .path
-                        .join(TABLES_FOLDER)
-                        .join(table_ref.id().to_string()),
+                    config.table_file_path(table_ref.id()),
                     table_ref.checksum(),
                     table_ref.global_seqno(),
                     tree.id(),
@@ -79,7 +74,7 @@ pub fn hydrate<T: AbstractTree>(raw: &RawVersionData, tree: &T) -> crate::Result
         .collect::<crate::Result<Vec<_>>>()?;
 
     let blob_files = recover_blob_files(
-        &config.path.join(BLOBS_FOLDER),
+        config,
         &raw.blob_file_ids,
         tree.id(),
         config.descriptor_table.as_ref(),
@@ -103,7 +98,7 @@ pub fn hydrate<T: AbstractTree>(raw: &RawVersionData, tree: &T) -> crate::Result
 }
 
 fn recover_blob_files(
-    folder: &Path,
+    config: &Config,
     refs: &[BlobFileRef],
     tree_id: crate::TreeId,
     descriptor_table: Option<&Arc<DescriptorTable>>,
@@ -111,7 +106,7 @@ fn recover_blob_files(
     let mut blob_files = Vec::with_capacity(refs.len());
 
     for blob_ref in refs {
-        let path = folder.join(blob_ref.id().to_string());
+        let path = config.blob_file_path(blob_ref.id());
         let file = File::open(&path)?;
 
         let metadata = {

@@ -106,7 +106,6 @@ impl AccessorShared<'_> {
     ) -> crate::Result<Option<UserValue>> {
         Accessor::new(&self.version.blob_files).get(
             self.opts.tree_id,
-            self.blobs_folder,
             user_key,
             vhandle,
             &self.opts.config.cache,

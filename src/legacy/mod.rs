@@ -172,10 +172,14 @@ pub mod v3 {
     }
 
     /// Load a v3 manifest into the current in-memory version representation.
+    ///
+    /// If a file resolver is given, tables and blob files are opened at the paths
+    /// it returns (e.g. links of the v3 files), instead of inside `folder`.
     pub fn load_manifest<P: AsRef<Path>>(
         folder: P,
         cache: &Arc<Cache>,
         descriptor_table: &Arc<DescriptorTable>,
+        file_resolver: Option<&dyn crate::FileResolver>,
     ) -> crate::Result<Version> {
         let folder = folder.as_ref();
 
@@ -194,10 +198,17 @@ pub mod v3 {
             .flat_map(|level| level.iter())
             .flat_map(|run| run.iter())
             .map(|table| {
+                let path = file_resolver.map_or_else(
+                    || {
+                        folder
+                            .join(crate::file::TABLES_FOLDER)
+                            .join(table.id.to_string())
+                    },
+                    |resolver| resolver.resolve_table(table.id),
+                );
+
                 Table::recover(
-                    folder
-                        .join(crate::file::TABLES_FOLDER)
-                        .join(table.id.to_string()),
+                    path,
                     table.checksum,
                     table.global_seqno,
                     tree_id,
@@ -216,6 +227,7 @@ pub mod v3 {
             &recovery.blob_file_ids,
             tree_id,
             Some(descriptor_table),
+            file_resolver,
         )?;
 
         hydrate_version(recovery, &tables, &blob_files)

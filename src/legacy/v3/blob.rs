@@ -17,6 +17,7 @@ pub fn recover_blob_files(
     ids: &[RecoveredBlobFile],
     tree_id: TreeId,
     descriptor_table: Option<&Arc<DescriptorTable>>,
+    file_resolver: Option<&dyn crate::FileResolver>,
 ) -> crate::Result<Vec<BlobFile>> {
     if !folder.try_exists()? {
         return Ok(vec![]);
@@ -58,10 +59,15 @@ pub fn recover_blob_files(
             crate::Error::Unrecoverable
         })?;
 
-        let blob_file_path = dirent.path();
-        assert!(!blob_file_path.is_dir());
+        assert!(!dirent.path().is_dir());
 
         if let Some(bf) = ids.iter().find(|bf| bf.id == blob_file_id) {
+            // NOTE: Open the file where the resolver says it is (e.g. a link of the v3 file)
+            let blob_file_path = file_resolver.map_or_else(
+                || dirent.path(),
+                |resolver| resolver.resolve_blob_file(blob_file_id),
+            );
+
             log::trace!(
                 "Recovering blob file #{blob_file_id:?} from {}",
                 blob_file_path.display(),
@@ -135,7 +141,8 @@ mod tests {
                     checksum: Checksum::from_raw(0)
                 }],
                 0,
-                None
+                None,
+                None,
             ),
             Err(crate::Error::Unrecoverable),
         ));

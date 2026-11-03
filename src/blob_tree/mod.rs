@@ -44,7 +44,6 @@ impl IterGuard for Guard {
         if pred(&kv.key.user_key) {
             resolve_value_handle(
                 self.tree.id(),
-                self.tree.blobs_folder.as_path(),
                 &self.tree.index.config.cache,
                 &self.version,
                 kv,
@@ -74,7 +73,6 @@ impl IterGuard for Guard {
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
         resolve_value_handle(
             self.tree.id(),
-            self.tree.blobs_folder.as_path(),
             &self.tree.index.config.cache,
             &self.version,
             self.kv?,
@@ -84,7 +82,6 @@ impl IterGuard for Guard {
 
 fn resolve_value_handle(
     tree_id: TreeId,
-    blobs_folder: &Path,
     cache: &Cache,
     version: &Version,
     item: InternalValue,
@@ -96,7 +93,6 @@ fn resolve_value_handle(
         // Resolve indirection using value log
         match Accessor::new(&version.blob_files).get(
             tree_id,
-            blobs_folder,
             &item.key.user_key,
             &vptr.vhandle,
             cache,
@@ -538,7 +534,6 @@ impl AbstractTree for BlobTree {
 
         let (_, v) = resolve_value_handle(
             self.id(),
-            self.blobs_folder.as_path(),
             &self.index.config.cache,
             &super_version.version,
             item,

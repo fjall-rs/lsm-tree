@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{version::BlobFileList, vlog::ValueHandle, Cache, GlobalTableId, TreeId, UserValue};
-use std::{fs::File, path::Path, sync::Arc};
+use std::{fs::File, sync::Arc};
 
 pub struct Accessor<'a>(&'a BlobFileList);
 
@@ -15,7 +15,6 @@ impl<'a> Accessor<'a> {
     pub fn get(
         &self,
         tree_id: TreeId,
-        base_path: &Path,
         key: &[u8],
         vhandle: &ValueHandle,
         cache: &Cache,
@@ -34,9 +33,9 @@ impl<'a> Accessor<'a> {
             if let Some(cached_fd) = blob_file.file_accessor().access_for_blob_file(&bf_id) {
                 (cached_fd, false)
             } else {
-                let file = Arc::new(File::open(
-                    base_path.join(vhandle.blob_file_id.to_string()),
-                )?);
+                // NOTE: Use the path the blob file was opened at,
+                // which may have come from a file resolver
+                let file = Arc::new(File::open(blob_file.path())?);
                 (file, true)
             };
 

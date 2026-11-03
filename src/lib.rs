@@ -103,6 +103,8 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
+mod file_resolver;
+
 mod hash;
 mod ingestion;
 mod iter_guard;
@@ -187,6 +189,7 @@ pub use {
     config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
+    file_resolver::FileResolver,
     format_version::FormatVersion,
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
