@@ -38,15 +38,16 @@ impl InternalValue {
     ///
     /// # Panics
     ///
-    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
+    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 1 GiB.
     pub fn new<V: Into<UserValue>>(key: InternalKey, value: V) -> Self {
         let value = value.into();
 
         assert!(!key.user_key.is_empty(), "key may not be empty");
         assert!(
             u32::try_from(value.len()).is_ok(),
-            "values can be 2^32 bytes in length"
+            "values can be 1 GiB bytes in length"
         );
+        assert!(value.len() <= 1_024 * 1_024 * 1_024);
 
         Self { key, value }
     }
@@ -55,7 +56,7 @@ impl InternalValue {
     ///
     /// # Panics
     ///
-    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
+    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 1 GiB.
     pub fn from_components<K: Into<UserKey>, V: Into<UserValue>>(
         user_key: K,
         value: V,
