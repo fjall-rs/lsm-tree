@@ -52,12 +52,6 @@ pub struct TreeInner {
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
 
-    /// Used by major compaction to be the exclusive compaction going on.
-    ///
-    /// Minor compactions use `major_compaction_lock.read()` instead, so they
-    /// can be concurrent next to each other.
-    pub(crate) major_compaction_lock: RwLock<()>,
-
     /// Serializes flush operations.
     pub(crate) flush_lock: Mutex<()>,
 

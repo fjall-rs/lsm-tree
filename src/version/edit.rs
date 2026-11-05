@@ -261,6 +261,7 @@ impl Decode for EditRecord {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Eq, PartialEq, Default)]
 #[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub struct VersionEdit(Vec<EditRecord>);

@@ -13,7 +13,6 @@ use crate::{
     compaction::{state::CompactionState, worker::NewCompactionResult, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
-    format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     key::InternalKey,
     memtable::Memtable,
@@ -680,7 +679,6 @@ impl Tree {
             blob_file_id_counter,
             stop_signal: StopSignal::default(),
             config: Arc::new(config),
-            major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),
             compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
