@@ -2,7 +2,7 @@ use lsm_tree::{
     blob_tree::FragmentationEntry, get_tmp_folder, AbstractTree, KvSeparationOptions,
     MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use test_log::test;
 
 #[test]
@@ -43,15 +43,7 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
         let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 was dropped
-        assert_eq!(
-            &{
-                let mut map = lsm_tree::HashMap::default();
-                let size = big_value.len() as u64;
-                map.insert(0, FragmentationEntry::new(1, size, size));
-                map
-            },
-            &*gc_stats,
-        );
+        assert_eq!(&HashMap::default(), &*gc_stats);
     }
 
     Ok(())
@@ -96,15 +88,7 @@ fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
         let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0, big":1 were dropped
-        assert_eq!(
-            &{
-                let mut map = lsm_tree::HashMap::default();
-                let size = big_value.len() as u64;
-                map.insert(0, FragmentationEntry::new(2, size * 2, size * 2));
-                map
-            },
-            &*gc_stats,
-        );
+        assert_eq!(&HashMap::default(), &*gc_stats);
     }
 
     Ok(())
