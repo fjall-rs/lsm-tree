@@ -133,6 +133,8 @@ impl Inner {
     ) -> u64 {
         log::trace!("Registering flush result");
 
+        let flushed_size = flush_result.flushed_size;
+
         let Some(super_version) = self
             .0
             .latest_version()
@@ -142,7 +144,9 @@ impl Inner {
         };
 
         self.0.append_version(super_version);
-        0 // TODO:
+
+        // NOTE: The flushed memtables are now evicted, so their size can be freed
+        flushed_size
     }
 
     fn rotate_active_memtable(&mut self, tree: &impl AbstractTree) -> Option<MemtableId> {
