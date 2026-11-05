@@ -59,9 +59,12 @@ impl IoVersionSetProvider {
         self.inner.overwrite(super_version);
     }
 
-    /// Prunes versions that are no longer needed by snapshots.
-    pub fn prune(&self) {
-        self.inner.prune();
+    /// Removes versions (and their memtables) that no snapshot at or above `gc_watermark`
+    /// can read anymore, see [`crate::version::SuperVersionSet::maintenance`].
+    ///
+    /// `SeqNo::MAX` keeps only the latest version.
+    pub fn prune(&self, gc_watermark: SeqNo) {
+        self.inner.prune(gc_watermark);
     }
 
     /// Rotates and flushes the active memtable.

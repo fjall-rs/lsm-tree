@@ -114,7 +114,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
             seqno.next(),
             1_000,
         )?;
-        version_set_provider.prune();
+        version_set_provider.prune(SeqNo::MAX);
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());

@@ -225,6 +225,11 @@ impl SuperVersionSet {
         self.len().saturating_sub(1)
     }
 
+    /// Removes super versions that no snapshot at or above `gc_watermark` can read anymore,
+    /// releasing their memtables and versions (and with them, deleted table and blob files).
+    ///
+    /// A snapshot reads the newest version below its seqno, so the newest version below
+    /// the watermark has to be kept: only the versions before it are removed.
     pub fn maintenance(&mut self, gc_watermark: SeqNo) {
         if gc_watermark == 0 {
             return;
@@ -241,7 +246,12 @@ impl SuperVersionSet {
             .iter()
             .rposition(|x| x.version.seqno() < gc_watermark)
         {
-            for _ in 0..=hi_idx {
+            // IMPORTANT: Keep the version at `hi_idx`
+            //
+            // Otherwise:
+            // 1. versions with seqnos 0, 1, 2, snapshot at 3 (= watermark)
+            // 2. the snapshot reads version 2, which would be removed as well
+            for _ in 0..hi_idx {
                 let Some(head) = self.0.front() else {
                     break;
                 };
@@ -318,164 +328,94 @@ mod tests {
     use super::*;
     use test_log::test;
 
-    /*
-    #[test]
-    fn super_version_gc_above_watermark() -> crate::Result<()> {
-        let mut history = SuperVersionSet(
-            vec![
-                SuperVersion {
+    fn history(seqnos: &[SeqNo]) -> SuperVersionSet {
+        SuperVersionSet(
+            seqnos
+                .iter()
+                .enumerate()
+                .map(|(id, &seqno)| SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 1,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-            ]
-            .into(),
-        );
+                    version: Version::new(id as crate::version::VersionId, seqno, None),
+                })
+                .collect(),
+        )
+    }
 
-        history.maintenance(Path::new("."), 0)?;
-
-        assert_eq!(history.free_list_len(), 2);
-
-        Ok(())
+    fn seqnos(history: &SuperVersionSet) -> Vec<SeqNo> {
+        history.0.iter().map(|x| x.version.seqno()).collect()
     }
 
     #[test]
-    fn super_version_gc_below_watermark_simple() -> crate::Result<()> {
-        let mut history = SuperVersionSet(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 1,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-            ]
-            .into(),
-        );
-
-        history.maintenance(Path::new("."), 3)?;
-
-        assert_eq!(history.len(), 1);
-
-        Ok(())
+    fn super_version_gc_zero_watermark() {
+        let mut history = history(&[0, 1, 2]);
+        history.maintenance(0);
+        assert_eq!(vec![0, 1, 2], seqnos(&history));
     }
 
     #[test]
-    fn super_version_gc_below_watermark_simple_2() -> crate::Result<()> {
-        let mut history = SuperVersionSet(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 1,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 8,
-                },
-            ]
-            .into(),
-        );
-
-        history.maintenance(Path::new("."), 3)?;
-
-        assert_eq!(history.len(), 2);
-
-        Ok(())
+    fn super_version_gc_above_watermark() {
+        // NOTE: No version is below the watermark, so nothing can be removed
+        let mut history = history(&[1, 2, 3]);
+        history.maintenance(1);
+        assert_eq!(vec![1, 2, 3], seqnos(&history));
     }
 
     #[test]
-    fn super_version_gc_below_watermark_keep() -> crate::Result<()> {
-        let mut history = SuperVersionSet(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 8,
-                },
-            ]
-            .into(),
-        );
-
-        history.maintenance(Path::new("."), 3)?;
-
-        assert_eq!(history.len(), 2);
-
-        Ok(())
+    fn super_version_gc_below_watermark_simple() {
+        let mut history = history(&[0, 1, 2]);
+        history.maintenance(3);
+        assert_eq!(vec![2], seqnos(&history));
     }
 
     #[test]
-    fn super_version_gc_below_watermark_shadowed() -> crate::Result<()> {
-        let mut history = SuperVersionSet(
-            vec![
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 0,
-                },
-                SuperVersion {
-                    active_memtable: Arc::new(Memtable::new(0)),
-                    sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
-                    seqno: 2,
-                },
-            ]
-            .into(),
-        );
-
-        history.maintenance(Path::new("."), 3)?;
-
-        assert_eq!(history.len(), 1);
-
-        Ok(())
+    fn super_version_gc_below_watermark_simple_2() {
+        let mut history = history(&[0, 1, 2, 8]);
+        history.maintenance(3);
+        assert_eq!(vec![2, 8], seqnos(&history));
     }
-    */
+
+    #[test]
+    fn super_version_gc_below_watermark_keep() {
+        let mut history = history(&[0, 8]);
+        history.maintenance(3);
+        assert_eq!(vec![0, 8], seqnos(&history));
+    }
+
+    #[test]
+    fn super_version_gc_below_watermark_shadowed() {
+        let mut history = history(&[0, 2]);
+        history.maintenance(3);
+        assert_eq!(vec![2], seqnos(&history));
+    }
+
+    #[test]
+    fn super_version_gc_max_watermark_keeps_latest() {
+        let mut history = history(&[0, 1, 2, 8]);
+        history.maintenance(SeqNo::MAX);
+        assert_eq!(vec![8], seqnos(&history));
+    }
+
+    /// Every snapshot at or above the watermark must still find the same version
+    #[test]
+    fn super_version_gc_keeps_versions_of_snapshots() {
+        let unpruned = history(&[0, 1, 2, 8]);
+
+        let mut pruned = history(&[0, 1, 2, 8]);
+        pruned.maintenance(3);
+
+        for snapshot_seqno in 3..=10 {
+            assert_eq!(
+                unpruned
+                    .get_version_for_snapshot(snapshot_seqno)
+                    .version
+                    .seqno(),
+                pruned
+                    .get_version_for_snapshot(snapshot_seqno)
+                    .version
+                    .seqno(),
+                "snapshot at {snapshot_seqno}",
+            );
+        }
+    }
 }

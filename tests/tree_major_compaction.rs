@@ -103,7 +103,7 @@ fn tree_major_compaction_evict_file() -> lsm_tree::Result<()> {
     )?;
     assert_eq!(1, tree.table_count());
 
-    version_set_provider.prune();
+    version_set_provider.prune(SeqNo::MAX);
 
     assert!(
         !path.join("tables").join("0").try_exists()?,

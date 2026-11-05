@@ -66,9 +66,8 @@ impl Inner {
         Self::new(SuperVersionSet::new(version))
     }
 
-    fn prune(&mut self) {
-        let seqno = self.0.latest_version().version.seqno();
-        self.0.maintenance(seqno);
+    fn prune(&mut self, gc_watermark: SeqNo) {
+        self.0.maintenance(gc_watermark);
     }
 
     /// Appends a fresh, empty version while preserving the existing version history.
@@ -194,8 +193,12 @@ impl MemoryVersionSetProvider {
         }
     }
 
-    pub fn prune(&self) {
-        self.inner.write().unwrap().prune();
+    /// Removes versions (and their memtables) that no snapshot at or above `gc_watermark`
+    /// can read anymore, see [`SuperVersionSet::maintenance`].
+    ///
+    /// `SeqNo::MAX` keeps only the latest version.
+    pub fn prune(&self, gc_watermark: SeqNo) {
+        self.inner.write().unwrap().prune(gc_watermark);
     }
 
     pub fn flush_active_memtable(
