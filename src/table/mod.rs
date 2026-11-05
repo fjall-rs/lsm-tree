@@ -628,6 +628,12 @@ impl Table {
         self.metadata.seqnos.1 + self.global_seqno()
     }
 
+    /// Returns the lowest sequence number in the table.
+    #[must_use]
+    pub(crate) fn get_lowest_seqno(&self) -> SeqNo {
+        self.metadata.seqnos.0 + self.global_seqno()
+    }
+
     /// Returns the number of tombstone markers in the `Table`.
     #[must_use]
     #[doc(hidden)]

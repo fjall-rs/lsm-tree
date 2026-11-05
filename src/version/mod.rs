@@ -190,6 +190,46 @@ impl std::ops::Deref for Version {
     }
 }
 
+/// Prints the version's layout: every non-empty level, its runs (newest first)
+/// and their tables, plus the blob files
+impl std::fmt::Debug for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Version #{} (seqno {}, flush watermark {:?})",
+            self.id, self.seqno, self.flush_watermark,
+        )?;
+
+        for (level_idx, level) in self.levels.iter().enumerate() {
+            if level.is_empty() {
+                continue;
+            }
+
+            writeln!(f, "  L{level_idx}:")?;
+
+            for (run_idx, run) in level.iter().enumerate() {
+                writeln!(f, "    run #{run_idx}:")?;
+
+                for table in run.iter() {
+                    writeln!(
+                        f,
+                        "      table {} [{:?}..={:?}] seqno {}..={}",
+                        table.id(),
+                        String::from_utf8_lossy(table.metadata.key_range.min()),
+                        String::from_utf8_lossy(table.metadata.key_range.max()),
+                        table.get_lowest_seqno(),
+                        table.get_highest_seqno(),
+                    )?;
+                }
+            }
+        }
+
+        let mut blob_file_ids = self.blob_files.list_ids().copied().collect::<Vec<_>>();
+        blob_file_ids.sort_unstable();
+        write!(f, "  blob files: {blob_file_ids:?}")
+    }
+}
+
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
     /// Returns the initial tree type.

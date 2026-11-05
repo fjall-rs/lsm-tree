@@ -23,7 +23,7 @@ use crate::{
 use handle::BlobIndirection;
 use std::{
     ops::RangeBounds,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, MutexGuard},
 };
 
@@ -509,8 +509,8 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_memtable_seqno()
     }
 
-    fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        self.index.get_highest_persisted_seqno()
+    fn get_flush_watermark(&self) -> Option<SeqNo> {
+        self.index.get_flush_watermark()
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
