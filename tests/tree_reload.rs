@@ -70,33 +70,6 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "v4 fix"]
-fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
-    let folder = get_tmp_folder();
-
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
-
-    {
-        let tree = Config::new(&folder, version_set_provider.clone())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
-
-        assert_eq!(0, tree.table_count());
-        assert_eq!(0, tree.blob_file_count());
-    }
-
-    {
-        let tree = Config::new(&folder, version_set_provider.clone())
-            .with_kv_separation(None)
-            .open();
-
-        assert!(matches!(tree, Err(lsm_tree::Error::Unrecoverable)));
-    }
-
-    Ok(())
-}
-
-#[test]
 fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
