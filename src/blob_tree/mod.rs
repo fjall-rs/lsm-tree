@@ -152,7 +152,7 @@ impl BlobTree {
         index
             .0
             .blob_file_id_counter
-            .set(blob_file_id_to_continue_with);
+            .fetch_max(blob_file_id_to_continue_with);
 
         Ok(Self {
             index,
