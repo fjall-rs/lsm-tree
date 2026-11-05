@@ -198,16 +198,27 @@ impl Version {
     }
 
     /// Returns the version ID.
-    pub(crate) fn id(&self) -> VersionId {
+    #[doc(hidden)]
+    #[must_use]
+    pub fn id(&self) -> VersionId {
         self.id
     }
 
     /// Returns the sequence number at which this version became visible.
+    #[must_use]
     pub fn seqno(&self) -> SeqNo {
         self.seqno
     }
 
-    pub(crate) fn gc_stats(&self) -> &FragmentationMap {
+    /// Returns the flush watermark: every item with a seqno at or below it
+    /// is in a table, or was removed on purpose (flush, compaction, drop range, clear).
+    #[must_use]
+    pub fn flush_watermark(&self) -> Option<SeqNo> {
+        self.flush_watermark
+    }
+
+    #[doc(hidden)]
+    pub fn gc_stats(&self) -> &FragmentationMap {
         &self.gc_stats
     }
 
@@ -345,7 +356,9 @@ impl Version {
     }
 
     /// Gets the n-th level.
-    pub(crate) fn level(&self, n: usize) -> Option<&Level> {
+    #[doc(hidden)]
+    #[must_use]
+    pub fn level(&self, n: usize) -> Option<&Level> {
         self.levels.get(n)
     }
 
