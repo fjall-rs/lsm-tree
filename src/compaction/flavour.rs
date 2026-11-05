@@ -291,6 +291,15 @@ impl CompactionFlavour for RelocatingCompaction {
             EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
         ];
 
+        // IMPORTANT: Relocated blobs (and blobs written by a compaction filter) live in new blob
+        // files, which the new tables point to; add them before the other blob file records,
+        // because dropping blob files prunes fragmentation stats of unknown blob files
+        if !created_blob_files.is_empty() {
+            version_edit.push(EditRecord::AddBlobFiles {
+                blob_files: created_blob_files.iter().map(Into::into).collect(),
+            });
+        }
+
         if !blob_frag_map.is_empty() {
             version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
         }
@@ -449,6 +458,14 @@ impl CompactionFlavour for StandardCompaction {
             },
             EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
         ];
+
+        // IMPORTANT: Blobs written by a compaction filter live in new blob files,
+        // see `RelocatingCompaction::finish`
+        if !extra_blob_files.is_empty() {
+            version_edit.push(EditRecord::AddBlobFiles {
+                blob_files: extra_blob_files.iter().map(Into::into).collect(),
+            });
+        }
 
         if !blob_frag_map.is_empty() {
             version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
