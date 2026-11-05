@@ -61,10 +61,15 @@ impl<T: Ranged> std::ops::Deref for Run<T> {
 }
 
 impl<T: Ranged> Run<T> {
-    pub fn new(items: Vec<T>) -> Option<Self> {
+    /// Creates a run, sorting the tables by key (like [`Run::push`]).
+    ///
+    /// IMPORTANT: The tables may come in any order, e.g. a trivial move collects the moved
+    /// tables newest run first, and recovery builds runs from the version edits
+    pub fn new(mut items: Vec<T>) -> Option<Self> {
         if items.is_empty() {
             None
         } else {
+            items.sort_by(|a, b| a.key_range().min().cmp(b.key_range().min()));
             Some(Self(items))
         }
     }
