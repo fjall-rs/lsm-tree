@@ -102,16 +102,26 @@ impl SuperVersion {
                     version_seqno,
                 );
             }
-            CompactionOperation::Drop { tables } => {
-                let mut blob_files_to_drop = vec![];
-
+            CompactionOperation::Drop {
+                tables,
+                blob_frag_map,
+                blob_files_to_drop,
+            } => {
                 copy.version = copy.version.with_dropped(
                     &tables.iter().map(Table::id).collect::<Vec<_>>(),
-                    // TODO: -> we need to drop blob files from disk; and tables too; need tests for that
-                    &mut blob_files_to_drop,
+                    if blob_frag_map.is_empty() {
+                        None
+                    } else {
+                        Some(blob_frag_map)
+                    },
+                    &blob_files_to_drop
+                        .iter()
+                        .map(BlobFile::id)
+                        .collect::<Vec<_>>(),
                     version_seqno,
-                )?;
+                );
 
+                deleted.tables.extend(tables);
                 deleted.blob_files.extend(blob_files_to_drop);
             }
         }
@@ -141,6 +151,7 @@ impl SuperVersion {
             &flush_result.tables,
             flush_result.blob_files.as_deref(),
             flush_result.frag_map.filter(|x| !x.is_empty()),
+            flush_result.flush_watermark,
             version_seqno,
         );
 

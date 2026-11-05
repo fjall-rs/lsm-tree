@@ -50,8 +50,9 @@ impl Default for Inner {
     fn default() -> Self {
         Self(SuperVersionSet::new(Version::new(
             0,
-            crate::TreeType::Standard,
+            crate::TreeType::Standard, // TODO: v4 look at this
             0,
+            None,
         )))
     }
 }
@@ -87,6 +88,11 @@ impl Inner {
                 previous_version.version.id() + 1,
                 tree.tree_type(),
                 version_seqno,
+                // NOTE: Everything up to the clear is gone, so it counts as flushed.
+                //
+                // The clear's seqno is taken after every cleared item, so this
+                // is always above the previous watermark.
+                Some(version_seqno),
             ),
         });
 
@@ -100,6 +106,13 @@ impl Inner {
         result: NewCompactionResult,
         version_seqno: SeqNo,
     ) -> crate::Result<()> {
+        if matches!(
+            result.inner,
+            crate::compaction::worker::CompactionOperation::Noop,
+        ) {
+            return Ok(());
+        }
+
         let (version, deleted) = self
             .0
             .latest_version()

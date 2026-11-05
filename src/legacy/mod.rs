@@ -277,6 +277,8 @@ pub mod v3 {
             BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,
             0,
+            // NOTE: v3 has no flush watermark, the tables' highest seqno is used instead
+            None,
         ))
     }
 }

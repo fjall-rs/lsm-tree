@@ -44,6 +44,12 @@ pub enum CompactionOperation {
     },
     Drop {
         tables: Vec<Table>,
+
+        /// Blob bytes referenced by the dropped tables, which are now stale
+        blob_frag_map: FragmentationMap,
+
+        /// Blob files that are dead after the drop
+        blob_files_to_drop: Vec<BlobFile>,
     },
     Move {
         dst_lvl: usize,
@@ -140,12 +146,12 @@ pub fn do_compaction(opts: &Options) -> crate::Result<NewCompactionResult> {
             opts,
             &payload,
         )),
-        Choice::Drop(payload) => Ok(drop_tables(
+        Choice::Drop(payload) => drop_tables(
             compaction_state,
             &latest_version,
             opts,
             &payload.into_iter().collect::<Vec<_>>(),
-        )),
+        ),
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
             Ok(NewCompactionResult::empty())
@@ -595,7 +601,7 @@ fn drop_tables(
     version: &Version,
     opts: &Options,
     ids_to_drop: &[TableId],
-) -> NewCompactionResult {
+) -> crate::Result<NewCompactionResult> {
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
@@ -605,7 +611,7 @@ fn drop_tables(
             "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
-        return NewCompactionResult::empty();
+        return Ok(NewCompactionResult::empty());
     }
 
     let tables = ids_to_drop
@@ -618,15 +624,72 @@ fn drop_tables(
             "Compaction task created by {:?} contained tables ({ids_to_drop:?}) not referenced in the level manifest",
             opts.strategy.get_name(),
         );
-        return NewCompactionResult::empty();
+        return Ok(NewCompactionResult::empty());
     };
 
     log::debug!("Dropping tables: {ids_to_drop:?}");
 
-    NewCompactionResult {
-        inner: CompactionOperation::Drop { tables },
-        version_edit: VersionEdit::new(vec![EditRecord::DropTables(ids_to_drop.to_vec())]),
+    // NOTE: Every blob referenced by a dropped table becomes stale
+    let mut blob_frag_map = FragmentationMap::default();
+
+    for table in &tables {
+        for blob_file in table.list_blob_file_references()?.unwrap_or_default() {
+            blob_frag_map
+                .entry(blob_file.blob_file_id)
+                .and_modify(|counter| {
+                    counter.bytes += blob_file.bytes;
+                    counter.len += blob_file.len;
+                    counter.on_disk_bytes += blob_file.on_disk_bytes;
+                })
+                .or_insert_with(|| {
+                    crate::blob_tree::FragmentationEntry::new(
+                        blob_file.len,
+                        blob_file.bytes,
+                        blob_file.on_disk_bytes,
+                    )
+                });
+        }
     }
+
+    let blob_files_to_drop = if blob_frag_map.is_empty() {
+        vec![]
+    } else {
+        let mut gc_stats = version.gc_stats().clone();
+        blob_frag_map.clone().merge_into(&mut gc_stats);
+
+        version
+            .blob_files
+            .iter()
+            .filter(|blob_file| blob_file.is_dead(&gc_stats))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    // IMPORTANT: Persist the blob file changes as well, because dead blob files get deleted
+    //
+    // Otherwise:
+    // 1. flush a table with blobs, then drop it: its blob file is dead, so it is deleted
+    // 2. recover: the manifest still lists the blob file, which no longer exists
+    let mut version_edit = vec![EditRecord::DropTables(ids_to_drop.to_vec())];
+
+    if !blob_frag_map.is_empty() {
+        version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
+    }
+
+    if !blob_files_to_drop.is_empty() {
+        version_edit.push(EditRecord::DropBlobFiles(
+            blob_files_to_drop.iter().map(BlobFile::id).collect(),
+        ));
+    }
+
+    Ok(NewCompactionResult {
+        inner: CompactionOperation::Drop {
+            tables,
+            blob_frag_map,
+            blob_files_to_drop,
+        },
+        version_edit: VersionEdit::new(version_edit),
+    })
 }
 
 #[cfg(test)]

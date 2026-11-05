@@ -254,6 +254,8 @@ impl<'a> BlobIngestion<'a> {
 
         Ok(Some((
             NewFlushToTablesResult {
+                // NOTE: Ingested items never went through the WAL or a memtable
+                flush_watermark: tables.iter().map(Table::get_highest_seqno).max(),
                 tables,
                 blob_files: Some(blob_files),
                 evicted_sealed_memtables: Vec::new(),

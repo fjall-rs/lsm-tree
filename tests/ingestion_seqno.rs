@@ -26,7 +26,7 @@ fn ingestion_persisted_seqno() -> lsm_tree::Result<()> {
         .unwrap();
     version_set_provider.register_flush(ingestion_result, ingestion_seqno);
     assert_eq!(1, tree.table_count());
-    assert_eq!(Some(1), tree.get_highest_persisted_seqno());
+    assert_eq!(Some(1), tree.get_flush_watermark());
 
     let mut ingest = tree.ingestion()?;
     ingest.write("b", "b")?;
@@ -42,7 +42,7 @@ fn ingestion_persisted_seqno() -> lsm_tree::Result<()> {
         .unwrap();
     version_set_provider.register_flush(ingestion_result, ingestion_seqno);
     assert_eq!(2, tree.table_count());
-    assert_eq!(Some(3), tree.get_highest_persisted_seqno());
+    assert_eq!(Some(3), tree.get_flush_watermark());
 
     Ok(())
 }

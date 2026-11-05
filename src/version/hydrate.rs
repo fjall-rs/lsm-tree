@@ -94,6 +94,7 @@ pub fn hydrate<T: AbstractTree>(raw: &RawVersionData, tree: &T) -> crate::Result
         blob_files,
         raw.gc_stats.clone(),
         raw.version_seqno,
+        raw.flush_watermark,
     ))
 }
 

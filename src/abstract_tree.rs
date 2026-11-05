@@ -29,6 +29,13 @@ pub struct NewFlushToTablesResult {
     pub evicted_sealed_memtables: Vec<MemtableId>,
     pub flushed_size: u64,
 
+    /// The new flush watermark (see [`Version::flush_watermark`]).
+    ///
+    /// For a flush, this is the highest seqno of the flushed memtables, NOT of the
+    /// created tables: the flush may drop its newest items (e.g. a weak tombstone cancels
+    /// the value it removes), and those must not be replayed from the WAL again.
+    pub flush_watermark: Option<SeqNo>,
+
     pub version_edit: VersionEdit,
 }
 
@@ -204,6 +211,14 @@ pub trait AbstractTree {
 
         let flushed_size: u64 = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
 
+        // NOTE: Every item of the sealed memtables ends up in a table,
+        // or is dropped on purpose by the compaction stream below
+        let flush_watermark = latest
+            .sealed_memtables
+            .iter()
+            .filter_map(|mt| mt.get_highest_seqno())
+            .max();
+
         let merger = Merger::new(
             latest
                 .sealed_memtables
@@ -238,6 +253,7 @@ pub trait AbstractTree {
             frag_map: None,
             evicted_sealed_memtables: sealed_ids,
             flushed_size,
+            flush_watermark,
 
             version_edit,
         }))
@@ -278,8 +294,8 @@ pub trait AbstractTree {
     /// Returns the highest sequence number.
     fn get_highest_seqno(&self) -> Option<SeqNo> {
         let memtable_seqno = self.get_highest_memtable_seqno();
-        let table_seqno = self.get_highest_persisted_seqno();
-        memtable_seqno.max(table_seqno)
+        let flushed_seqno = self.get_flush_watermark();
+        memtable_seqno.max(flushed_seqno)
     }
 
     /// Returns the tree type.
@@ -318,8 +334,12 @@ pub trait AbstractTree {
     /// Returns the highest sequence number of the active memtable.
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo>;
 
-    /// Returns the highest sequence number that is flushed to disk.
-    fn get_highest_persisted_seqno(&self) -> Option<SeqNo>;
+    /// Returns the flush watermark: every item with a seqno at or below it
+    /// is in a table, or was removed on purpose (flush, compaction, drop range, clear).
+    ///
+    /// Only flushes and clears move it up, compactions never do.
+    /// `None` if nothing was flushed (or cleared) yet.
+    fn get_flush_watermark(&self) -> Option<SeqNo>;
 
     /// Scans the entire tree, returning the number of items.
     ///

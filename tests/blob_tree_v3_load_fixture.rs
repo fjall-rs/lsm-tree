@@ -31,7 +31,8 @@ fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     let cache = Arc::new(Cache::with_capacity_bytes(1_000));
     let descriptor_table = Arc::new(DescriptorTable::new(10));
 
-    let current_version = lsm_tree::legacy::v3::load_manifest(&dir, &cache, &descriptor_table)?;
+    let current_version =
+        lsm_tree::legacy::v3::load_manifest(&dir, &cache, &descriptor_table, None)?;
 
     let version_set_provider = Arc::new(MemoryVersionSetProvider::with_initial_version(
         current_version,

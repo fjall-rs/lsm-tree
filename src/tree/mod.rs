@@ -405,11 +405,14 @@ impl AbstractTree for Tree {
         active.max(sealed)
     }
 
-    fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        self.current_version()
-            .iter_tables()
-            .map(Table::get_highest_seqno)
-            .max()
+    fn get_flush_watermark(&self) -> Option<SeqNo> {
+        let version = self.current_version();
+
+        // NOTE: v3 versions have no flush watermark (yet), so use their tables' highest seqno;
+        // for v4 versions, the flush watermark is always at or above every table's seqno
+        let table_seqno = version.iter_tables().map(Table::get_highest_seqno).max();
+
+        version.flush_watermark().max(table_seqno)
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>> {

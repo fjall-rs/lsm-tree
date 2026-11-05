@@ -55,6 +55,11 @@ pub enum EditRecord {
 
     /// Merges a fragmentation-map diff into the current map.
     UpdateFragMap(FragmentationMap),
+
+    /// The flush watermark was set (by a flush or clear)
+    ///
+    /// Every item with a seqno at or below it is in a table, or was removed on purpose.
+    SetFlushWatermark(SeqNo),
 }
 
 impl Encode for EditRecord {
@@ -143,6 +148,10 @@ impl Encode for EditRecord {
             Self::UpdateFragMap(map) => {
                 writer.write_u8(0x6)?; // enum discriminant
                 map.encode_into(writer)?;
+            }
+            Self::SetFlushWatermark(seqno) => {
+                writer.write_u8(0x7)?; // enum discriminant
+                writer.write_u64_varint(*seqno)?;
             }
         }
 
@@ -242,6 +251,10 @@ impl Decode for EditRecord {
             0x06 => {
                 let map = FragmentationMap::decode_from(reader)?;
                 Self::UpdateFragMap(map)
+            }
+            0x07 => {
+                let seqno = reader.read_u64_varint()?;
+                Self::SetFlushWatermark(seqno)
             }
             other => return Err(crate::Error::InvalidTag(("EditRecord", other))),
         })

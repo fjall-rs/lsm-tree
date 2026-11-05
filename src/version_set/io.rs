@@ -149,6 +149,9 @@ impl IoVersionSetProvider {
         if !blob_file_ids.is_empty() {
             edits.push(EditRecord::DropBlobFiles(blob_file_ids));
         }
+
+        // NOTE: Everything up to the clear is gone, so it counts as flushed
+        edits.push(EditRecord::SetFlushWatermark(version_seqno));
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
         self.persister.persist(&VersionEdit::new(edits))?;
@@ -165,6 +168,13 @@ impl IoVersionSetProvider {
         mut result: NewCompactionResult,
         version_seqno: SeqNo,
     ) -> crate::Result<()> {
+        if matches!(
+            result.inner,
+            crate::compaction::worker::CompactionOperation::Noop,
+        ) {
+            return Ok(());
+        }
+
         let mut edits = std::mem::take(&mut result.version_edit);
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
@@ -183,6 +193,11 @@ impl IoVersionSetProvider {
         version_seqno: SeqNo,
     ) -> crate::Result<u64> {
         let mut edits = std::mem::take(&mut result.version_edit);
+
+        if let Some(flush_watermark) = result.flush_watermark {
+            edits.push(EditRecord::SetFlushWatermark(flush_watermark));
+        }
+
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
         self.persister.persist(&edits)?;

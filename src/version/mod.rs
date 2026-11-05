@@ -15,10 +15,10 @@ pub use edit::{EditRecord, VersionEdit};
 pub use hydrate::hydrate;
 pub use raw::{BlobFileRef, RawVersionData, TableRef};
 pub use run::Run;
-pub(crate) use super_version::DeletedFiles;
+pub use super_version::DeletedFiles;
 pub use super_version::{SuperVersion, SuperVersionSet};
 
-use crate::blob_tree::{FragmentationEntry, FragmentationMap};
+use crate::blob_tree::FragmentationMap;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::TreeType;
 use crate::{
@@ -146,6 +146,16 @@ pub struct VersionInner {
     /// Sequence number at which this version became visible.
     seqno: SeqNo,
 
+    /// Every item with a seqno at or below this is in a table, or was removed
+    /// on purpose (flush, compaction, drop range, clear).
+    ///
+    /// Moved up by flushes (highest seqno of the flushed memtables, which may be above the
+    /// created tables, because a flush can drop its newest items) and clears (the clear's seqno),
+    /// never by compactions, so dropped items stay dropped.
+    ///
+    /// `None` if nothing was flushed yet.
+    flush_watermark: Option<SeqNo>,
+
     tree_type: TreeType,
 
     /// The individual LSM-tree levels which consist of runs of tables
@@ -217,13 +227,19 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub(crate) fn new(id: VersionId, tree_type: TreeType, version_seqno: SeqNo) -> Self {
+    pub(crate) fn new(
+        id: VersionId,
+        tree_type: TreeType,
+        version_seqno: SeqNo,
+        flush_watermark: Option<SeqNo>,
+    ) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
+                flush_watermark,
                 tree_type,
                 levels,
                 blob_files: Arc::default(),
@@ -241,11 +257,13 @@ impl Version {
         blob_files: BlobFileList,
         gc_stats: FragmentationMap,
         version_seqno: SeqNo,
+        flush_watermark: Option<SeqNo>,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
+                flush_watermark,
                 tree_type,
                 levels,
                 blob_files: Arc::new(blob_files),
@@ -283,6 +301,10 @@ impl Version {
 
         if !self.gc_stats.is_empty() {
             records.push(EditRecord::UpdateFragMap(self.gc_stats().clone()));
+        }
+
+        if let Some(flush_watermark) = self.flush_watermark() {
+            records.push(EditRecord::SetFlushWatermark(flush_watermark));
         }
 
         records.push(EditRecord::SetVersionSeqno(self.seqno()));
@@ -333,6 +355,7 @@ impl Version {
         run: &[Table],
         blob_files: Option<&[BlobFile]>,
         diff: Option<FragmentationMap>,
+        flush_watermark: Option<SeqNo>,
         version_seqno: SeqNo,
     ) -> Self {
         let id = self.id + 1;
@@ -393,6 +416,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
+                flush_watermark: flush_watermark.or(self.flush_watermark),
                 tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
@@ -403,18 +427,20 @@ impl Version {
 
     /// Returns a new version with a list of tables removed.
     ///
-    /// The table files are not immediately deleted, this is handled by the version system's free list.
+    /// The table files are not immediately deleted, this is handled
+    /// by the version system's free list.
+    ///
+    /// Returns a new version without the given tables.
     pub(crate) fn with_dropped(
         &self,
         ids: &[TableId],
-        dropped_blob_files: &mut Vec<BlobFile>,
+        diff: Option<FragmentationMap>,
+        blob_files_to_drop: &[BlobFileId],
         version_seqno: SeqNo,
-    ) -> crate::Result<Self> {
+    ) -> Self {
         let id = self.id + 1;
 
         let mut levels = vec![];
-
-        let mut dropped_tables: Vec<Table> = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -423,13 +449,7 @@ impl Version {
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
                     let mut run: Run<_> = run.deref().clone();
-
-                    let removed_tables = run
-                        .inner_mut()
-                        .extract_if(.., |x| ids.contains(&x.metadata.id));
-
-                    dropped_tables.extend(removed_tables);
-
+                    run.retain(|x| !ids.contains(&x.metadata.id));
                     run
                 })
                 .filter(|x| !x.is_empty())
@@ -440,51 +460,43 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        let gc_stats = if dropped_tables.is_empty() {
-            self.gc_stats.clone()
+        let value_log = if blob_files_to_drop.is_empty() {
+            self.blob_files.clone()
         } else {
-            let mut copy = self.gc_stats.deref().clone();
+            let mut copy = self.blob_files.deref().clone();
 
-            for table in &dropped_tables {
-                let linked_blob_files = table.list_blob_file_references()?.unwrap_or_default();
-
-                for blob_file in linked_blob_files {
-                    copy.entry(blob_file.blob_file_id)
-                        .and_modify(|counter| {
-                            counter.bytes += blob_file.bytes;
-                            counter.len += blob_file.len;
-                        })
-                        .or_insert_with(|| {
-                            FragmentationEntry::new(
-                                blob_file.len,
-                                blob_file.bytes,
-                                blob_file.on_disk_bytes,
-                            )
-                        });
-                }
+            for &id in blob_files_to_drop {
+                copy.remove(id);
             }
 
             Arc::new(copy)
         };
 
-        let value_log = if dropped_tables.is_empty() {
-            self.blob_files.clone()
-        } else {
-            let mut copy = self.blob_files.deref().clone();
-            dropped_blob_files.extend(copy.prune_dead(&gc_stats));
+        let gc_stats = if diff.is_some() || !blob_files_to_drop.is_empty() {
+            let mut copy = self.gc_stats.deref().clone();
+
+            if let Some(diff) = diff {
+                diff.merge_into(&mut copy);
+            }
+
+            copy.prune(&value_log);
+
             Arc::new(copy)
+        } else {
+            self.gc_stats.clone()
         };
 
-        Ok(Self {
+        Self {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
+                flush_watermark: self.flush_watermark,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
             }),
-        })
+        }
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -563,6 +575,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
+                flush_watermark: self.flush_watermark,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
@@ -617,6 +630,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
+                flush_watermark: self.flush_watermark,
                 tree_type: self.tree_type,
                 levels,
                 blob_files: self.blob_files.clone(),

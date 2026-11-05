@@ -17,6 +17,7 @@ pub struct RawVersionData {
     pub(crate) tree_type: TreeType,
     pub(crate) version_id: VersionId,
     pub(crate) version_seqno: SeqNo,
+    pub(crate) flush_watermark: Option<SeqNo>,
     pub(crate) table_ids: Vec<Vec<Vec<TableRef>>>,
     pub(crate) blob_file_ids: Vec<BlobFileRef>,
     pub(crate) gc_stats: FragmentationMap,
@@ -41,6 +42,7 @@ impl RawVersionData {
             tree_type: TreeType::Standard, // TODO: later: create EditRecord::SetTreeType
             version_id: 0,
             version_seqno: 0,
+            flush_watermark: None,
         }
     }
 
@@ -190,6 +192,9 @@ impl RawVersionData {
                             .any(|blob_file| blob_file.id == *blob_file_id)
                     });
                 }
+                EditRecord::SetFlushWatermark(seqno) => {
+                    self.flush_watermark = Some(*seqno);
+                }
                 EditRecord::SetVersionSeqno(seqno) => {
                     self.version_seqno = *seqno;
                 }
@@ -233,6 +238,7 @@ mod tests {
                 tree_type: TreeType::Standard,
                 version_id: 0,
                 version_seqno: 0,
+                flush_watermark: None,
                 table_ids: (0..usize::from(DEFAULT_LEVEL_COUNT))
                     .map(|_| Vec::new())
                     .collect(),
@@ -283,6 +289,45 @@ mod tests {
         let decoded = VersionEdit::decode_from(&mut &encoded[..]).expect("should decode edit");
 
         assert_eq!(edit, decoded);
+    }
+
+    #[test]
+    fn flush_watermark_roundtrips_in_version_edit() {
+        for seqno in [0, 1, 127, 128, u64::MAX] {
+            let edit = VersionEdit::new(vec![
+                EditRecord::SetFlushWatermark(seqno),
+                EditRecord::SetVersionSeqno(seqno),
+            ]);
+
+            let encoded = edit.encode_into_vec();
+            let decoded = VersionEdit::decode_from(&mut &encoded[..]).expect("should decode edit");
+
+            assert_eq!(edit, decoded);
+        }
+    }
+
+    #[test]
+    fn apply_sets_flush_watermark() {
+        let mut raw = RawVersionData::new();
+        assert_eq!(None, raw.flush_watermark);
+
+        // NOTE: Seqno 0 is a valid watermark (Some(0)), not "nothing flushed"
+        raw.apply(&VersionEdit::new(vec![EditRecord::SetFlushWatermark(0)]));
+        assert_eq!(Some(0), raw.flush_watermark);
+
+        raw.apply(&VersionEdit::new(vec![EditRecord::SetFlushWatermark(20)]));
+        assert_eq!(Some(20), raw.flush_watermark);
+
+        // Edits without a watermark (e.g. compactions) keep it
+        raw.apply(&VersionEdit::new(vec![
+            EditRecord::AddTables {
+                level: 6,
+                tables: vec![table(1, 101)],
+            },
+            EditRecord::SetVersionSeqno(30),
+        ]));
+        assert_eq!(Some(20), raw.flush_watermark);
+        assert_eq!(30, raw.version_seqno);
     }
 
     #[test]
