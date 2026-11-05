@@ -48,12 +48,7 @@ pub struct Inner(SuperVersionSet);
 
 impl Default for Inner {
     fn default() -> Self {
-        Self(SuperVersionSet::new(Version::new(
-            0,
-            crate::TreeType::Standard, // TODO: v4 look at this
-            0,
-            None,
-        )))
+        Self(SuperVersionSet::new(Version::new(0, 0, None)))
     }
 }
 
@@ -86,7 +81,6 @@ impl Inner {
             sealed_memtables: Arc::default(),
             version: Version::new(
                 previous_version.version.id() + 1,
-                tree.tree_type(),
                 version_seqno,
                 // NOTE: Everything up to the clear is gone, so it counts as flushed.
                 //

@@ -3,7 +3,7 @@ mod refs;
 use crate::{
     blob_tree::FragmentationMap,
     version::{VersionId, DEFAULT_LEVEL_COUNT},
-    EditRecord, SeqNo, TreeType, VersionEdit,
+    EditRecord, SeqNo, VersionEdit,
 };
 
 pub use refs::{BlobFileRef, TableRef};
@@ -14,7 +14,6 @@ pub use refs::{BlobFileRef, TableRef};
 /// for a [`VersionSetProvider`](crate::VersionSetProvider).
 #[derive(Debug, PartialEq, Eq)]
 pub struct RawVersionData {
-    pub(crate) tree_type: TreeType,
     pub(crate) version_id: VersionId,
     pub(crate) version_seqno: SeqNo,
     pub(crate) flush_watermark: Option<SeqNo>,
@@ -39,7 +38,6 @@ impl RawVersionData {
             table_ids: (0..usize::from(DEFAULT_LEVEL_COUNT))
                 .map(|_| Vec::new())
                 .collect(),
-            tree_type: TreeType::Standard, // TODO: later: create EditRecord::SetTreeType
             version_id: 0,
             version_seqno: 0,
             flush_watermark: None,
@@ -235,7 +233,6 @@ mod tests {
         assert_eq!(
             raw,
             RawVersionData {
-                tree_type: TreeType::Standard,
                 version_id: 0,
                 version_seqno: 0,
                 flush_watermark: None,

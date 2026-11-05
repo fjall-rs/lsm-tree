@@ -20,7 +20,6 @@ pub use super_version::{SuperVersion, SuperVersionSet};
 
 use crate::blob_tree::FragmentationMap;
 use crate::compaction::state::hidden_set::HiddenSet;
-use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, SeqNo, Table, TableId,
@@ -156,8 +155,6 @@ pub struct VersionInner {
     /// `None` if nothing was flushed yet.
     flush_watermark: Option<SeqNo>,
 
-    tree_type: TreeType,
-
     /// The individual LSM-tree levels which consist of runs of tables
     levels: Vec<Level>,
 
@@ -232,11 +229,6 @@ impl std::fmt::Debug for Version {
 
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
-    /// Returns the initial tree type.
-    pub(crate) fn tree_type(&self) -> TreeType {
-        self.tree_type
-    }
-
     /// Returns the version ID.
     #[doc(hidden)]
     #[must_use]
@@ -278,12 +270,7 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub(crate) fn new(
-        id: VersionId,
-        tree_type: TreeType,
-        version_seqno: SeqNo,
-        flush_watermark: Option<SeqNo>,
-    ) -> Self {
+    pub(crate) fn new(id: VersionId, version_seqno: SeqNo, flush_watermark: Option<SeqNo>) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
@@ -291,7 +278,6 @@ impl Version {
                 id,
                 seqno: version_seqno,
                 flush_watermark,
-                tree_type,
                 levels,
                 blob_files: Arc::default(),
                 gc_stats: Arc::default(),
@@ -303,7 +289,6 @@ impl Version {
     /// Creates a new pre-populated version.
     pub(crate) fn from_levels(
         id: VersionId,
-        tree_type: TreeType,
         levels: Vec<Level>,
         blob_files: BlobFileList,
         gc_stats: FragmentationMap,
@@ -315,7 +300,6 @@ impl Version {
                 id,
                 seqno: version_seqno,
                 flush_watermark,
-                tree_type,
                 levels,
                 blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
@@ -470,7 +454,6 @@ impl Version {
                 id,
                 seqno: version_seqno,
                 flush_watermark: flush_watermark.or(self.flush_watermark),
-                tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -544,7 +527,6 @@ impl Version {
                 id,
                 seqno: version_seqno,
                 flush_watermark: self.flush_watermark,
-                tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -629,7 +611,6 @@ impl Version {
                 id,
                 seqno: version_seqno,
                 flush_watermark: self.flush_watermark,
-                tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -684,7 +665,6 @@ impl Version {
                 id,
                 seqno: version_seqno,
                 flush_watermark: self.flush_watermark,
-                tree_type: self.tree_type,
                 levels,
                 blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),

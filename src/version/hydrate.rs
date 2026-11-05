@@ -89,7 +89,6 @@ pub fn hydrate<T: AbstractTree>(raw: &RawVersionData, tree: &T) -> crate::Result
 
     Ok(Version::from_levels(
         raw.version_id,
-        raw.tree_type,
         levels,
         blob_files,
         raw.gc_stats.clone(),

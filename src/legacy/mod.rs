@@ -9,9 +9,7 @@ pub mod v3 {
 
     use crate::version::{BlobFileList, Level, Run};
     use crate::BlobFile;
-    use crate::{
-        coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, SeqNo, TableId, TreeType,
-    };
+    use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, SeqNo, TableId};
     use crate::{tree::inner::get_next_tree_id, version::Version, Cache, DescriptorTable, Table};
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::{path::Path, sync::Arc};
@@ -39,7 +37,6 @@ pub mod v3 {
 
     /// Raw version data (without table/blob file handles)
     pub struct Recovery {
-        tree_type: TreeType,
         curr_version_id: VersionId,
         table_ids: Vec<Vec<Vec<RecoveredTable>>>,
         blob_file_ids: Vec<RecoveredBlobFile>,
@@ -152,18 +149,6 @@ pub mod v3 {
         };
 
         Ok(Recovery {
-            tree_type: {
-                let byte = toc.section(b"tree_type").ok_or(crate::Error::Unrecoverable)
-                .inspect_err(|_|{
-                    log::error!("tree_type section not found in version #{curr_version_id} - maybe the file is corrupted?");
-                })?
-                .buf_reader(
-                    &version_file_path
-                )?
-                .read_u8()?;
-
-                TreeType::try_from(byte).map_err(|()| crate::Error::InvalidHeader("TreeType"))?
-            },
             curr_version_id,
             table_ids: levels,
             blob_file_ids,
@@ -272,7 +257,6 @@ pub mod v3 {
 
         Ok(Version::from_levels(
             recovery.curr_version_id,
-            recovery.tree_type,
             version_levels,
             BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,
