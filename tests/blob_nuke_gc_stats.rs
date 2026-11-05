@@ -1,6 +1,6 @@
 use lsm_tree::{
-    blob_tree::FragmentationEntry, get_tmp_folder, AbstractTree, KvSeparationOptions,
-    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
 use std::{collections::HashMap, sync::Arc};
 use test_log::test;

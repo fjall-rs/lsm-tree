@@ -72,7 +72,7 @@ impl IoVersionSetProvider {
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, clippy::missing_panics_doc)]
     pub fn flush_active_memtable(
         &self,
         tree: &impl AbstractTree,

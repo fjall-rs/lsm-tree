@@ -60,7 +60,7 @@ impl SuperVersion {
         &self,
         result: NewCompactionResult,
         version_seqno: SeqNo,
-    ) -> crate::Result<(Self, DeletedFiles)> {
+    ) -> (Self, DeletedFiles) {
         let mut copy = self.clone();
 
         let mut deleted = DeletedFiles::default();
@@ -126,7 +126,7 @@ impl SuperVersion {
             }
         }
 
-        Ok((copy, deleted))
+        (copy, deleted)
     }
 
     pub(crate) fn register_flush(

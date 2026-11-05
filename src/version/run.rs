@@ -9,7 +9,7 @@ pub trait Ranged {
     fn key_range(&self) -> &KeyRange;
 }
 
-/// Item inside a run
+/*/// Item inside a run
 ///
 /// May point to an interval [min, max] of tables in the next run.
 pub struct Indexed<T: Ranged> {
@@ -17,7 +17,7 @@ pub struct Indexed<T: Ranged> {
     // cascade_indexes: (u32, u32),
 }
 
-/* impl<T: Ranged> Indexed<T> {
+impl<T: Ranged> Indexed<T> {
     pub fn update_cascading(&mut self, next_run: &Run<T>) {
         let kr = self.key_range();
         let range = &**kr.min()..=&**kr.max();
@@ -32,7 +32,7 @@ pub struct Indexed<T: Ranged> {
             self.cascade_indexes = (u32::MAX, u32::MAX);
         }
     }
-} */
+}
 
 impl<T: Ranged> Ranged for Indexed<T> {
     fn key_range(&self) -> &KeyRange {
@@ -46,7 +46,7 @@ impl<T: Ranged> std::ops::Deref for Indexed<T> {
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
-}
+}*/
 
 /// A disjoint run of tables
 #[derive(Clone, Debug, Eq, PartialEq)]

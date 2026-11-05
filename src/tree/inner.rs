@@ -6,7 +6,7 @@ use crate::{
     compaction::state::CompactionState, config::Config, stop_signal::StopSignal,
     SequenceNumberCounter, TableId,
 };
-use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
+use std::sync::{atomic::AtomicU64, Arc, Mutex};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;

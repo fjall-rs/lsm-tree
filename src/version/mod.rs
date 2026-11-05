@@ -250,6 +250,7 @@ impl Version {
     }
 
     #[doc(hidden)]
+    #[must_use]
     pub fn gc_stats(&self) -> &FragmentationMap {
         &self.gc_stats
     }

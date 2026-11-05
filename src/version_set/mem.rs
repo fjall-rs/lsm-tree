@@ -109,7 +109,7 @@ impl Inner {
         let (version, deleted) = self
             .0
             .latest_version()
-            .register_compaction(result, version_seqno)?;
+            .register_compaction(result, version_seqno);
 
         self.0.append_version(version);
 
@@ -170,6 +170,7 @@ impl Inner {
 
 /// This is only used for ephemeral tests.
 #[derive(Default)]
+#[doc(hidden)]
 pub struct MemoryVersionSetProvider {
     inner: Arc<RwLock<Inner>>,
 }
@@ -182,6 +183,7 @@ impl MemoryVersionSetProvider {
         }
     }
 
+    #[expect(clippy::missing_panics_doc)]
     pub fn overwrite(&self, super_version: SuperVersion) {
         self.inner.write().unwrap().overwrite(super_version);
     }
@@ -197,6 +199,7 @@ impl MemoryVersionSetProvider {
     /// can read anymore, see [`SuperVersionSet::maintenance`].
     ///
     /// `SeqNo::MAX` keeps only the latest version.
+    #[expect(clippy::missing_panics_doc)]
     pub fn prune(&self, gc_watermark: SeqNo) {
         self.inner.write().unwrap().prune(gc_watermark);
     }

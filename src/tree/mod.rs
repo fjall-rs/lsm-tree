@@ -10,7 +10,7 @@ pub mod sealed;
 pub mod test;
 
 use crate::{
-    compaction::{state::CompactionState, worker::NewCompactionResult, CompactionStrategy},
+    compaction::{state::CompactionState, worker::NewCompactionResult},
     config::Config,
     file::BLOBS_FOLDER,
     iter_guard::{IterGuard, IterGuardImpl},
@@ -26,7 +26,7 @@ use crate::{
 use inner::{TreeId, TreeInner};
 use std::{
     ops::RangeBounds,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 #[cfg(feature = "metrics")]
