@@ -28,6 +28,7 @@ use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
 
+/// Default number of levels of a tree
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
 /// Monotonically increasing ID of a version.

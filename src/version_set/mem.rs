@@ -71,9 +71,16 @@ impl Inner {
     }
 
     /// Appends a fresh, empty version while preserving the existing version history.
-    fn clear(&mut self, tree: &impl AbstractTree, version_seqno: SeqNo) {
+    fn clear(&mut self, tree: &impl AbstractTree, version_seqno: SeqNo) -> u64 {
         let previous_version = self.0.latest_version();
         let deleted = crate::version::DeletedFiles::from_version(&previous_version.version);
+
+        let dropped_memtable_bytes = previous_version.active_memtable.size()
+            + previous_version
+                .sealed_memtables
+                .iter()
+                .map(|mt| mt.size())
+                .sum::<u64>();
 
         self.0.append_version(SuperVersion {
             active_memtable: Arc::new(Memtable::new(tree.inner().memtable_id_counter.next())),
@@ -92,6 +99,9 @@ impl Inner {
         // Only mark files as deleted once the new version is installed;
         // older snapshots still hold their own references to the files
         deleted.commit();
+
+        // NOTE: The dropped memtables are never flushed, so their size can be freed
+        dropped_memtable_bytes
     }
 
     fn register_compaction(
@@ -256,9 +266,11 @@ impl MemoryVersionSetProvider {
         self.register_compaction(compaction_result, version_seqno)
     }
 
-    pub fn clear(&self, tree: &impl AbstractTree, version_seqno: SeqNo) -> crate::Result<()> {
-        self.inner.write().unwrap().clear(tree, version_seqno);
-        Ok(())
+    /// Drops all tables, blob files and memtables by appending a new, empty version.
+    ///
+    /// Returns the size of the dropped (active and sealed) memtables in bytes.
+    pub fn clear(&self, tree: &impl AbstractTree, version_seqno: SeqNo) -> crate::Result<u64> {
+        Ok(self.inner.write().unwrap().clear(tree, version_seqno))
     }
 
     pub fn register_compaction(
