@@ -129,19 +129,28 @@ impl SuperVersion {
         (copy, deleted)
     }
 
+    /// Returns `true` if all memtables the flush processed are still sealed in this version.
+    ///
+    /// They are gone if the memtables were dropped while the flush was running,
+    /// e.g. by a clear; the flush result must then not be registered, otherwise
+    /// the dropped data comes back.
+    ///
+    /// Fixes: <https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362>
+    pub(crate) fn can_register_flush(&self, flush_result: &NewFlushToTablesResult) -> bool {
+        flush_result
+            .evicted_sealed_memtables
+            .iter()
+            .all(|id| self.sealed_memtables.contains(id))
+    }
+
     pub(crate) fn register_flush(
         &self,
         flush_result: NewFlushToTablesResult,
         version_seqno: SeqNo,
     ) -> Option<Self> {
-        // NOTE: Check for race condition
-        // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
-        if flush_result
-            .evicted_sealed_memtables
-            .iter()
-            .any(|id| !self.sealed_memtables.contains(id))
-        {
+        if !self.can_register_flush(&flush_result) {
             log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
+            flush_result.discard();
             return None;
         }
 
