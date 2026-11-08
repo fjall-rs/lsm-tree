@@ -163,6 +163,7 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
+    abstract_tree::FlushToTablesResult,
     blob_tree::{handle::BlobIndirection, Guard as BlobGuard},
     checksum::Checksum,
     iter_guard::IterGuardImpl,
@@ -199,6 +200,7 @@ pub use {
     tree::Tree,
     value::SeqNo,
     value_type::ValueType,
+    version::DEFAULT_LEVEL_COUNT,
     vlog::BlobFile,
 };
 
