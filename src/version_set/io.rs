@@ -4,7 +4,7 @@
 
 use super::mem::MemoryVersionSetProvider;
 use crate::{
-    abstract_tree::NewFlushToTablesResult,
+    abstract_tree::FlushToTablesResult,
     compaction::worker::NewCompactionResult,
     version::{SuperVersion, SuperVersionSet, Version},
     version_set::mem::range_bounds_to_owned_bounds,
@@ -13,44 +13,47 @@ use crate::{
 use std::{ops::RangeBounds, sync::Arc};
 
 /// Persists changes to the version set
-pub trait Persister: Send + Sync {
+///
+/// The persister is passed into every call that persists an edit (instead of being
+/// stored in the provider), so the caller decides which lock guards it.
+pub trait Persister {
+    /// Error type of the persister, lsm-tree errors are converted into it
+    type Error: From<crate::Error>;
+
     /// Persists a version edit.
     ///
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    fn persist(&self, edit: &VersionEdit) -> crate::Result<()>;
+    fn persist(&mut self, edit: &VersionEdit) -> Result<(), Self::Error>;
 }
 
 /// A version-set provider that persists edits before applying them in memory
+#[derive(Default)]
 pub struct IoVersionSetProvider {
     inner: MemoryVersionSetProvider,
-    persister: Arc<dyn Persister>,
 }
 
 impl IoVersionSetProvider {
     /// Creates a provider with an empty initial version.
-    pub fn new(persister: Arc<dyn Persister>) -> Self {
-        Self {
-            inner: MemoryVersionSetProvider::default(),
-            persister,
-        }
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Creates a provider from an existing super-version set.
-    pub fn with_version_set(vset: SuperVersionSet, persister: Arc<dyn Persister>) -> Self {
+    #[must_use]
+    pub fn with_version_set(vset: SuperVersionSet) -> Self {
         Self {
             inner: MemoryVersionSetProvider::new(vset),
-            persister,
         }
     }
 
     /// Creates a provider with an existing initial version.
     #[must_use]
-    pub fn with_initial_version(version: Version, persister: Arc<dyn Persister>) -> Self {
+    pub fn with_initial_version(version: Version) -> Self {
         Self {
             inner: MemoryVersionSetProvider::with_initial_version(version),
-            persister,
         }
     }
 
@@ -73,12 +76,13 @@ impl IoVersionSetProvider {
     ///
     /// Returns an error if an I/O error occurs.
     #[expect(clippy::expect_used, clippy::missing_panics_doc)]
-    pub fn flush_active_memtable(
+    pub fn flush_active_memtable<P: Persister + ?Sized>(
         &self,
+        persister: &mut P,
         tree: &impl AbstractTree,
         version_seqno: SeqNo,
         gc_watermark: SeqNo,
-    ) -> crate::Result<u64> {
+    ) -> Result<u64, P::Error> {
         if self.rotate_active_memtable(tree).is_none() {
             return Ok(0);
         }
@@ -86,10 +90,10 @@ impl IoVersionSetProvider {
         log::trace!("Flushing write buffer");
 
         let flush_result = tree
-            .new_flush(gc_watermark)?
+            .flush(gc_watermark)?
             .expect("should flush to table files");
 
-        self.register_flush(flush_result, version_seqno)
+        self.register_flush(persister, flush_result, version_seqno)
     }
 
     /// Runs and registers a compaction.
@@ -97,15 +101,16 @@ impl IoVersionSetProvider {
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    pub fn compact(
+    pub fn compact<P: Persister + ?Sized>(
         &self,
+        persister: &mut P,
         tree: &impl AbstractTree,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
         version_seqno: SeqNo,
         gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> Result<(), P::Error> {
         let compaction_result = tree.run_compaction(strategy, gc_watermark)?;
-        self.register_compaction(compaction_result, version_seqno)
+        self.register_compaction(persister, compaction_result, version_seqno)
     }
 
     /// Runs and registers a compaction that drops a key range.
@@ -113,13 +118,14 @@ impl IoVersionSetProvider {
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    pub fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+    pub fn drop_range<P: Persister + ?Sized, K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
+        persister: &mut P,
         tree: &impl AbstractTree,
         range: R,
         version_seqno: SeqNo,
         gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> Result<(), P::Error> {
         let (bounds, is_empty) = range_bounds_to_owned_bounds(&range);
 
         if is_empty {
@@ -128,17 +134,24 @@ impl IoVersionSetProvider {
 
         let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
         let compaction_result = tree.run_compaction(strategy, gc_watermark)?;
-        self.register_compaction(compaction_result, version_seqno)
+        self.register_compaction(persister, compaction_result, version_seqno)
     }
 
     /// Drops all tables, blob files and memtables by appending a new, empty version.
     ///
     /// The version edit is persisted before the new version is installed.
     ///
+    /// Returns the size of the dropped (active and sealed) memtables in bytes.
+    ///
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    pub fn clear(&self, tree: &impl AbstractTree, version_seqno: SeqNo) -> crate::Result<()> {
+    pub fn clear<P: Persister + ?Sized>(
+        &self,
+        persister: &mut P,
+        tree: &impl AbstractTree,
+        version_seqno: SeqNo,
+    ) -> Result<u64, P::Error> {
         let current = self.inner.latest_version().version;
 
         let table_ids: Vec<_> = current.iter_tables().map(crate::Table::id).collect();
@@ -157,8 +170,8 @@ impl IoVersionSetProvider {
         edits.push(EditRecord::SetFlushWatermark(version_seqno));
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
-        self.persister.persist(&VersionEdit::new(edits))?;
-        self.inner.clear(tree, version_seqno)
+        persister.persist(&VersionEdit::new(edits))?;
+        Ok(self.inner.clear(tree, version_seqno)?)
     }
 
     /// Persists and then registers a compaction result.
@@ -166,11 +179,12 @@ impl IoVersionSetProvider {
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    pub fn register_compaction(
+    pub fn register_compaction<P: Persister + ?Sized>(
         &self,
+        persister: &mut P,
         mut result: NewCompactionResult,
         version_seqno: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> Result<(), P::Error> {
         if matches!(
             result.inner,
             crate::compaction::worker::CompactionOperation::Noop,
@@ -181,8 +195,8 @@ impl IoVersionSetProvider {
         let mut edits = std::mem::take(&mut result.version_edit);
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
-        self.persister.persist(&edits)?;
-        self.inner.register_compaction(result, version_seqno)
+        persister.persist(&edits)?;
+        Ok(self.inner.register_compaction(result, version_seqno)?)
     }
 
     /// Persists and then registers a flush result.
@@ -190,11 +204,26 @@ impl IoVersionSetProvider {
     /// # Errors
     ///
     /// Returns an error if an I/O error occurs.
-    pub fn register_flush(
+    pub fn register_flush<P: Persister + ?Sized>(
         &self,
-        mut result: NewFlushToTablesResult,
+        persister: &mut P,
+        mut result: FlushToTablesResult,
         version_seqno: SeqNo,
-    ) -> crate::Result<u64> {
+    ) -> Result<u64, P::Error> {
+        // IMPORTANT: Check before persisting, otherwise the stale edit is replayed on recovery,
+        // and the dropped data comes back
+        //
+        // NOTE: Sealed memtables are only removed by calls that persist an edit, which the
+        // caller serializes (it holds the persister mutably), so the check stays valid until
+        // the install (a concurrent rotation only adds sealed memtables)
+        if !self.inner.latest_version().can_register_flush(&result) {
+            log::debug!(
+                "Not registering flush, because some of its sealed memtables do not exist anymore (e.g. cleared)",
+            );
+            result.discard();
+            return Ok(0);
+        }
+
         let mut edits = std::mem::take(&mut result.version_edit);
 
         if let Some(flush_watermark) = result.flush_watermark {
@@ -203,7 +232,8 @@ impl IoVersionSetProvider {
 
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
 
-        self.persister.persist(&edits)?;
+        persister.persist(&edits)?;
+
         Ok(self.inner.register_flush(result, version_seqno))
     }
 
@@ -262,27 +292,27 @@ mod tests {
         fs::{File, OpenOptions},
         io::{BufWriter, Write},
         path::Path,
-        sync::Mutex,
     };
     use test_log::test;
 
     /// Writes version edits as JSONL for testing
-    struct JsonPersister(Mutex<BufWriter<File>>);
+    struct JsonPersister(BufWriter<File>);
 
     impl JsonPersister {
         fn create(path: &Path) -> crate::Result<Self> {
             let file = OpenOptions::new().create(true).append(true).open(path)?;
-            Ok(Self(Mutex::new(BufWriter::new(file))))
+            Ok(Self(BufWriter::new(file)))
         }
     }
 
     impl Persister for JsonPersister {
-        fn persist(&self, edit: &VersionEdit) -> crate::Result<()> {
+        type Error = crate::Error;
+
+        fn persist(&mut self, edit: &VersionEdit) -> crate::Result<()> {
             log::trace!("Persisting {edit:#?}");
-            let mut writer = self.0.lock().unwrap();
-            writeln!(writer, "{}", serde_json::to_string(&edit).unwrap())?;
-            writer.flush()?;
-            writer.get_mut().sync_all()?;
+            writeln!(self.0, "{}", serde_json::to_string(&edit).unwrap())?;
+            self.0.flush()?;
+            self.0.get_mut().sync_all()?;
             Ok(())
         }
     }
