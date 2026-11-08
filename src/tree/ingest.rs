@@ -4,7 +4,7 @@
 
 use super::Tree;
 use crate::{
-    abstract_tree::NewFlushToTablesResult, config::FilterPolicyEntry,
+    abstract_tree::FlushToTablesResult, config::FilterPolicyEntry,
     table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey, UserValue,
 };
 use std::path::PathBuf;
@@ -233,7 +233,7 @@ impl<'a> Ingestion<'a> {
         self,
         maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
         get_seqno: impl FnOnce() -> SeqNo,
-    ) -> crate::Result<Option<(NewFlushToTablesResult, SeqNo)>> {
+    ) -> crate::Result<Option<(FlushToTablesResult, SeqNo)>> {
         use crate::{AbstractTree, Table};
 
         if self.last_key.is_none() {
@@ -311,7 +311,7 @@ impl<'a> Ingestion<'a> {
         }]);
 
         Ok(Some((
-            NewFlushToTablesResult {
+            FlushToTablesResult {
                 // NOTE: Ingested items never went through the WAL or a memtable
                 flush_watermark: tables.iter().map(Table::get_highest_seqno).max(),
                 tables,

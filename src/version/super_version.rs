@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    abstract_tree::NewFlushToTablesResult,
+    abstract_tree::FlushToTablesResult,
     compaction::worker::{CompactionOperation, NewCompactionResult},
     memtable::Memtable,
     tree::sealed::SealedMemtables,
@@ -136,7 +136,7 @@ impl SuperVersion {
     /// the dropped data comes back.
     ///
     /// Fixes: <https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362>
-    pub(crate) fn can_register_flush(&self, flush_result: &NewFlushToTablesResult) -> bool {
+    pub(crate) fn can_register_flush(&self, flush_result: &FlushToTablesResult) -> bool {
         flush_result
             .evicted_sealed_memtables
             .iter()
@@ -145,7 +145,7 @@ impl SuperVersion {
 
     pub(crate) fn register_flush(
         &self,
-        flush_result: NewFlushToTablesResult,
+        flush_result: FlushToTablesResult,
         version_seqno: SeqNo,
     ) -> Option<Self> {
         if !self.can_register_flush(&flush_result) {

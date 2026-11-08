@@ -954,7 +954,7 @@ mod tests {
         tree.insert("c", "c", 0);
 
         version_set_provider.rotate_active_memtable(&tree);
-        let flush_result = tree.new_flush(1_000)?.expect("should flush to table files");
+        let flush_result = tree.flush(1_000)?.expect("should flush to table files");
         version_set_provider.register_flush(flush_result, 1);
 
         assert_eq!(0, tree.sealed_memtable_count());

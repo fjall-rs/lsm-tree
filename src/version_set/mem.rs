@@ -6,7 +6,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    abstract_tree::NewFlushToTablesResult,
+    abstract_tree::FlushToTablesResult,
     compaction::{drop_range::OwnedBounds, worker::NewCompactionResult},
     memtable::Memtable,
     version::{SuperVersion, SuperVersionSet, Version},
@@ -129,11 +129,7 @@ impl Inner {
         Ok(())
     }
 
-    fn register_flush(
-        &mut self,
-        flush_result: NewFlushToTablesResult,
-        version_seqno: SeqNo,
-    ) -> u64 {
+    fn register_flush(&mut self, flush_result: FlushToTablesResult, version_seqno: SeqNo) -> u64 {
         log::trace!("Registering flush result");
 
         let flushed_size = flush_result.flushed_size;
@@ -226,7 +222,7 @@ impl MemoryVersionSetProvider {
 
         log::trace!("Flushing write buffer");
         let flush_result = tree
-            .new_flush(gc_watermark)?
+            .flush(gc_watermark)?
             .expect("should flush to table files");
 
         Ok(self.register_flush(flush_result, version_seqno))
@@ -284,7 +280,7 @@ impl MemoryVersionSetProvider {
             .register_compaction(result, version_seqno)
     }
 
-    pub fn register_flush(&self, flush_result: NewFlushToTablesResult, seqno: SeqNo) -> u64 {
+    pub fn register_flush(&self, flush_result: FlushToTablesResult, seqno: SeqNo) -> u64 {
         self.inner
             .write()
             .unwrap()

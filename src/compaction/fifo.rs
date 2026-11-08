@@ -185,7 +185,7 @@ mod tests {
 
             version_set_provider.rotate_active_memtable(&tree);
             let flush_result = tree
-                .new_flush(u64::from(i))?
+                .flush(u64::from(i))?
                 .expect("should flush to table files");
             version_set_provider.register_flush(flush_result, 1);
         }
@@ -213,7 +213,7 @@ mod tests {
 
             version_set_provider.rotate_active_memtable(&tree);
             let flush_result = tree
-                .new_flush(u64::from(i))?
+                .flush(u64::from(i))?
                 .expect("should flush to table files");
             version_set_provider.register_flush(flush_result, 1);
         }
@@ -244,7 +244,7 @@ mod tests {
 
             version_set_provider.rotate_active_memtable(&tree);
             let flush_result = tree
-                .new_flush(u64::from(i))?
+                .flush(u64::from(i))?
                 .expect("should flush to table files");
             version_set_provider.register_flush(flush_result, 1);
         }
@@ -278,7 +278,7 @@ mod tests {
         tree.insert("b", "2", 1);
 
         version_set_provider.rotate_active_memtable(&tree);
-        let flush_result = tree.new_flush(1)?.expect("should flush to table files");
+        let flush_result = tree.flush(1)?.expect("should flush to table files");
         version_set_provider.register_flush(flush_result, 2);
 
         // Now set current time to t=1011s; with TTL=10s, cutoff=1001s => drop first only
@@ -314,7 +314,7 @@ mod tests {
         tree.insert("b", "$", 1);
 
         version_set_provider.rotate_active_memtable(&tree);
-        let flush_result = tree.new_flush(1)?.expect("should flush to table files");
+        let flush_result = tree.flush(1)?.expect("should flush to table files");
         version_set_provider.register_flush(flush_result, 1);
 
         crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(10_000_000)));

@@ -31,7 +31,7 @@ fn tree_smoke_test_flush() -> crate::Result<()> {
     assert_eq!(0, tree.table_count());
     assert_eq!(1, tree.sealed_memtable_count());
 
-    let flush_result = tree.new_flush(0)?.expect("should flush to table files");
+    let flush_result = tree.flush(0)?.expect("should flush to table files");
     version_set_provider.register_flush(flush_result, 1);
 
     assert_eq!(Some(b"a".as_slice()), tree.get(b"a", 2)?.as_deref());
@@ -69,7 +69,7 @@ fn tree_smoke_test_flush_many_sealed() -> crate::Result<()> {
     assert_eq!(0, tree.table_count());
     assert_eq!(3, tree.sealed_memtable_count());
 
-    let flush_result = tree.new_flush(0)?.expect("should flush to table files");
+    let flush_result = tree.flush(0)?.expect("should flush to table files");
     version_set_provider.register_flush(flush_result, 1);
 
     assert_eq!(Some(b"a".as_slice()), tree.get(b"a", 2)?.as_deref());
@@ -115,7 +115,7 @@ fn tree_smoke_test_flush_blob() -> crate::Result<()> {
     assert_eq!(0, tree.blob_file_count());
     assert_eq!(1, tree.sealed_memtable_count());
 
-    let flush_result = tree.new_flush(0)?.expect("should flush to table files");
+    let flush_result = tree.flush(0)?.expect("should flush to table files");
     version_set_provider.register_flush(flush_result, 1);
 
     assert_eq!(Some(b"a".as_slice()), tree.get(b"a", 2)?.as_deref());

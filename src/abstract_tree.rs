@@ -19,24 +19,48 @@ use std::{
 
 pub type RangeItem = crate::Result<KvPair>;
 
-// TODO: change to struct
-pub type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
+/// Result of writing sealed memtables into tables, see [`AbstractTree::flush`]
+///
+/// It is not visible until it is registered in a new version
+/// (see [`crate::IoVersionSetProvider::register_flush`]).
+pub struct FlushToTablesResult {
+    /// The written tables
+    pub(crate) tables: Vec<Table>,
 
-pub struct NewFlushToTablesResult {
-    pub tables: Vec<Table>,
-    pub blob_files: Option<Vec<BlobFile>>,
-    pub frag_map: Option<FragmentationMap>,
-    pub evicted_sealed_memtables: Vec<MemtableId>,
-    pub flushed_size: u64,
+    /// The written blob files (if KV separated)
+    pub(crate) blob_files: Option<Vec<BlobFile>>,
+
+    /// Fragmentation of blob files caused by the flush
+    pub(crate) frag_map: Option<FragmentationMap>,
+
+    /// IDs of the flushed sealed memtables, released once the result is registered
+    pub(crate) evicted_sealed_memtables: Vec<MemtableId>,
+
+    /// Size of the flushed sealed memtables in bytes
+    pub(crate) flushed_size: u64,
 
     /// The new flush watermark (see [`Version::flush_watermark`]).
     ///
     /// For a flush, this is the highest seqno of the flushed memtables, NOT of the
     /// created tables: the flush may drop its newest items (e.g. a weak tombstone cancels
     /// the value it removes), and those must not be replayed from the WAL again.
-    pub flush_watermark: Option<SeqNo>,
+    pub(crate) flush_watermark: Option<SeqNo>,
 
-    pub version_edit: VersionEdit,
+    /// Version edit that adds the written tables and blob files
+    pub(crate) version_edit: VersionEdit,
+}
+
+impl FlushToTablesResult {
+    /// Throws the flush result away, deleting its (never registered) files once they are dropped.
+    pub(crate) fn discard(self) {
+        for table in &self.tables {
+            table.mark_as_deleted();
+        }
+
+        for blob_file in self.blob_files.iter().flatten() {
+            blob_file.mark_as_deleted();
+        }
+    }
 }
 
 /// Generic Tree API
@@ -191,7 +215,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn new_flush(&self, gc_watermark: SeqNo) -> crate::Result<Option<NewFlushToTablesResult>> {
+    fn flush(&self, gc_watermark: SeqNo) -> crate::Result<Option<FlushToTablesResult>> {
         use crate::{compaction::stream::CompactionStream, merge::Merger};
 
         let latest = self.tree_config().version_set_provider.latest_version();
@@ -247,7 +271,7 @@ pub trait AbstractTree {
 
         let version_edit = VersionEdit::new(version_edit);
 
-        Ok(Some(NewFlushToTablesResult {
+        Ok(Some(FlushToTablesResult {
             tables,
             blob_files,
             frag_map: None,
@@ -270,11 +294,11 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[warn(clippy::type_complexity)]
+    #[allow(clippy::type_complexity)]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<FlushToTablesResult>>;
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>>;
 
     /// Returns the number of sealed memtables.
     fn sealed_memtable_count(&self) -> usize {

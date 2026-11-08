@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    abstract_tree::NewFlushToTablesResult, blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER,
+    abstract_tree::FlushToTablesResult, blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER,
     table::Table, tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey,
     UserValue,
 };
@@ -160,7 +160,7 @@ impl<'a> BlobIngestion<'a> {
         self,
         maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
         get_seqno: impl FnOnce() -> SeqNo,
-    ) -> crate::Result<Option<(NewFlushToTablesResult, SeqNo)>> {
+    ) -> crate::Result<Option<(FlushToTablesResult, SeqNo)>> {
         use crate::AbstractTree;
 
         let index = self.index().clone();
@@ -253,7 +253,7 @@ impl<'a> BlobIngestion<'a> {
         });
 
         Ok(Some((
-            NewFlushToTablesResult {
+            FlushToTablesResult {
                 // NOTE: Ingested items never went through the WAL or a memtable
                 flush_watermark: tables.iter().map(Table::get_highest_seqno).max(),
                 tables,

@@ -54,7 +54,7 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
     assert_eq!(tree.get_highest_memtable_seqno(), Some(5));
     assert_eq!(tree.get_flush_watermark(), Some(3));
 
-    let flush_result = tree.new_flush(0)?.expect("should flush to table files");
+    let flush_result = tree.flush(0)?.expect("should flush to table files");
     version_set_provider.register_flush(flush_result, seqno.next());
 
     assert_eq!(tree.get_highest_seqno(), Some(5));

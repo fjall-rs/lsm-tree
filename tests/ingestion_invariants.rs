@@ -92,7 +92,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
         .finish(
             || {
                 let _ = version_set_provider.rotate_active_memtable(&tree);
-                if let Some(flush_result) = tree.new_flush(0)? {
+                if let Some(flush_result) = tree.flush(0)? {
                     version_set_provider.register_flush(flush_result, seqno.next());
                 }
                 Ok(())

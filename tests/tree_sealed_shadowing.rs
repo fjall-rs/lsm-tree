@@ -27,7 +27,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    let flush_result = tree.new_flush(0)?.expect("should flush to table files");
+    let flush_result = tree.flush(0)?.expect("should flush to table files");
     version_set_provider.register_flush(flush_result, seqno.next());
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
