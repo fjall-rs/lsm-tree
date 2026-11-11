@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -12,7 +12,7 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree0 = Config::new(&folder0, version_set_provider.clone()).open()?;
         assert_eq!(tree0.id(), 0);
@@ -40,7 +40,7 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     }
 
     {
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree1 = Config::new(&folder1, version_set_provider.clone()).open()?;
         assert_eq!(tree1.id(), 1);

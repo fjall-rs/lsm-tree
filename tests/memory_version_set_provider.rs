@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -7,7 +7,7 @@ use test_log::test;
 #[test]
 fn memory_provider_clear_appends_empty_version() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let seqno = SequenceNumberCounter::default();
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -29,7 +29,7 @@ fn memory_provider_clear_appends_empty_version() -> lsm_tree::Result<()> {
 #[test]
 fn memory_provider_drop_range_registers_compaction() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let seqno = SequenceNumberCounter::default();
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 

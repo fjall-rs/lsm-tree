@@ -2,17 +2,17 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::mem::MemoryVersionSetProvider;
+use super::mem::MemorySuperVersionSetProvider;
 use crate::{
     abstract_tree::FlushToTablesResult,
     compaction::worker::NewCompactionResult,
     version::{SuperVersion, SuperVersionSet, Version},
     version_set::mem::range_bounds_to_owned_bounds,
-    AbstractTree, EditRecord, MemtableId, SeqNo, VersionEdit, VersionSetProvider,
+    AbstractTree, EditRecord, MemtableId, SeqNo, SuperVersionSetProvider, VersionEdit,
 };
 use std::{ops::RangeBounds, sync::Arc};
 
-/// Persists changes to the version set
+/// Persists changes to the super version set
 ///
 /// The persister is passed into every call that persists an edit (instead of being
 /// stored in the provider), so the caller decides which lock guards it.
@@ -28,32 +28,32 @@ pub trait Persister {
     fn persist(&mut self, edit: &VersionEdit) -> Result<(), Self::Error>;
 }
 
-/// A version-set provider that persists edits before applying them in memory
+/// A [`SuperVersionSetProvider`] that persists edits before applying them in memory
 #[derive(Default)]
-pub struct IoVersionSetProvider {
-    inner: MemoryVersionSetProvider,
+pub struct IoSuperVersionSetProvider {
+    inner: MemorySuperVersionSetProvider,
 }
 
-impl IoVersionSetProvider {
-    /// Creates a provider with an empty initial version.
+impl IoSuperVersionSetProvider {
+    /// Creates a provider with an empty initial [`SuperVersion`].
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Creates a provider from an existing super-version set.
+    /// Creates a provider from an existing [`SuperVersionSetProvider`].
     #[must_use]
     pub fn with_version_set(vset: SuperVersionSet) -> Self {
         Self {
-            inner: MemoryVersionSetProvider::new(vset),
+            inner: MemorySuperVersionSetProvider::new(vset),
         }
     }
 
-    /// Creates a provider with an existing initial version.
+    /// Creates a provider with an existing initial [`SuperVersion`].
     #[must_use]
     pub fn with_initial_version(version: Version) -> Self {
         Self {
-            inner: MemoryVersionSetProvider::with_initial_version(version),
+            inner: MemorySuperVersionSetProvider::with_initial_version(version),
         }
     }
 
@@ -62,10 +62,8 @@ impl IoVersionSetProvider {
         self.inner.overwrite(super_version);
     }
 
-    /// Removes versions (and their memtables) that no snapshot at or above `gc_watermark`
+    /// Removes [`SuperVersion`] (and their memtables) that no snapshot at or above `gc_watermark`
     /// can read anymore, see [`crate::version::SuperVersionSet::maintenance`].
-    ///
-    /// `SeqNo::MAX` keeps only the latest version.
     pub fn prune(&self, gc_watermark: SeqNo) {
         self.inner.prune(gc_watermark);
     }
@@ -137,9 +135,7 @@ impl IoVersionSetProvider {
         self.register_compaction(persister, compaction_result, version_seqno)
     }
 
-    /// Drops all tables, blob files and memtables by appending a new, empty version.
-    ///
-    /// The version edit is persisted before the new version is installed.
+    /// Drops all tables, blob files and memtables by appending a new, empty [`SuperVersion`].
     ///
     /// Returns the size of the dropped (active and sealed) memtables in bytes.
     ///
@@ -242,7 +238,7 @@ impl IoVersionSetProvider {
         self.inner.rotate_active_memtable(tree)
     }
 
-    /// Returns edit records that rebuild the latest version
+    /// Returns edit records that rebuild the latest [`Version`]
     /// when applied to an empty [`crate::RawVersionData`].
     ///
     /// See [`crate::version::Version::get_edit_records`].
@@ -251,7 +247,7 @@ impl IoVersionSetProvider {
         self.inner.latest_version().version.get_edit_records()
     }
 
-    /// Hydrates the current version from a recovered state.
+    /// Hydrates the current [`Version`] from a recovered state.
     ///
     /// # Errors
     ///
@@ -265,7 +261,7 @@ impl IoVersionSetProvider {
     }
 }
 
-impl VersionSetProvider for IoVersionSetProvider {
+impl SuperVersionSetProvider for IoSuperVersionSetProvider {
     fn version_history_len(&self) -> usize {
         self.inner.version_history_len()
     }

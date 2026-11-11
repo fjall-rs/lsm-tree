@@ -1,5 +1,5 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -11,7 +11,7 @@ const ITEM_COUNT: usize = 1_000;
 fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone())

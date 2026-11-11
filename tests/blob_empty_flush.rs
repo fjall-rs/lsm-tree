@@ -1,4 +1,4 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, MemoryVersionSetProvider, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, MemorySuperVersionSetProvider, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -10,7 +10,7 @@ fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
     let medium_value = b"a".repeat(500);
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(path, version_set_provider.clone())
         .with_kv_separation(Some(Default::default()))

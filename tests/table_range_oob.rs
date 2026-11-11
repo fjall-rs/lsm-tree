@@ -1,5 +1,5 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -12,7 +12,7 @@ fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
@@ -40,7 +40,7 @@ fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         // .index_block_size_policy(BlockSizePolicy::all(1_024))

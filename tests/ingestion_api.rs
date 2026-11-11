@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 fn finish_ingestion(
     ingestion: lsm_tree::AnyIngestion<'_>,
     tree: &lsm_tree::AnyTree,
-    version_set_provider: &MemoryVersionSetProvider,
+    version_set_provider: &MemorySuperVersionSetProvider,
     seqno: &SequenceNumberCounter,
 ) -> lsm_tree::Result<()> {
     if let Some((ingestion_result, ingestion_seqno)) = ingestion.finish(
@@ -28,7 +28,7 @@ fn finish_ingestion(
 fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -57,7 +57,7 @@ fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
 fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -85,7 +85,7 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
 fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -110,7 +110,7 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
 fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -138,7 +138,7 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
 #[should_panic(expected = "next key in ingestion must be greater than last key")]
 fn ingestion_enforces_order_standard_panics() {
     let folder = tempfile::tempdir().unwrap();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = lsm_tree::Config::new(&folder, version_set_provider)
         .open()
         .unwrap();
@@ -155,7 +155,7 @@ fn ingestion_enforces_order_standard_panics() {
 #[test]
 fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(&folder, version_set_provider)
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(8)))
@@ -183,7 +183,7 @@ fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<(
 fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -214,7 +214,7 @@ fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
 fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -245,7 +245,7 @@ fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()>
 fn tree_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -263,7 +263,7 @@ fn tree_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
 fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -299,7 +299,7 @@ fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Resu
 fn blob_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -324,7 +324,7 @@ fn blob_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
 fn blob_ingestion_separates_large_values_and_reads_ok() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(8)))

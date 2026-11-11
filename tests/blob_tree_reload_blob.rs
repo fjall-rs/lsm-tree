@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo,
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter, TreeType,
 };
 use std::sync::Arc;
@@ -12,7 +12,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone())
@@ -79,7 +79,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone())

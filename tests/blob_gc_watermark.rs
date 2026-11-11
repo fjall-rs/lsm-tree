@@ -1,6 +1,6 @@
 use lsm_tree::{
     config::CompressionPolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
-    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -15,7 +15,7 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))

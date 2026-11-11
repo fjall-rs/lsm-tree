@@ -260,7 +260,7 @@ impl MultiWriter {
 #[cfg(test)]
 mod tests {
     use crate::{
-        config::CompressionPolicy, version_set::MemoryVersionSetProvider, AbstractTree,
+        config::CompressionPolicy, version_set::MemorySuperVersionSetProvider, AbstractTree,
         CompressionType, Config, SeqNo,
     };
     use std::sync::Arc;
@@ -276,7 +276,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(&folder, version_set_provider.clone())
             .data_block_compression_policy(CompressionPolicy::all(CompressionType::None))
@@ -309,7 +309,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(&folder, version_set_provider.clone())
             .data_block_compression_policy(CompressionPolicy::all(CompressionType::None))

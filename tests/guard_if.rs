@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, MemoryVersionSetProvider,
+    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, MemorySuperVersionSetProvider,
     SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -10,7 +10,7 @@ fn tree_guard_into_inner_if() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -40,7 +40,7 @@ fn tree_guard_into_inner_if_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))

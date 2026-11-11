@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Guard, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Guard, MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -13,7 +13,7 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())

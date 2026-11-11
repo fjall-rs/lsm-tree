@@ -3,7 +3,7 @@ use lsm_tree::compaction::filter::{
 };
 use lsm_tree::{
     compaction::PullDown, get_tmp_folder, AbstractTree, KvSeparationOptions,
-    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::{Arc, Mutex};
 use test_log::test;
@@ -107,7 +107,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let mut config = lsm_tree::Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(if blob {

@@ -415,7 +415,7 @@ fn merge_tables(
 
     merge_iter = merge_iter
         .evict_tombstones(is_last_level)
-        .zero_seqnos(false);
+        .zero_seqnos(false); // TODO: if we end up enabling this again, make sure to add it to table metadata (seqnos_zeroed 0/1)!!!
 
     let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
 
@@ -703,7 +703,7 @@ mod tests {
         },
         config::{BlockSizePolicy, Config as TreeConfig, KvSeparationOptions},
         version::Version,
-        version_set::MemoryVersionSetProvider,
+        version_set::MemorySuperVersionSetProvider,
         AbstractTree, AnyTree, TableId,
     };
     use std::sync::{Arc, Mutex};
@@ -713,7 +713,7 @@ mod tests {
     fn compaction_stream_run_not_found() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
@@ -731,7 +731,7 @@ mod tests {
     fn compaction_stream_run() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
@@ -768,7 +768,7 @@ mod tests {
     fn compaction_stream_run_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
@@ -805,7 +805,7 @@ mod tests {
     fn compaction_stream_run_3() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
@@ -842,7 +842,7 @@ mod tests {
     fn compaction_stream_run_4() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
@@ -878,7 +878,7 @@ mod tests {
     fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
@@ -936,7 +936,7 @@ mod tests {
 
         let folder = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(folder, version_set_provider.clone())
             .data_block_size_policy(BlockSizePolicy::all(1))
@@ -1050,7 +1050,7 @@ mod tests {
     fn compaction_move_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = TreeConfig::new(&folder, version_set_provider.clone()).open()?;
 
@@ -1080,7 +1080,7 @@ mod tests {
     /// Calls `clear()` on the first filtered item, which happens
     /// while the compaction worker holds no lock at all
     #[expect(clippy::type_complexity)]
-    struct ClearMidCompaction(Arc<Mutex<Option<(AnyTree, Arc<MemoryVersionSetProvider>)>>>);
+    struct ClearMidCompaction(Arc<Mutex<Option<(AnyTree, Arc<MemorySuperVersionSetProvider>)>>>);
 
     impl Factory for ClearMidCompaction {
         fn name(&self) -> &'static str {
@@ -1093,7 +1093,7 @@ mod tests {
     }
 
     #[expect(clippy::type_complexity)]
-    struct ClearMidCompactionFilter(Arc<Mutex<Option<(AnyTree, Arc<MemoryVersionSetProvider>)>>>);
+    struct ClearMidCompactionFilter(Arc<Mutex<Option<(AnyTree, Arc<MemorySuperVersionSetProvider>)>>>);
 
     impl CompactionFilter for ClearMidCompactionFilter {
         #[allow(clippy::unwrap_used)]
@@ -1117,7 +1117,7 @@ mod tests {
 
         let handle = Arc::new(Mutex::new(None));
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = TreeConfig::new(&folder, version_set_provider.clone())
             .with_compaction_filter_factory(Some(Arc::new(ClearMidCompaction(handle.clone()))))

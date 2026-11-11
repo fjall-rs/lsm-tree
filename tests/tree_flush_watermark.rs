@@ -6,22 +6,21 @@
 
 use lsm_tree::{
     compaction::{filter, Leveled, Major},
-    AbstractTree, AnyTree, Config, EditRecord, IoVersionSetProvider, KvSeparationOptions,
+    AbstractTree, AnyTree, Config, EditRecord, IoSuperVersionSetProvider, KvSeparationOptions,
     RawVersionData, SeqNo, VersionEdit, VersionEditPersister,
 };
-use std::sync::{Arc, Mutex};
+use std::{ops::RangeBounds, sync::Arc};
 use test_log::test;
 
 /// Keeps all persisted version edits in memory, so they can be replayed
 #[derive(Default)]
-struct MemoryPersister(Mutex<Vec<Vec<EditRecord>>>);
+struct MemoryPersister(Vec<Vec<EditRecord>>);
 
 impl VersionEditPersister for MemoryPersister {
-    fn persist(&self, edit: &VersionEdit) -> lsm_tree::Result<()> {
-        self.0
-            .lock()
-            .expect("lock is poisoned")
-            .push(edit.iter().cloned().collect());
+    type Error = lsm_tree::Error;
+
+    fn persist(&mut self, edit: &VersionEdit) -> lsm_tree::Result<()> {
+        self.0.push(edit.iter().cloned().collect());
         Ok(())
     }
 }
@@ -29,8 +28,8 @@ impl VersionEditPersister for MemoryPersister {
 /// A tree that persists its version edits, so it can be recovered
 struct RecoverableTree {
     dir: tempfile::TempDir,
-    persister: Arc<MemoryPersister>,
-    provider: Arc<IoVersionSetProvider>,
+    persister: MemoryPersister,
+    provider: Arc<IoSuperVersionSetProvider>,
     tree: AnyTree,
     kv_opts: Option<KvSeparationOptions>,
 }
@@ -46,8 +45,7 @@ impl RecoverableTree {
     ) -> lsm_tree::Result<Self> {
         let dir = tempfile::tempdir()?;
 
-        let persister = Arc::new(MemoryPersister::default());
-        let provider = Arc::new(IoVersionSetProvider::new(persister.clone()));
+        let provider = Arc::new(IoSuperVersionSetProvider::new());
         let tree = Config::new(dir.path(), provider.clone())
             .with_kv_separation(kv_opts.clone())
             .with_compaction_filter_factory(filter)
@@ -55,7 +53,7 @@ impl RecoverableTree {
 
         Ok(Self {
             dir,
-            persister,
+            persister: MemoryPersister::default(),
             provider,
             tree,
             kv_opts,
@@ -66,22 +64,55 @@ impl RecoverableTree {
         self.tree.insert(key, "value", seqno);
     }
 
-    fn flush(&self, version_seqno: SeqNo) -> lsm_tree::Result<()> {
-        self.provider
-            .flush_active_memtable(&self.tree, version_seqno, 0)?;
+    fn flush(&mut self, version_seqno: SeqNo) -> lsm_tree::Result<()> {
+        self.flush_with_gc_watermark(version_seqno, 0)
+    }
+
+    fn flush_with_gc_watermark(
+        &mut self,
+        version_seqno: SeqNo,
+        gc_watermark: SeqNo,
+    ) -> lsm_tree::Result<()> {
+        self.provider.flush_active_memtable(
+            &mut self.persister,
+            &self.tree,
+            version_seqno,
+            gc_watermark,
+        )?;
         Ok(())
     }
 
-    fn major_compact(&self, version_seqno: SeqNo) -> lsm_tree::Result<()> {
+    fn compact(
+        &mut self,
+        strategy: Arc<dyn lsm_tree::compaction::CompactionStrategy>,
+        version_seqno: SeqNo,
+    ) -> lsm_tree::Result<()> {
         self.provider
-            .compact(&self.tree, Arc::new(Major::default()), version_seqno, 0)
+            .compact(&mut self.persister, &self.tree, strategy, version_seqno, 0)
+    }
+
+    fn major_compact(&mut self, version_seqno: SeqNo) -> lsm_tree::Result<()> {
+        self.compact(Arc::new(Major::default()), version_seqno)
+    }
+
+    fn drop_range<R: RangeBounds<&'static str>>(
+        &mut self,
+        range: R,
+        version_seqno: SeqNo,
+    ) -> lsm_tree::Result<()> {
+        self.provider
+            .drop_range(&mut self.persister, &self.tree, range, version_seqno, 0)
+    }
+
+    fn clear(&mut self, version_seqno: SeqNo) -> lsm_tree::Result<()> {
+        self.provider
+            .clear(&mut self.persister, &self.tree, version_seqno)?;
+        Ok(())
     }
 
     /// Hydrates a fresh tree from the given raw version
     fn hydrate(&self, raw_state: &RawVersionData) -> lsm_tree::Result<AnyTree> {
-        let provider = Arc::new(IoVersionSetProvider::new(Arc::new(
-            MemoryPersister::default(),
-        )));
+        let provider = Arc::new(IoSuperVersionSetProvider::new());
         let tree = Config::new(self.dir.path(), provider.clone())
             .with_kv_separation(self.kv_opts.clone())
             .open()?;
@@ -99,7 +130,7 @@ impl RecoverableTree {
     ) -> lsm_tree::Result<AnyTree> {
         let mut raw_state = RawVersionData::default();
 
-        for edit in self.persister.0.lock().expect("lock is poisoned").iter() {
+        for edit in self.persister.0.iter() {
             raw_state.apply(&VersionEdit::new(
                 edit.iter().filter(|r| filter_record(r)).cloned().collect(),
             ));
@@ -154,7 +185,7 @@ fn kv_variants() -> [Option<KvSeparationOptions>; 2] {
 #[test]
 fn flush_watermark_fresh_tree_and_seqno_zero() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         // Nothing flushed yet
         t.assert_watermark(None)?;
@@ -174,7 +205,7 @@ fn flush_watermark_fresh_tree_and_seqno_zero() -> lsm_tree::Result<()> {
 #[test]
 fn flush_watermark_is_highest_flushed_item_seqno() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         // a0..a9 = seqnos 0..=9, flush = 10
         for seqno in 0..=9 {
@@ -212,7 +243,7 @@ fn flush_watermark_is_highest_flushed_item_seqno() -> lsm_tree::Result<()> {
 #[test]
 fn flush_watermark_includes_items_dropped_by_flush() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         t.insert("a", 0);
         t.flush(1)?;
@@ -222,7 +253,7 @@ fn flush_watermark_includes_items_dropped_by_flush() -> lsm_tree::Result<()> {
         t.tree.remove_weak("a", 4);
 
         // NOTE: GC watermark above every item, so the flush may drop shadowed items
-        t.provider.flush_active_memtable(&t.tree, 5, 1_000)?;
+        t.flush_with_gc_watermark(5, 1_000)?;
 
         assert!(
             t.tree.get("a", SeqNo::MAX)?.is_some(),
@@ -239,7 +270,7 @@ fn flush_watermark_includes_items_dropped_by_flush() -> lsm_tree::Result<()> {
 #[test]
 fn flush_watermark_kept_by_drop_range() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         for seqno in 0..=9 {
             t.insert(&format!("a{seqno}"), seqno);
@@ -254,14 +285,14 @@ fn flush_watermark_kept_by_drop_range() -> lsm_tree::Result<()> {
 
         // Dropping the table with the highest seqnos keeps the watermark,
         // otherwise the dropped items would be replayed again
-        t.provider.drop_range(&t.tree, "b".."c", 22, 0)?;
+        t.drop_range("b".."c", 22)?;
         assert_eq!(1, t.tree.table_count());
         t.assert_watermark(Some(20))?;
 
         // An unflushed item, then dropping all tables: still the last flushed item,
         // NOT the drop's version seqno (23), which would skip the unflushed item
         t.insert("c", 23);
-        t.provider.drop_range::<&str, _>(&t.tree, .., 24, 0)?;
+        t.drop_range(.., 24)?;
         assert_eq!(0, t.tree.table_count());
         assert_eq!(Some(20), t.tree.current_version().flush_watermark());
         t.assert_watermark(Some(20))?;
@@ -273,14 +304,13 @@ fn flush_watermark_kept_by_drop_range() -> lsm_tree::Result<()> {
 #[test]
 fn flush_watermark_kept_by_compactions() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         t.insert("a", 0);
         t.flush(1)?;
 
         // Trivial move of the only table
-        t.provider
-            .compact(&t.tree, Arc::new(Leveled::default()), 2, 0)?;
+        t.compact(Arc::new(Leveled::default()), 2)?;
         t.assert_watermark(Some(0))?;
 
         t.insert("a", 3);
@@ -299,7 +329,7 @@ fn flush_watermark_kept_by_compactions() -> lsm_tree::Result<()> {
 #[test]
 fn flush_watermark_kept_when_filter_removes_everything() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::with_filter(kv_opts, Some(Arc::new(RemoveEverythingFactory)))?;
+        let mut t = RecoverableTree::with_filter(kv_opts, Some(Arc::new(RemoveEverythingFactory)))?;
 
         for seqno in 0..=9 {
             t.insert(&format!("a{seqno}"), seqno);
@@ -328,10 +358,10 @@ fn flush_watermark_kept_when_filter_removes_everything() -> lsm_tree::Result<()>
 #[test]
 fn flush_watermark_moved_up_by_clear() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         // Clear of a tree that never flushed anything
-        t.provider.clear(&t.tree, 5)?;
+        t.clear(5)?;
         t.assert_watermark(Some(5))?;
 
         for seqno in 6..=19 {
@@ -342,7 +372,7 @@ fn flush_watermark_moved_up_by_clear() -> lsm_tree::Result<()> {
 
         // Clear of a tree with tables: the tree is empty afterwards,
         // but the watermark moves up to the clear's seqno
-        t.provider.clear(&t.tree, 30)?;
+        t.clear(30)?;
         assert_eq!(0, t.tree.table_count());
         t.assert_watermark(Some(30))?;
 
@@ -351,7 +381,7 @@ fn flush_watermark_moved_up_by_clear() -> lsm_tree::Result<()> {
         t.assert_watermark(Some(30))?;
 
         // Clear again, without flushing in between: moves up again
-        t.provider.clear(&t.tree, 32)?;
+        t.clear(32)?;
         t.assert_watermark(Some(32))?;
     }
 
@@ -361,7 +391,7 @@ fn flush_watermark_moved_up_by_clear() -> lsm_tree::Result<()> {
 #[test]
 fn flush_watermark_never_decreases() -> lsm_tree::Result<()> {
     for kv_opts in kv_variants() {
-        let t = RecoverableTree::new(kv_opts)?;
+        let mut t = RecoverableTree::new(kv_opts)?;
 
         let mut watermarks = vec![];
 
@@ -377,17 +407,17 @@ fn flush_watermark_never_decreases() -> lsm_tree::Result<()> {
         t.major_compact(5)?;
         watermarks.push(t.tree.get_flush_watermark());
 
-        t.provider.drop_range(&t.tree, "a"..="b", 6, 0)?;
+        t.drop_range("a"..="b", 6)?;
         watermarks.push(t.tree.get_flush_watermark());
 
-        t.provider.clear(&t.tree, 7)?;
+        t.clear(7)?;
         watermarks.push(t.tree.get_flush_watermark());
 
         t.insert("d", 8);
         t.flush(9)?;
         watermarks.push(t.tree.get_flush_watermark());
 
-        t.provider.drop_range::<&str, _>(&t.tree, .., 10, 0)?;
+        t.drop_range(.., 10)?;
         watermarks.push(t.tree.get_flush_watermark());
 
         assert_eq!(
@@ -411,7 +441,7 @@ fn flush_watermark_never_decreases() -> lsm_tree::Result<()> {
 
 #[test]
 fn flush_watermark_survives_get_edit_records() -> lsm_tree::Result<()> {
-    let t = RecoverableTree::new(None)?;
+    let mut t = RecoverableTree::new(None)?;
 
     t.insert("a", 0);
     t.flush(1)?;
@@ -433,7 +463,7 @@ fn flush_watermark_survives_get_edit_records() -> lsm_tree::Result<()> {
 // v3 versions have no flush watermark record, so the tables' highest seqno is used
 #[test]
 fn flush_watermark_falls_back_to_table_seqnos() -> lsm_tree::Result<()> {
-    let t = RecoverableTree::new(None)?;
+    let mut t = RecoverableTree::new(None)?;
 
     t.insert("a", 0);
     t.insert("b", 1);
@@ -443,6 +473,63 @@ fn flush_watermark_falls_back_to_table_seqnos() -> lsm_tree::Result<()> {
 
     assert_eq!(None, tree.current_version().flush_watermark());
     assert_eq!(Some(1), tree.get_flush_watermark());
+
+    Ok(())
+}
+
+/// A flush that races with a clear (the clear drops the sealed memtables while the flush
+/// writes them into tables) must not be registered, otherwise the cleared data comes back:
+/// in memory, and after recovery (if its edit was persisted).
+///
+/// Its tables and blob files were never registered, so they are deleted.
+#[test]
+fn flush_racing_with_clear_is_discarded() -> lsm_tree::Result<()> {
+    for kv_opts in kv_variants() {
+        let mut t = RecoverableTree::new(kv_opts)?;
+
+        t.insert("a", 0);
+        t.insert("b", 1);
+        t.provider.rotate_active_memtable(&t.tree);
+
+        // NOTE: The flush writes its tables...
+        let flush_result = t.tree.flush(0)?.expect("should flush");
+
+        // ...then the clear drops the sealed memtable it flushed...
+        t.clear(2)?;
+        let edits_after_clear = t.persister.0.len();
+
+        // ...so registering the flush must be refused
+        let flushed_bytes = t
+            .provider
+            .register_flush(&mut t.persister, flush_result, 3)?;
+
+        assert_eq!(0, flushed_bytes);
+        assert_eq!(
+            edits_after_clear,
+            t.persister.0.len(),
+            "the stale flush should not be persisted",
+        );
+
+        assert_eq!(0, t.tree.table_count());
+        assert_eq!(None, t.tree.get("a", SeqNo::MAX)?);
+
+        let recovered = t.recover()?;
+        assert_eq!(0, recovered.table_count());
+        assert_eq!(None, recovered.get("a", SeqNo::MAX)?);
+
+        for folder in ["tables", "blobs"] {
+            let folder = t.dir.path().join(folder);
+
+            if folder.try_exists()? {
+                assert_eq!(
+                    0,
+                    std::fs::read_dir(&folder)?.count(),
+                    "files of the discarded flush should be deleted ({})",
+                    folder.display(),
+                );
+            }
+        }
+    }
 
     Ok(())
 }

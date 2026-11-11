@@ -2,7 +2,7 @@
 #[cfg(feature = "metrics")]
 fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+        get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
         SequenceNumberCounter,
     };
     use std::sync::Arc;
@@ -73,7 +73,7 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
 #[cfg(feature = "metrics")]
 fn tree_filter_hit_rate_hit() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo,
+        get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
         SequenceNumberCounter,
     };
     use std::sync::Arc;

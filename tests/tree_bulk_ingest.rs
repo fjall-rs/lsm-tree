@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, MemoryVersionSetProvider,
+    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, MemorySuperVersionSetProvider,
     SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -12,7 +12,7 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -54,7 +54,7 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 fn tree_copy() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let source_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let source_version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let src = Config::new(&folder, source_version_set_provider.clone()).open()?;
 
@@ -90,7 +90,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
     );
 
     let folder = get_tmp_folder();
-    let dest_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let dest_version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let dest = Config::new(&folder, dest_version_set_provider.clone()).open()?;
 
     let mut ingestion = dest.ingestion()?;
@@ -131,7 +131,7 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -177,7 +177,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let source_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let source_version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let src = Config::new(&folder, source_version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -216,7 +216,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(1, src.blob_file_count());
 
     let folder = get_tmp_folder();
-    let dest_version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let dest_version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let dest = Config::new(&folder, dest_version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
