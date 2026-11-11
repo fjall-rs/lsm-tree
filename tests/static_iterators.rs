@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;

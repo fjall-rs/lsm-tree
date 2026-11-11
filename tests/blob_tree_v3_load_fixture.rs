@@ -1,6 +1,6 @@
 use lsm_tree::{
-    AbstractTree, Cache, Config, DescriptorTable, KvSeparationOptions, MemorySuperVersionSetProvider,
-    SeqNo, SequenceNumberCounter,
+    AbstractTree, Cache, Config, DescriptorTable, KvSeparationOptions,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::{path::Path, sync::Arc};
 use test_log::test;

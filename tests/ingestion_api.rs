@@ -1,6 +1,6 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
-    SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider,
+    SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 

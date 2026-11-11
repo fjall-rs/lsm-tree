@@ -2,8 +2,8 @@
 #[cfg(feature = "lz4")]
 fn blob_tree_compression() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, MemorySuperVersionSetProvider,
-        SeqNo, SequenceNumberCounter,
+        blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions,
+        MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
     };
     use std::sync::Arc;
 

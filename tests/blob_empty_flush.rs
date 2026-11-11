@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, MemorySuperVersionSetProvider, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, MemorySuperVersionSetProvider, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 

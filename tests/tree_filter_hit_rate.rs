@@ -2,8 +2,8 @@
 #[cfg(feature = "metrics")]
 fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
-        SequenceNumberCounter,
+        get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider,
+        SeqNo, SequenceNumberCounter,
     };
     use std::sync::Arc;
 

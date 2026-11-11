@@ -1093,7 +1093,9 @@ mod tests {
     }
 
     #[expect(clippy::type_complexity)]
-    struct ClearMidCompactionFilter(Arc<Mutex<Option<(AnyTree, Arc<MemorySuperVersionSetProvider>)>>>);
+    struct ClearMidCompactionFilter(
+        Arc<Mutex<Option<(AnyTree, Arc<MemorySuperVersionSetProvider>)>>>,
+    );
 
     impl CompactionFilter for ClearMidCompactionFilter {
         #[allow(clippy::unwrap_used)]

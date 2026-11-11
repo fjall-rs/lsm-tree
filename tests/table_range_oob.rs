@@ -1,6 +1,6 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
-    SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider,
+    SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;

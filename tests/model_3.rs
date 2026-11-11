@@ -1,8 +1,8 @@
 // Found by model testing
 
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, AnyTree, KvSeparationOptions, MemorySuperVersionSetProvider, Result,
-    SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, AnyTree, KvSeparationOptions, MemorySuperVersionSetProvider,
+    Result, SeqNo, SequenceNumberCounter,
 };
 use std::{ops::RangeBounds, sync::Arc};
 use test_log::test;

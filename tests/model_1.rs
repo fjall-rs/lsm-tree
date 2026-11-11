@@ -1,7 +1,8 @@
 // Found by model testing
 
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, Result, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, Result,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
