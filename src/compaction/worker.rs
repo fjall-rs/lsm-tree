@@ -238,10 +238,16 @@ fn move_tables(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
-        log::error!("Manifest maintenance failed: {e:?}");
-        return Err(e);
-    }
+    let freed = version_history_lock
+        .maintenance(&opts.config.path, opts.mvcc_gc_watermark)
+        .inspect_err(|e| {
+            log::error!("Manifest maintenance failed: {e:?}");
+        })?;
+
+    // NOTE: Dropping the last reference to a version frees its memtable,
+    // so the removed versions are dropped after the lock is released
+    drop(version_history_lock);
+    drop(freed);
 
     Ok(())
 }
@@ -595,7 +601,7 @@ fn merge_tables(
         .hidden_set_mut()
         .show(payload.table_ids.iter().copied());
 
-    version_history_lock
+    let freed = version_history_lock
         .maintenance(&opts.config.path, opts.mvcc_gc_watermark)
         .inspect_err(|e| {
             log::error!("Manifest maintenance failed: {e:?}");
@@ -603,6 +609,10 @@ fn merge_tables(
 
     drop(version_history_lock);
     drop(compaction_state);
+
+    // NOTE: Dropping the last reference to a version frees its memtable,
+    // so the removed versions are dropped after both locks are released
+    drop(freed);
 
     log::trace!("Compaction successful");
 
@@ -668,10 +678,11 @@ fn drop_tables(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
-        log::error!("Manifest maintenance failed: {e:?}");
-        return Err(e);
-    }
+    let freed = version_history_lock
+        .maintenance(&opts.config.path, opts.mvcc_gc_watermark)
+        .inspect_err(|e| {
+            log::error!("Manifest maintenance failed: {e:?}");
+        })?;
 
     drop(version_history_lock);
 
@@ -687,6 +698,10 @@ fn drop_tables(
     }
 
     drop(compaction_state);
+
+    // NOTE: Dropping the last reference to a version frees its memtable,
+    // so the removed versions are dropped after both locks are released
+    drop(freed);
 
     log::trace!("Dropped {} tables", ids_to_drop.len());
 
