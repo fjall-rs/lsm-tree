@@ -67,13 +67,20 @@ impl SuperVersions {
         self.len().saturating_sub(1)
     }
 
-    pub fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
+    /// Removes versions the watermark no longer needs and returns them, so the caller drops them after releasing its locks.
+    pub fn maintenance(
+        &mut self,
+        folder: &Path,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<Vec<SuperVersion>> {
+        let mut removed = Vec::new();
+
         if gc_watermark == 0 {
-            return Ok(());
+            return Ok(removed);
         }
 
         if self.free_list_len() < 1 {
-            return Ok(());
+            return Ok(removed);
         }
 
         log::trace!("Running manifest GC with watermark={gc_watermark}");
@@ -95,13 +102,13 @@ impl SuperVersions {
                     crate::file::retry_transient_io(|| std::fs::remove_file(&path))?;
                 }
 
-                self.0.pop_front();
+                removed.extend(self.0.pop_front());
             }
         }
 
         log::trace!("Manifest GC done, version length now {}", self.0.len());
 
-        Ok(())
+        Ok(removed)
     }
 
     /// Modifies the level manifest atomically.
@@ -200,6 +207,10 @@ mod tests {
     use super::*;
     use test_log::test;
 
+    fn seqnos(versions: &[SuperVersion]) -> Vec<SeqNo> {
+        versions.iter().map(|x| x.seqno).collect()
+    }
+
     #[test]
     fn super_version_gc_above_watermark() -> crate::Result<()> {
         let mut history = SuperVersions(
@@ -226,7 +237,9 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 0)?;
+        let removed = history.maintenance(Path::new("."), 0)?;
+
+        assert_eq!(seqnos(&removed), Vec::<SeqNo>::new());
 
         assert_eq!(history.free_list_len(), 2);
 
@@ -259,7 +272,9 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let removed = history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(seqnos(&removed), vec![0, 1]);
 
         assert_eq!(history.len(), 1);
 
@@ -298,7 +313,9 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let removed = history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(seqnos(&removed), vec![0, 1]);
 
         assert_eq!(history.len(), 2);
 
@@ -325,7 +342,9 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let removed = history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(seqnos(&removed), Vec::<SeqNo>::new());
 
         assert_eq!(history.len(), 2);
 
@@ -352,9 +371,45 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let removed = history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(seqnos(&removed), vec![0]);
 
         assert_eq!(history.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn super_version_gc_returns_removed_versions_oldest_first() -> crate::Result<()> {
+        let memtables = (0..5)
+            .map(|_| Arc::new(Memtable::new(0)))
+            .collect::<Vec<_>>();
+
+        let mut history = SuperVersions(
+            [0, 1, 2, 3, 8]
+                .into_iter()
+                .zip(&memtables)
+                .map(|(seqno, memtable)| SuperVersion {
+                    active_memtable: memtable.clone(),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0, crate::TreeType::Standard),
+                    seqno,
+                })
+                .collect(),
+        );
+
+        let removed = history.maintenance(Path::new("."), 4)?;
+
+        assert_eq!(seqnos(&removed), vec![0, 1, 2]);
+        assert!(removed
+            .iter()
+            .zip(&memtables)
+            .all(|(version, memtable)| Arc::ptr_eq(&version.active_memtable, memtable)));
+        assert_eq!(
+            history.0.iter().map(|x| x.seqno).collect::<Vec<_>>(),
+            vec![3, 8],
+        );
 
         Ok(())
     }
