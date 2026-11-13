@@ -17,7 +17,7 @@ use crate::{
     run_scanner::RunScanner,
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    version::{Run, SuperVersions, Version},
+    version::{Run, SuperVersion, SuperVersions, Version},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
     BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, Table, TableId,
 };
@@ -116,7 +116,14 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
         Choice::Move(payload) => {
             drop(version_history_lock);
 
-            move_tables(&compaction_state, opts, &payload)
+            let freed = move_tables(&compaction_state, opts, &payload)?;
+
+            // NOTE: Dropping the last reference to a version frees its memtable,
+            // so the removed versions are dropped after both locks are released
+            drop(compaction_state);
+            drop(freed);
+
+            Ok(())
         }
         Choice::Drop(payload) => {
             drop(version_history_lock);
@@ -181,12 +188,14 @@ fn create_compaction_stream<'a>(
     })
 }
 
+/// Returns the versions that maintenance removed, so the caller drops them
+/// after releasing the compaction state lock.
 #[allow(clippy::significant_drop_tightening)]
 fn move_tables(
     compaction_state: &MutexGuard<'_, CompactionState>,
     opts: &Options,
     payload: &CompactionPayload,
-) -> crate::Result<()> {
+) -> crate::Result<Vec<SuperVersion>> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
@@ -199,7 +208,7 @@ fn move_tables(
         "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
     );
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
@@ -220,7 +229,7 @@ fn move_tables(
             .is_none()
     }) {
         log::debug!("{table_ids:?} are not referenced anymore; skipping move");
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     version_history_lock.upgrade_version(
@@ -244,12 +253,9 @@ fn move_tables(
             log::error!("Manifest maintenance failed: {e:?}");
         })?;
 
-    // NOTE: Dropping the last reference to a version frees its memtable,
-    // so the removed versions are dropped after the lock is released
     drop(version_history_lock);
-    drop(freed);
 
-    Ok(())
+    Ok(freed)
 }
 
 /// Picks blob files to rewrite (defragment)
