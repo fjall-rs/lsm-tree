@@ -7,7 +7,7 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
-    prefix::SharedPrefixExtractor,
+    prefix::RangeProbe,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -63,31 +63,12 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
     (Included(prefix.into()), prefix_upper_range(prefix))
 }
 
-/// Owner state for a [`TreeIter`] range iterator.
+/// The iter state references the memtables used while the range is open
 ///
-/// Holds everything the dependent iterator borrows from for the lifetime of
-/// the iteration: the version snapshot, memtables, and the prefix extractor /
-/// hint that drive prefix-filter pruning.
-///
-/// Because the dependent iterator borrows from this state, we use `self_cell`
-/// to express the self-referential structure safely.
+/// Because of Rust rules, the state is referenced using `self_cell`, see below.
 pub struct IterState {
     pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
-
-    /// The current extractor used for prefix-filter pruning during iteration.
-    /// `None` disables prefix filtering for this iter; the reader still
-    /// honors each table's compatibility check via `Table::prefix_filter_allowed`.
-    pub(crate) prefix_extractor: Option<SharedPrefixExtractor>,
-
-    /// When set, this is the original prefix from a `tree.prefix()` call.
-    /// It allows the filter layer to consult the prefix filter even when the
-    /// range bounds (produced by `prefix_to_range`) have different extracted
-    /// prefixes (e.g. prefix `"h"` → bounds `("h", "i")` with a 1-byte
-    /// extractor). When `prefix_extractor` is also set, [`TreeIter::create_range`]
-    /// validates the hint and precomputes its hash once, reusing it across
-    /// the L0 single-table path and the multi-table [`RunReader`] path.
-    pub(crate) prefix_hint: Option<UserKey>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -116,33 +97,12 @@ impl DoubleEndedIterator for TreeIter {
 }
 
 impl TreeIter {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "extended with prefix-hint validation and upfront pruning"
-    )]
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
         range: R,
         seqno: SeqNo,
     ) -> Self {
         Self::new(guard, |lock| {
-            // Precompute the validated prefix hash once for the L0
-            // single-table path. The multi-table path (`RunReader::new`)
-            // still re-validates internally — both produce identical
-            // results since `validate_hint_and_hash` is deterministic, but
-            // sharing the precomputed hash across L0 tables avoids
-            // re-extracting and re-hashing per overlapping L0 table.
-            //
-            // (If the multi-table path is later refactored to accept the
-            // precomputed hash, this same value can be passed through.)
-            let precomputed_hint_hash: Option<u64> =
-                match (lock.prefix_extractor.as_ref(), lock.prefix_hint.as_deref()) {
-                    (Some(ex), Some(hint)) => {
-                        crate::table::validate_hint_and_hash(ex.as_ref(), hint)
-                    }
-                    _ => None,
-                };
-
             let lo = match range.start_bound() {
                 // NOTE: See memtable.rs for range explanation
                 Bound::Included(key) => Bound::Included(InternalKey::new(
@@ -186,25 +146,15 @@ impl TreeIter {
 
             let range = (lo, hi);
 
-            // Materialize user-key bounds ONCE for the per-run/per-table
-            // iteration below. Each per-table call needs owned bounds
-            // (consumed by `table.range()` and `RunReader::new`); materializing
-            // them here lets us:
-            //   - skip the per-call `range.start_bound().map(|x| &x.user_key).cloned()`
-            //     dance, and
-            //   - pass the same materialized bounds (via `as_ref()`) into
-            //     `should_skip_range_by_prefix_filter` without an extra clone
-            //     for the ref_range tuple.
-            let user_start_owned: Bound<UserKey> = match range.start_bound() {
-                Bound::Included(k) => Bound::Included(k.user_key.clone()),
-                Bound::Excluded(k) => Bound::Excluded(k.user_key.clone()),
-                Bound::Unbounded => Bound::Unbounded,
-            };
-            let user_end_owned: Bound<UserKey> = match range.end_bound() {
-                Bound::Included(k) => Bound::Included(k.user_key.clone()),
-                Bound::Excluded(k) => Bound::Excluded(k.user_key.clone()),
-                Bound::Unbounded => Bound::Unbounded,
-            };
+            let user_range = (
+                range.start_bound().map(|x| &x.user_key).cloned(),
+                range.end_bound().map(|x| &x.user_key).cloned(),
+            );
+
+            let mut probe = RangeProbe::new(
+                range.start_bound().map(|x| &*x.user_key),
+                range.end_bound().map(|x| &*x.user_key),
+            );
 
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
@@ -214,89 +164,43 @@ impl TreeIter {
                 .iter_levels()
                 .flat_map(|lvl| lvl.iter())
             {
-                match run.len() {
-                    0 => {
-                        // Do nothing
-                    }
-                    1 => {
-                        #[expect(clippy::expect_used, reason = "we checked for length")]
-                        let table = run.first().expect("should exist");
+                let Some((lo, hi)) = run.range_overlap_indexes(&user_range) else {
+                    continue;
+                };
 
-                        if table.check_key_range_overlap(&(
-                            range.start_bound().map(|x| &*x.user_key),
-                            range.end_bound().map(|x| &*x.user_key),
-                        )) {
-                            let mut skip = false;
-                            if let Some(ex) = lock.prefix_extractor.as_ref() {
-                                // Fast path: when the hint+hash was already
-                                // validated above, probe directly with the
-                                // precomputed hash. Otherwise fall through to
-                                // bounds-based pruning via
-                                // `should_skip_range_by_prefix_filter`.
-                                //
-                                // NOTE: behavior when a hint is provided but
-                                // fails the stability guard
-                                // (precomputed_hint_hash is None): we now
-                                // fall through to bounds-based pruning. This
-                                // is a strict improvement over the previous
-                                // behavior (which short-circuited to "no
-                                // skip" in that case) — bounds-based pruning
-                                // is independently sound and matches the
-                                // long-standing behavior of
-                                // `RunReader::new`'s multi-table path.
-                                // Aligning both paths eliminates a
-                                // single-vs-multi-table inconsistency.
-                                if let (Some(hint), Some(hash)) =
-                                    (lock.prefix_hint.as_deref(), precomputed_hint_hash)
-                                {
-                                    if table.should_skip_with_precomputed_hash(
-                                        hint,
-                                        hash,
-                                        ex.name(),
-                                    ) {
-                                        skip = true;
-                                    }
-                                } else {
-                                    // Pass borrowed bounds via `as_ref()` —
-                                    // `(Bound<&T>, Bound<&T>)` implements
-                                    // `RangeBounds<T>`, so no clone needed.
-                                    let ref_range: (Bound<&UserKey>, Bound<&UserKey>) =
-                                        (user_start_owned.as_ref(), user_end_owned.as_ref());
-                                    if table.should_skip_range_by_prefix_filter::<UserKey, _>(
-                                        &ref_range,
-                                        ex.as_ref(),
-                                        None,
-                                    ) {
-                                        skip = true;
-                                    }
-                                }
-                            }
+                if lo < hi {
+                    // NOTE: Every table but the first and last lies inside the
+                    // range, and those two hold a bound-side key of it, so if
+                    // all keys in the range share a prefix, every one of these
+                    // tables has it: probing their filters cannot skip any.
+                    let reader =
+                        RunReader::culled(run.clone(), user_range.clone(), (Some(lo), Some(hi)));
 
-                            if !skip {
-                                let reader = table
-                                    .range((user_start_owned.clone(), user_end_owned.clone()))
-                                    .filter(move |item| match item {
-                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                        Err(_) => true,
-                                    });
+                    iters.push(Box::new(reader.filter(move |item| match item {
+                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                        Err(_) => true,
+                    })));
 
-                                iters.push(Box::new(reader));
-                            }
-                        }
+                    continue;
+                }
+
+                #[expect(clippy::expect_used, reason = "index is in bounds")]
+                let table = run.get(lo).expect("should exist");
+
+                match table.skips_range(&mut probe) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let reader =
+                            table
+                                .range(user_range.clone())
+                                .filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                });
+
+                        iters.push(Box::new(reader));
                     }
-                    _ => {
-                        if let Some(reader) = RunReader::new(
-                            run.clone(),
-                            (user_start_owned.clone(), user_end_owned.clone()),
-                            lock.prefix_extractor.clone(),
-                            lock.prefix_hint.as_ref(),
-                        ) {
-                            iters.push(Box::new(reader.filter(move |item| match item {
-                                Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                Err(_) => true,
-                            })));
-                        }
-                    }
+                    Err(e) => iters.push(Box::new(std::iter::once(Err(e)))),
                 }
             }
 

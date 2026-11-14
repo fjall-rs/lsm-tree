@@ -2,285 +2,131 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use std::sync::Arc;
+use crate::table::filter::standard_bloom::Builder;
+use std::{borrow::Cow, ops::Bound, sync::Arc};
 
-/// Trait for extracting prefixes from keys for prefix filters.
+/// Picks the prefixes of each key that a table's filter indexes, so reads
+/// confined to one prefix can skip tables that do not contain it.
 ///
-/// A prefix extractor allows the filter to index prefixes of keys
-/// instead of (or in addition to) the full keys.
-/// This enables efficient filtering for prefix-based queries.
+/// An extractor reports prefixes by their length, so an extracted prefix is
+/// always a byte prefix of its key. A key may have several prefixes (for
+/// example one per path segment) or none, which puts it *out of domain*.
 ///
 /// # Contract
 ///
-/// Implementations must satisfy the following invariants. Violating them can
-/// cause incorrect filter pruning, which manifests as silent false negatives
-/// on reads (data appears missing).
+/// Reads skip a table when its filter lacks a prefix that every key in the
+/// queried range has. That is only sound if the extractor obeys these rules;
+/// breaking one makes reads miss keys.
 ///
-/// 1. **Method consistency**: `extract_first(key)` MUST equal
-///    `extract(key).next()`. `extract_last(key)` MUST equal `extract(key).last()`.
-///    The read path preferentially calls `extract_first` or `extract_last`;
-///    if they disagree with `extract`, reads will probe with hashes the writer
-///    never registered.
+/// 1. **Contiguity.** The keys that have a given prefix are contiguous in key
+///    order: if `a < b < c` and `a` and `c` have prefix `p`, so does `b`.
+/// 2. **[`Self::same_result_when_appended`]** returns `true` for `p` only if
+///    every key that starts with `p` has prefix `p`. The default `false` is
+///    always safe.
+/// 3. **Determinism.** A key always yields the same prefixes, and
+///    [`Self::name`] changes whenever that output would.
 ///
-/// 2. **`name()` stability and uniqueness**: The string returned by `name()`
-///    is persisted in table metadata and used as the *sole* compatibility key
-///    on reopen. It MUST be:
-///    - **Stable**: the same instance returns the same name across calls and
-///      across process restarts.
-///    - **Changed whenever extraction behavior changes**: e.g. changing the
-///      prefix length, the delimiter, or any other parameter that affects
-///      what bytes `extract` produces.
+/// Debug builds check contiguity on every table written and panic on a
+/// violation.
 ///
-/// 3. **Reserved name namespaces**: User implementations MUST NOT return names
-///    that collide with built-in extractors. The following prefixes are
-///    reserved:
-///    - `fixed_prefix:` — used by [`FixedPrefixExtractor`]
-///    - `fixed_length:` — used by [`FixedLengthExtractor`]
-///    - `full_key` — used by [`FullKeyExtractor`]
+/// A common way to break contiguity is to also report the whole key. Say an
+/// extractor reports the part of a key before `@` and the whole key: `a` and
+/// `a@x` both have prefix `a`, but `a!`, which sorts between them, does not.
+/// Report `a@` instead, with the delimiter, and leave whole keys to
+/// [`crate::Config::whole_key_filtering`].
 ///
-///    A user impl that returns e.g. `"fixed_prefix:4"` will silently appear
-///    compatible with `FixedPrefixExtractor::new(4)` on reopen and produce
-///    wrong results. Prefer a namespaced identifier such as
-///    `"mycrate::MyExtractor:v1"`.
+/// # Which reads use the filter
 ///
-/// 4. **Determinism**: Given the same input bytes, `extract` (and the helper
-///    methods) MUST return the same prefixes. Stateless implementations are
-///    strongly recommended; stateful ones must be carefully synchronized
-///    with writes vs reads.
+/// A range read can skip a table, whether its bounds are inclusive or
+/// exclusive, if the filter lacks either of these:
 ///
-/// 5. **Thread safety**: Implementations are required to be `Send + Sync` so
-///    they can be shared via `Arc<dyn PrefixExtractor>`. All trait methods
-///    take `&self`; internal mutation must be synchronized.
+/// - a prefix both bounds have, such as `abc` for `abc1..=abc9`;
+/// - a prefix `p` of a byte string that every key in the range starts with,
+///   where `same_result_when_appended(p)` is `true`. [`crate::AbstractTree::prefix`]
+///   relies on this rule, because its upper bound is the first key after the
+///   prefix.
 ///
-/// 6. **Panic safety**: Implementations must be `UnwindSafe + RefUnwindSafe`.
-///    This lets callers wrap tree operations in `std::panic::catch_unwind`
-///    without the extractor's panic safety becoming a barrier. Pure /
-///    stateless implementations satisfy this automatically; if you hold
-///    interior mutability (e.g. `RefCell`, `Mutex`), wrap it appropriately
-///    or use `AssertUnwindSafe` at the type boundary.
+/// Point reads use the longest prefix of the key when the table was written
+/// with `whole_key_filtering` off.
 ///
-/// # Examples
+/// # Example
 ///
-/// ## Simple fixed-length
-///
-/// ```
-/// use lsm_tree::prefix::{PrefixExtractor, FixedPrefixExtractor};
-///
-/// let ex = FixedPrefixExtractor::new(3);
-/// assert_eq!(ex.extract_first(b"abcdef"), Some(b"abc".as_ref()));
-/// assert_eq!(ex.extract_first(b"ab"), None); // shorter than prefix length
-/// ```
-///
-/// ## Segmented prefixes (e.g., `account_id#user_id`)
+/// Index each `/`-terminated segment, so `user/42/posts` has the prefixes
+/// `user/` and `user/42/`:
 ///
 /// ```
 /// use lsm_tree::prefix::PrefixExtractor;
 ///
-/// struct SegmentedPrefixExtractor;
+/// struct PathSegments;
 ///
-/// impl PrefixExtractor for SegmentedPrefixExtractor {
-///     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-///         let mut prefixes = vec![];
-///         let mut end = 0;
+/// impl PrefixExtractor for PathSegments {
+///     fn extract(&self, key: &[u8], emit: &mut dyn FnMut(usize)) {
 ///         for (i, &byte) in key.iter().enumerate() {
-///             if byte == b'#' {
-///                 prefixes.push(&key[0..i]);
-///                 end = i;
+///             if byte == b'/' {
+///                 emit(i + 1);
 ///             }
 ///         }
-///         if end < key.len() {
-///             prefixes.push(key);
-///         }
-///         Box::new(prefixes.into_iter())
+///     }
+///
+///     // Every key that starts with `user/42/` has `user/42/` as a prefix.
+///     fn same_result_when_appended(&self, prefix: &[u8]) -> bool {
+///         prefix.ends_with(b"/")
 ///     }
 ///
 ///     fn name(&self) -> &str {
-///         "mycrate::SegmentedPrefixExtractor:v1"
+///         "mycrate::PathSegments:v1"
 ///     }
 /// }
 ///
-/// let ex = SegmentedPrefixExtractor;
-/// let prefixes: Vec<_> = ex.extract(b"acc#usr#data").collect();
-/// assert_eq!(prefixes, vec![b"acc".as_ref(), b"acc#usr", b"acc#usr#data"]);
-/// ```
-///
-/// ## Hierarchical prefixes with a delimiter
-///
-/// For key `user/123/data` with delimiter `/`, generates `user`, `user/123`,
-/// and `user/123/data` (the full key).
-///
-/// ```
-/// use lsm_tree::prefix::PrefixExtractor;
-///
-/// struct HierarchicalPrefixExtractor {
-///     delimiter: u8,
-/// }
-///
-/// impl PrefixExtractor for HierarchicalPrefixExtractor {
-///     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-///         let delimiter = self.delimiter;
-///         let mut prefixes = Vec::new();
-///         for (i, &byte) in key.iter().enumerate() {
-///             if byte == delimiter {
-///                 prefixes.push(&key[0..i]);
-///             }
-///         }
-///         prefixes.push(key);
-///         Box::new(prefixes.into_iter())
-///     }
-///
-///     fn name(&self) -> &str {
-///         "mycrate::HierarchicalPrefixExtractor:v1"
-///     }
-/// }
-/// ```
-///
-/// ## Domain prefix for flipped email keys
-///
-/// For `example.com@user`, extracts `example.com` (domain prefix for range
-/// scans) and `example.com@user` (the full key).
-///
-/// ```
-/// use lsm_tree::prefix::PrefixExtractor;
-///
-/// struct DomainPrefixExtractor;
-///
-/// impl PrefixExtractor for DomainPrefixExtractor {
-///     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-///         if let Ok(key_str) = std::str::from_utf8(key) {
-///             if let Some(at_pos) = key_str.find('@') {
-///                 let domain_prefix = &key[..at_pos];
-///                 return Box::new(vec![domain_prefix, key].into_iter());
-///             }
-///         }
-///         Box::new(std::iter::once(key))
-///     }
-///
-///     fn name(&self) -> &str {
-///         "mycrate::DomainPrefixExtractor:v1"
-///     }
-/// }
-///
-/// let ex = DomainPrefixExtractor;
-/// let prefixes: Vec<_> = ex.extract(b"example.com@user").collect();
-/// assert_eq!(prefixes, vec![b"example.com".as_ref(), b"example.com@user"]);
+/// let mut prefixes = vec![];
+/// PathSegments.extract(b"user/42/posts", &mut |len| prefixes.push(len));
+/// assert_eq!(prefixes, [5, 8]);
 /// ```
 pub trait PrefixExtractor:
     Send + Sync + std::panic::UnwindSafe + std::panic::RefUnwindSafe
 {
-    /// Extracts zero or more prefixes from a key.
+    /// Calls `emit` with the length of each prefix of `key` to index.
     ///
-    /// All prefixes will be added to the filter during table construction.
-    ///
-    /// An empty iterator means the key is "out of domain" and won't be added to the filter.
-    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a>;
+    /// Lengths greater than `key.len()` are ignored.
+    fn extract(&self, key: &[u8], emit: &mut dyn FnMut(usize));
 
-    /// Extracts the first prefix from a key.
+    /// Returns `true` if every key that starts with `prefix` has `prefix`
+    /// among its extracted prefixes.
     ///
-    /// By default, this is derived from `extract`, meaning it is equivalent to `extract(key).next()`,
-    /// however it can be overridden to skip the Box allocation of `extract` in some cases.
-    ///
-    /// Implementations that override this method must remain semantically identical to
-    /// `self.extract(key).next()`: return `None` if `extract` would yield no prefixes,
-    /// and otherwise return the same first prefix. Violating this invariant can cause
-    /// incorrect filter pruning during reads.
-    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        self.extract(key).next()
-    }
-
-    /// Extracts the most specific (last) prefix from a key.
-    ///
-    /// For single-prefix extractors, this is the same as `extract_first`.
-    /// For multi-prefix extractors, this returns the highest-cardinality
-    /// prefix, which gives the best Bloom filter pruning.
-    ///
-    /// Defaults to consuming `extract(key)` to get the last element.
-    /// Can be overridden to avoid the Box allocation when the last prefix
-    /// can be computed directly.
-    ///
-    /// Implementations that override this method must remain semantically
-    /// identical to `self.extract(key).last()`: return `None` if `extract`
-    /// would yield no prefixes, and otherwise return the same last prefix.
-    /// Violating this invariant can cause incorrect filter pruning during
-    /// range reads, which preferentially call `extract_last` for best
-    /// pruning specificity.
-    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        self.extract(key).last()
-    }
-
-    /// Returns a stable compatibility identifier for this prefix extractor.
-    ///
-    /// This value is persisted in table metadata and compared on reopen as the
-    /// *sole* compatibility key. See the trait-level [Contract](#contract)
-    /// section for the full set of requirements; in summary:
-    ///
-    /// - Must change whenever extraction behavior changes (length, delimiter,
-    ///   etc.).
-    /// - Must be stable across process restarts for the same instance.
-    /// - Must not collide with built-in name namespaces (`fixed_prefix:`,
-    ///   `fixed_length:`, `full_key`). Prefer a namespaced identifier such
-    ///   as `"mycrate::MyExtractor:v1"`.
-    fn name(&self) -> &str;
-
-    /// Optional optimization hint: returns `true` if this extractor produces
-    /// at most one prefix per key (i.e. `extract(key).count() <= 1` for all
-    /// possible inputs).
-    ///
-    /// When `true`, the writer hot path can call `extract_first` directly and
-    /// skip the `Box<dyn Iterator>` allocation that `extract` requires. This
-    /// avoids one heap allocation per user key written for the common case
-    /// of fixed-length / single-prefix extractors.
-    ///
-    /// Default: `false` (conservative — the writer iterates `extract` to
-    /// collect all prefixes). Override to `true` only when the invariant
-    /// genuinely holds. Returning `true` while `extract` actually yields
-    /// multiple prefixes will cause every prefix *after the first* to be
-    /// omitted from the filter, resulting in false negatives on read.
-    fn is_single_prefix(&self) -> bool {
+    /// Like `RocksDB`'s `SliceTransform::SameResultWhenAppended`, this lets
+    /// scans whose upper bound has a different prefix, such as
+    /// [`crate::AbstractTree::prefix`], use the filter. Only called with
+    /// prefixes `extract` reported.
+    fn same_result_when_appended(&self, prefix: &[u8]) -> bool {
+        let _ = prefix;
         false
     }
+
+    /// Identifies the extraction behaviour.
+    ///
+    /// Each table stores the name of the extractor that wrote it. On open, a
+    /// table uses its prefix filter only if its stored name matches the
+    /// configured extractor or a built-in one. Names starting with
+    /// `fixed_prefix:` or `fixed_length:` are reserved for
+    /// [`FixedPrefixExtractor`]; prefer a namespaced name such as
+    /// `"mycrate::MyExtractor:v1"`.
+    fn name(&self) -> &str;
 }
 
-/// A prefix extractor that returns the full key.
+/// A shared prefix extractor, as passed to [`crate::Config::prefix_extractor`].
+pub type SharedPrefixExtractor = Arc<dyn PrefixExtractor>;
+
+/// Extracts the first `length` bytes of each key.
 ///
-/// Useful when callers want prefix-aware filtering that behaves identically to
-/// full-key filtering (e.g., for testing or as an explicit no-op extractor).
-pub struct FullKeyExtractor;
-
-impl PrefixExtractor for FullKeyExtractor {
-    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-        Box::new(std::iter::once(key))
-    }
-
-    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        self.extract_first(key)
-    }
-
-    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        Some(key)
-    }
-
-    fn name(&self) -> &'static str {
-        "full_key"
-    }
-
-    fn is_single_prefix(&self) -> bool {
-        true
-    }
-}
-
-/// A prefix extractor that returns a fixed-length prefix.
-///
-/// Keys shorter than the prefix length are considered "out of domain" and
-/// return `None`. This prevents the prefix filter from producing false
-/// negatives when a prefix query key is shorter than the configured length.
+/// Keys shorter than `length` are out of domain, like `RocksDB`'s
+/// `NewFixedPrefixTransform`.
 pub struct FixedPrefixExtractor {
     length: usize,
     name: String,
 }
 
 impl FixedPrefixExtractor {
-    /// Creates a new fixed-length prefix extractor.
+    /// Creates an extractor for prefixes of `length` bytes.
     #[must_use]
     pub fn new(length: usize) -> Self {
         Self {
@@ -291,165 +137,455 @@ impl FixedPrefixExtractor {
 }
 
 impl PrefixExtractor for FixedPrefixExtractor {
-    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-        Box::new(self.extract_first(key).into_iter())
-    }
-
-    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        if key.len() < self.length {
-            None
-        } else {
-            key.get(..self.length)
+    fn extract(&self, key: &[u8], emit: &mut dyn FnMut(usize)) {
+        if key.len() >= self.length {
+            emit(self.length);
         }
     }
 
-    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        self.extract_first(key)
+    fn same_result_when_appended(&self, prefix: &[u8]) -> bool {
+        prefix.len() == self.length
     }
 
     fn name(&self) -> &str {
         &self.name
     }
-
-    fn is_single_prefix(&self) -> bool {
-        true
-    }
 }
 
-/// A prefix extractor that requires keys to be at least a certain length.
+/// Returns the extractor that reads a table written with the extractor `name`.
 ///
-/// Keys shorter than the required length are considered "out of domain"
-/// and won't be added to the filter.
-/// This matches `RocksDB`'s behavior.
-pub struct FixedLengthExtractor {
-    length: usize,
-    name: String,
+/// Prefers `configured` when its name matches, so tables share one instance.
+/// Rebuilds [`FixedPrefixExtractor`] from its name, including the
+/// `fixed_length:` alias written by earlier revisions of this feature.
+pub(crate) fn resolve(
+    name: &str,
+    configured: Option<&SharedPrefixExtractor>,
+) -> Option<SharedPrefixExtractor> {
+    if let Some(extractor) = configured.filter(|x| x.name() == name) {
+        return Some(extractor.clone());
+    }
+
+    let length = name
+        .strip_prefix("fixed_prefix:")
+        .or_else(|| name.strip_prefix("fixed_length:"))?
+        .parse()
+        .ok()?;
+
+    Some(Arc::new(FixedPrefixExtractor::new(length)))
 }
 
-impl FixedLengthExtractor {
-    /// Creates a new fixed-length extractor.
-    #[must_use]
-    pub fn new(length: usize) -> Self {
+/// The prefix filter probe of a range read, computed once per extractor for
+/// the tables the read visits.
+pub(crate) struct RangeProbe<'a> {
+    start: Bound<&'a [u8]>,
+    end: Bound<&'a [u8]>,
+
+    /// Probe hash for the extractor of the last table asked about
+    cached: Option<(SharedPrefixExtractor, Option<u64>)>,
+}
+
+impl<'a> RangeProbe<'a> {
+    pub fn new(start: Bound<&'a [u8]>, end: Bound<&'a [u8]>) -> Self {
         Self {
-            length,
-            name: format!("fixed_length:{length}"),
-        }
-    }
-}
-
-impl PrefixExtractor for FixedLengthExtractor {
-    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-        Box::new(self.extract_first(key).into_iter())
-    }
-
-    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        if key.len() < self.length {
-            // Key is too short - out of domain
-            None
-        } else {
-            key.get(..self.length)
+            start,
+            end,
+            cached: None,
         }
     }
 
-    fn extract_last<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
-        self.extract_first(key)
+    /// Returns a key no key in the range is below.
+    pub fn seek_key(&self) -> &'a [u8] {
+        match self.start {
+            Bound::Included(key) | Bound::Excluded(key) => key,
+            Bound::Unbounded => &[],
+        }
     }
 
-    fn name(&self) -> &str {
-        &self.name
-    }
+    /// Returns the probe hash for tables written with `extractor`.
+    pub fn hash(&mut self, extractor: &SharedPrefixExtractor) -> Option<u64> {
+        if let Some((cached, hash)) = &self.cached {
+            if Arc::ptr_eq(cached, extractor) {
+                return *hash;
+            }
+        }
 
-    fn is_single_prefix(&self) -> bool {
-        true
+        let hash = range_probe_hash(extractor.as_ref(), self.start, self.end);
+        self.cached = Some((extractor.clone(), hash));
+        hash
     }
 }
 
-/// A shared (`Arc`-backed) prefix extractor.
+/// Returns the length of the longest prefix `extractor` extracts from `key`.
+pub(crate) fn longest_prefix_len(extractor: &dyn PrefixExtractor, key: &[u8]) -> Option<usize> {
+    let mut longest = None;
+
+    extractor.extract(key, &mut |len| {
+        if len <= key.len() && longest.is_none_or(|x| len > x) {
+            longest = Some(len);
+        }
+    });
+
+    longest
+}
+
+/// Returns the filter hash of the longest prefix that every key in the range
+/// has, or `None` if no prefix can be shown to cover the range.
 ///
-/// This is the canonical owned type plugged into [`crate::Config::prefix_extractor`].
-/// Cloning is cheap (atomic refcount bump).
-///
-/// See the [`PrefixExtractor`] trait for the implementation contract.
-pub type SharedPrefixExtractor = Arc<dyn PrefixExtractor>;
+/// See the "Which reads use the filter" section of [`PrefixExtractor`].
+pub(crate) fn range_probe_hash(
+    extractor: &dyn PrefixExtractor,
+    start: Bound<&[u8]>,
+    end: Bound<&[u8]>,
+) -> Option<u64> {
+    // Every key in the range is >= `min_key`, so every candidate prefix is a
+    // prefix of `min_key`.
+    let min_key: Cow<'_, [u8]> = match start {
+        Bound::Included(key) => Cow::Borrowed(key),
+        Bound::Excluded(key) => Cow::Owned([key, &[0]].concat()),
+        Bound::Unbounded => Cow::Borrowed(&[]),
+    };
+
+    let mut best: Option<usize> = None;
+
+    // By contiguity, a prefix both bounds have is a prefix of every key
+    // between them.
+    if let (Bound::Included(lo) | Bound::Excluded(lo), Bound::Included(hi) | Bound::Excluded(hi)) =
+        (start, end)
+    {
+        let shared = common_prefix_len(lo, hi);
+
+        let mut lo_lens = Vec::new();
+        extractor.extract(lo, &mut |len| {
+            if len <= shared {
+                lo_lens.push(len);
+            }
+        });
+
+        if !lo_lens.is_empty() {
+            extractor.extract(hi, &mut |len| {
+                if lo_lens.contains(&len) && best.is_none_or(|x| len > x) {
+                    best = Some(len);
+                }
+            });
+        }
+    }
+
+    // Every key in the range starts with `common`; a prefix of it that every
+    // extension keeps is a prefix of every key in the range.
+    let common = min_key
+        .get(..range_common_prefix_len(&min_key, end))
+        .unwrap_or_default();
+
+    extractor.extract(common, &mut |len| {
+        if let Some(prefix) = common.get(..len) {
+            if best.is_none_or(|x| len > x) && extractor.same_result_when_appended(prefix) {
+                best = Some(len);
+            }
+        }
+    });
+
+    best.and_then(|len| min_key.get(..len))
+        .map(Builder::get_hash)
+}
+
+/// Returns the length of the longest byte string that every key in
+/// `[min_key, end)` starts with; it is always a prefix of `min_key`.
+fn range_common_prefix_len(min_key: &[u8], end: Bound<&[u8]>) -> usize {
+    let ff_run = |from: usize| {
+        min_key
+            .get(from..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|&&b| b == 0xFF)
+            .count()
+    };
+
+    match end {
+        Bound::Included(hi) => common_prefix_len(min_key, hi),
+
+        // `head` is the largest key below `head + [0]`
+        Bound::Excluded(hi) => match hi.split_last() {
+            None => 0,
+            Some((&0, head)) => common_prefix_len(min_key, head),
+
+            // The keys in `[head + [last - 1], hi)` are exactly those starting
+            // with `head + [last - 1]`, followed by any number of 0xFF bytes
+            // the range cannot exceed.
+            Some((&last, head)) => {
+                let shared = common_prefix_len(min_key, head);
+
+                if shared == head.len() && min_key.get(head.len()) == Some(&(last - 1)) {
+                    head.len() + 1 + ff_run(head.len() + 1)
+                } else {
+                    shared
+                }
+            }
+        },
+
+        Bound::Unbounded => ff_run(0),
+    }
+}
+
+fn common_prefix_len(a: &[u8], b: &[u8]) -> usize {
+    a.iter().zip(b).take_while(|(x, y)| x == y).count()
+}
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
+    use std::ops::Bound::{Excluded, Included, Unbounded};
 
-    #[test]
-    fn test_full_key_extractor() {
-        let extractor = FullKeyExtractor;
-        let key = b"test_key";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"test_key".as_ref()));
+    fn lens(extractor: &dyn PrefixExtractor, key: &[u8]) -> Vec<usize> {
+        let mut out = vec![];
+        extractor.extract(key, &mut |len| out.push(len));
+        out
+    }
+
+    struct PathSegments;
+
+    impl PrefixExtractor for PathSegments {
+        fn extract(&self, key: &[u8], emit: &mut dyn FnMut(usize)) {
+            for (i, &byte) in key.iter().enumerate() {
+                if byte == b'/' {
+                    emit(i + 1);
+                }
+            }
+        }
+
+        fn same_result_when_appended(&self, prefix: &[u8]) -> bool {
+            prefix.ends_with(b"/")
+        }
+
+        fn name(&self) -> &'static str {
+            "test::PathSegments"
+        }
+    }
+
+    /// Like `PathSegments`, but never claims a prefix covers its extensions.
+    struct PathSegmentsNoHook;
+
+    impl PrefixExtractor for PathSegmentsNoHook {
+        fn extract(&self, key: &[u8], emit: &mut dyn FnMut(usize)) {
+            PathSegments.extract(key, emit);
+        }
+
+        fn name(&self) -> &'static str {
+            "test::PathSegmentsNoHook"
+        }
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "compared with probe results")]
+    fn hash(bytes: &[u8]) -> Option<u64> {
+        Some(Builder::get_hash(bytes))
     }
 
     #[test]
-    fn test_fixed_prefix_extractor() {
-        let extractor = FixedPrefixExtractor::new(5);
+    fn fixed_prefix_extracts_first_bytes() {
+        let ex = FixedPrefixExtractor::new(3);
+        assert_eq!(lens(&ex, b"abcdef"), [3]);
+        assert_eq!(lens(&ex, b"abc"), [3]);
+        assert!(lens(&ex, b"ab").is_empty());
+        assert!(lens(&ex, b"").is_empty());
+        assert_eq!(ex.name(), "fixed_prefix:3");
 
-        // Key longer than prefix
-        let key = b"longer_key";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"longe".as_ref()));
-
-        // Key shorter than prefix — out of domain
-        let key = b"key";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 0);
-
-        // Key exactly prefix length
-        let key = b"exact";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"exact".as_ref()));
+        // "ab" lacks a prefix and "abcd" has "abc", so only a 3-byte string
+        // is the prefix of every key starting with it
+        assert!(ex.same_result_when_appended(b"abc"));
+        assert!(!ex.same_result_when_appended(b"ab"));
+        assert!(!ex.same_result_when_appended(b"abcd"));
     }
 
     #[test]
-    fn test_empty_key() {
-        let full_key = FullKeyExtractor;
-        let fixed = FixedPrefixExtractor::new(5);
-
-        let key = b"";
-
-        let prefixes: Vec<_> = full_key.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"".as_ref()));
-
-        let prefixes: Vec<_> = fixed.extract(key).collect();
-        assert_eq!(prefixes.len(), 0); // empty key is shorter than prefix length
+    fn longest_prefix_len_picks_longest_in_bounds() {
+        assert_eq!(longest_prefix_len(&PathSegments, b"a/b/c"), Some(4));
+        assert_eq!(longest_prefix_len(&PathSegments, b"abc"), None);
+        assert_eq!(
+            longest_prefix_len(&FixedPrefixExtractor::new(3), b"ab"),
+            None
+        );
     }
 
     #[test]
-    fn test_fixed_length_extractor() {
-        let extractor = FixedLengthExtractor::new(5);
+    fn resolve_prefers_configured_then_rebuilds_fixed() {
+        let configured: SharedPrefixExtractor = Arc::new(FixedPrefixExtractor::new(4));
 
-        // Key shorter than required length - out of domain
-        let key = b"abc";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 0); // Empty iterator
+        let same = resolve("fixed_prefix:4", Some(&configured)).unwrap();
+        assert!(Arc::ptr_eq(&same, &configured));
 
-        // Key exactly required length
-        let key = b"exact";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"exact".as_ref()));
+        let rebuilt = resolve("fixed_prefix:8", Some(&configured)).unwrap();
+        assert_eq!(rebuilt.name(), "fixed_prefix:8");
 
-        // Key longer than required length
-        let key = b"longer_key";
-        let prefixes: Vec<_> = extractor.extract(key).collect();
-        assert_eq!(prefixes.len(), 1);
-        assert_eq!(prefixes.first(), Some(&b"longe".as_ref()));
+        let alias = resolve("fixed_length:2", None).unwrap();
+        assert_eq!(lens(alias.as_ref(), b"abc"), [2]);
+
+        assert!(resolve("mycrate::Unknown", Some(&configured)).is_none());
+        assert!(resolve("fixed_prefix:x", None).is_none());
     }
 
     #[test]
-    fn test_extractor_names() {
-        assert_eq!(FullKeyExtractor.name(), "full_key");
-        assert_eq!(FixedPrefixExtractor::new(4).name(), "fixed_prefix:4");
-        assert_eq!(FixedPrefixExtractor::new(3).name(), "fixed_prefix:3");
-        assert_eq!(FixedLengthExtractor::new(4).name(), "fixed_length:4");
-        assert_eq!(FixedLengthExtractor::new(3).name(), "fixed_length:3");
+    fn range_probe_bounds_sharing_a_prefix() {
+        let ex = FixedPrefixExtractor::new(3);
+        assert_eq!(
+            range_probe_hash(&ex, Included(b"abc1"), Included(b"abc9")),
+            hash(b"abc"),
+        );
+        assert_eq!(
+            range_probe_hash(&ex, Excluded(b"abc1"), Excluded(b"abc9")),
+            hash(b"abc"),
+        );
+        assert_eq!(
+            range_probe_hash(&PathSegmentsNoHook, Included(b"a/b/1"), Included(b"a/b/9")),
+            hash(b"a/b/"),
+        );
+        // The bounds share "a/" but not "a/b/"
+        assert_eq!(
+            range_probe_hash(&PathSegmentsNoHook, Included(b"a/b/1"), Included(b"a/c/9")),
+            hash(b"a/"),
+        );
+    }
+
+    /// The smallest key after an excluded start is the start followed by 0
+    #[test]
+    fn range_probe_excluded_start_is_followed_by_zero() {
+        let ex = FixedPrefixExtractor::new(3);
+        // Every key in ("ab", "ab\x01") starts with "ab\x00"
+        assert_eq!(
+            range_probe_hash(&ex, Excluded(b"ab"), Excluded(b"ab\x01")),
+            hash(b"ab\x00")
+        );
+        assert_eq!(
+            range_probe_hash(&ex, Included(b"ab"), Excluded(b"ab\x01")),
+            None
+        );
+    }
+
+    #[test]
+    fn range_probe_prefix_scan_needs_hook() {
+        // `prefix("abc")` is `abc..abd`: the bounds have different prefixes
+        let ex = FixedPrefixExtractor::new(3);
+        assert_eq!(
+            range_probe_hash(&ex, Included(b"abc"), Excluded(b"abd")),
+            hash(b"abc")
+        );
+        assert_eq!(
+            range_probe_hash(&ex, Included(b"abcd"), Excluded(b"abce")),
+            hash(b"abc")
+        );
+
+        // Too short to have a prefix
+        assert_eq!(
+            range_probe_hash(&ex, Included(b"ab"), Excluded(b"ac")),
+            None
+        );
+
+        assert_eq!(
+            range_probe_hash(&PathSegments, Included(b"a/b/"), Excluded(b"a/b0")),
+            hash(b"a/b/"),
+        );
+        // Without the hook only the bounds' shared prefix "a/" is usable
+        assert_eq!(
+            range_probe_hash(&PathSegmentsNoHook, Included(b"a/b/"), Excluded(b"a/b0")),
+            hash(b"a/"),
+        );
+        assert_eq!(
+            range_probe_hash(&PathSegmentsNoHook, Included(b"a/b/"), Excluded(b"a0")),
+            None,
+        );
+    }
+
+    #[test]
+    fn range_probe_unbounded_side_disables_bound_rule() {
+        let ex = FixedPrefixExtractor::new(3);
+        assert_eq!(range_probe_hash(&ex, Unbounded, Included(b"abc")), None);
+        assert_eq!(range_probe_hash(&ex, Included(b"abc"), Unbounded), None);
+        assert_eq!(range_probe_hash(&ex, Unbounded, Unbounded), None);
+        // Every key >= "\xff\xff\xff" starts with "\xff\xff\xff"
+        assert_eq!(
+            range_probe_hash(&ex, Included(b"\xff\xff\xffa"), Unbounded),
+            hash(b"\xff\xff\xff"),
+        );
+    }
+
+    #[test]
+    fn range_common_prefix_worked_examples() {
+        // [abc5, abd): every key starts with "abc"
+        assert_eq!(range_common_prefix_len(b"abc5", Excluded(b"abd")), 3);
+        // [ab, abc): "aba..." and "abb..." are in range
+        assert_eq!(range_common_prefix_len(b"ab", Excluded(b"abc")), 2);
+        // [abc, abc\0) is just "abc"
+        assert_eq!(range_common_prefix_len(b"abc", Excluded(b"abc\0")), 3);
+        // [ab\xff\xffc, ac): every key starts with "ab\xff\xff"
+        assert_eq!(range_common_prefix_len(b"ab\xff\xffc", Excluded(b"ac")), 4);
+        // [a, b]: "a" and "b" are both in range
+        assert_eq!(range_common_prefix_len(b"a", Included(b"b")), 0);
+        // [x, "") is empty
+        assert_eq!(range_common_prefix_len(b"x", Excluded(b"")), 0);
+    }
+
+    /// Checks `range_common_prefix_len` against brute force. Bounds use bytes
+    /// 0x00, 0x7F and 0xFF; range members also use their neighbours, so every
+    /// gap a bound leaves has a member in it.
+    #[test]
+    fn range_common_prefix_matches_brute_force() {
+        fn keys(alphabet: &[u8], max_len: usize) -> Vec<Vec<u8>> {
+            let mut out = vec![vec![]];
+            let mut frontier = vec![vec![]];
+            for _ in 0..max_len {
+                let mut next = vec![];
+                for key in &frontier {
+                    for &b in alphabet {
+                        let mut k: Vec<u8> = key.clone();
+                        k.push(b);
+                        next.push(k);
+                    }
+                }
+                out.extend(next.iter().cloned());
+                frontier = next;
+            }
+            out.sort();
+            out
+        }
+
+        let bounds = keys(&[0x00, 0x7F, 0xFF], 3);
+        let members = keys(&[0x00, 0x01, 0x7E, 0x7F, 0x80, 0xFE, 0xFF], 4);
+
+        for min_key in &bounds {
+            for end in &bounds {
+                for end in [Included(end.as_slice()), Excluded(end.as_slice())] {
+                    let in_range: Vec<&Vec<u8>> = members
+                        .iter()
+                        .filter(|k| k.as_slice() >= min_key.as_slice())
+                        .filter(|k| match end {
+                            Included(e) => k.as_slice() <= e,
+                            Excluded(e) => k.as_slice() < e,
+                            Unbounded => true,
+                        })
+                        .collect();
+
+                    if in_range.is_empty() {
+                        continue;
+                    }
+
+                    let len = range_common_prefix_len(min_key, end);
+                    let prefix = &min_key[..len];
+
+                    for k in &in_range {
+                        assert!(
+                            k.starts_with(prefix),
+                            "{k:?} in [{min_key:?}, {end:?}) lacks {prefix:?}",
+                        );
+                    }
+
+                    // No longer prefix of `min_key` is shared by every member
+                    if let Some(longer) = min_key.get(..=len) {
+                        assert!(
+                            in_range.iter().any(|k| !k.starts_with(longer)),
+                            "[{min_key:?}, {end:?}): {longer:?} is also common",
+                        );
+                    }
+                }
+            }
+        }
     }
 }

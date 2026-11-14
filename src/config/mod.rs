@@ -230,17 +230,11 @@ pub struct Config {
     /// Compaction filter factory
     pub compaction_filter_factory: Option<Arc<dyn Factory>>,
 
-    /// Optional prefix extractor used to construct prefix-aware filters.
-    /// When set, the table writer will add extracted prefixes (instead of full keys)
-    /// to filters and persist the extractor name in table metadata for compatibility checks.
+    /// Prefix extractor whose prefixes new tables add to their filters
     pub prefix_extractor: Option<SharedPrefixExtractor>,
 
-    /// When true (the default), full-key hashes are added to the filter alongside
-    /// prefix hashes. This allows point reads to use the full-key Bloom for precise
-    /// filtering, while prefix scans use the coarser prefix filter.
-    ///
-    /// Set to false for workloads that only perform prefix scans and never point
-    /// lookups, saving filter space by omitting full-key hashes.
+    /// Whether new tables with a prefix extractor also add whole-key hashes
+    /// to their filters
     pub whole_key_filtering: bool,
 
     #[doc(hidden)]
@@ -331,49 +325,38 @@ impl Config {
 
     /// Sets the prefix extractor for building prefix-aware filters.
     ///
-    /// When set, the table writer adds extracted prefixes to filters and
-    /// persists the extractor's `name()` in table metadata. Reads check the
-    /// persisted name against the current extractor's `name()` and only use
-    /// the prefix filter when they match — see [`crate::prefix::PrefixExtractor`]
-    /// for the contract, especially the warning about reserved name namespaces.
+    /// New tables add each key's extracted prefixes to their filter and store
+    /// the extractor's [`name`](crate::prefix::PrefixExtractor::name), so a
+    /// table keeps using the extractor that wrote it after this setting
+    /// changes. See [`crate::prefix::PrefixExtractor`] for which reads the
+    /// prefixes speed up and the rules an extractor must follow.
     ///
-    /// Together with [`Self::whole_key_filtering`], this controls the on-disk
-    /// filter layout:
+    /// Together with [`Self::whole_key_filtering`], this sets what new
+    /// filters contain:
     ///
-    /// | extractor | whole_key_filtering | filter contains |
+    /// | extractor | `whole_key_filtering` | filter contains |
     /// |---|---|---|
-    /// | None | (ignored, see below) | full-key hashes only |
-    /// | Some(X) | true (default) | full-key hashes + X-prefix hashes |
-    /// | Some(X) | false | X-prefix hashes only |
+    /// | none | ignored | whole-key hashes |
+    /// | set | `true` (default) | whole-key and prefix hashes |
+    /// | set | `false` | prefix hashes |
     #[must_use]
     pub fn prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
         self.prefix_extractor = Some(extractor);
         self
     }
 
-    /// Controls whether full-key hashes are added to the filter alongside
-    /// prefix hashes when a prefix extractor is configured.
+    /// Controls whether filters hold whole-key hashes alongside prefix hashes
+    /// when a prefix extractor is set.
     ///
-    /// Defaults to `true`. When enabled, point reads benefit from precise
-    /// full-key Bloom filtering in addition to coarse prefix filtering.
+    /// Defaults to `true`. Set to `false` for workloads that read by prefix
+    /// and rarely by key: filters shrink to one entry per distinct prefix,
+    /// and point reads probe them with the key's longest prefix instead.
     ///
-    /// Set to `false` for seek-only workloads that never perform point lookups,
-    /// reducing filter size by omitting full-key hashes.
+    /// Without a prefix extractor this option has no effect; to disable
+    /// filters, use [`Self::filter_policy`].
     ///
-    /// # No-op without a prefix extractor
-    ///
-    /// **This option only takes effect when a prefix extractor is configured
-    /// via [`Self::prefix_extractor`].** When no extractor is set:
-    /// - the writer registers full-key hashes regardless of this flag (the
-    ///   filter contains only full-key hashes by definition);
-    /// - the value is not persisted to table metadata (recovery defaults it
-    ///   to `true`, matching what such tables actually contain);
-    /// - the read path takes the full-key Bloom path regardless of this flag.
-    ///
-    /// Calling `whole_key_filtering(false)` without also calling
-    /// [`Self::prefix_extractor`] is effectively a no-op and does not save
-    /// any filter space. If you intended to disable filtering entirely, use
-    /// [`Self::filter_policy`] instead.
+    /// Tables written with `false` use table format version 4, which versions
+    /// of this crate without this option refuse to open rather than misread.
     #[must_use]
     pub fn whole_key_filtering(mut self, enabled: bool) -> Self {
         self.whole_key_filtering = enabled;

@@ -364,6 +364,7 @@ impl StandardCompaction {
                     opts.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    opts.config.prefix_extractor.as_ref(),
                     #[cfg(feature = "metrics")]
                     opts.metrics.clone(),
                 )

@@ -150,15 +150,16 @@ fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-/// Test should_skip_range_by_prefix_filter with an incompatible extractor.
+/// Reopening with an unrelated extractor does not lose keys of tables that
+/// keep their own built-in extractor.
 #[test]
-fn test_skip_range_incompatible_extractor() -> lsm_tree::Result<()> {
+fn test_range_after_reopen_with_unrelated_extractor() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     struct InvalidExtractor;
 
     impl PrefixExtractor for InvalidExtractor {
-        fn extract<'a>(&self, _key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+        fn extract(&self, _key: &[u8], _emit: &mut dyn FnMut(usize)) {
             unreachable!()
         }
 
@@ -184,7 +185,7 @@ fn test_skip_range_incompatible_extractor() -> lsm_tree::Result<()> {
         tree.flush_active_memtable(0)?;
     }
 
-    // Reopen with incompatible extractor name — range should not skip tables
+    // Reopen with an unrelated extractor, which the old table never calls
     {
         let tree = Config::new(
             &folder,
@@ -255,10 +256,8 @@ fn test_recovery_wkf_false_same_extractor() -> lsm_tree::Result<()> {
 }
 
 /// Recovery: a legacy-style table (written without any prefix extractor)
-/// is reopened with an extractor. `prefix_filter_allowed` should return
-/// `false` for this table (table has no extractor name persisted), and
-/// reads must fall through to the full-key Bloom path (legacy default
-/// `whole_key_filtering=true` ensures the full-key Bloom is queryable).
+/// is reopened with an extractor. The table has no prefix hashes, so scans
+/// read it, and point reads use its whole-key hashes.
 #[test]
 fn test_recovery_legacy_table_then_extractor_added() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -280,10 +279,9 @@ fn test_recovery_legacy_table_then_extractor_added() -> lsm_tree::Result<()> {
         tree.flush_active_memtable(0)?;
     }
 
-    // Phase 2: reopen with an extractor configured. The on-disk tables
-    // have no extractor name, so prefix_filter_allowed returns false; but
-    // they were written with full-key hashes, so point reads can still use
-    // the full-key Bloom.
+    // Phase 2: reopen with an extractor configured. The on-disk tables have
+    // no prefix hashes but were written with whole-key hashes, which point
+    // reads still use.
     let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
@@ -301,9 +299,7 @@ fn test_recovery_legacy_table_then_extractor_added() -> lsm_tree::Result<()> {
         );
     }
 
-    // Prefix scan: should also work (falls back to bounds-based pruning
-    // since the legacy table has no extractor name, so the prefix-aware
-    // pruning is skipped per table).
+    // Prefix scan: the legacy table has no prefix hashes, so it is read
     let count = tree.prefix(b"legacy_", u64::MAX, None).count();
     assert_eq!(
         count, 50,
@@ -314,17 +310,9 @@ fn test_recovery_legacy_table_then_extractor_added() -> lsm_tree::Result<()> {
 }
 
 /// Recovery: a table written with extractor A is reopened with extractor B
-/// (different name). `prefix_filter_allowed` returns false. With
-/// `whole_key_filtering=true` (the default), the full-key Bloom is still
-/// valid and reads succeed.
-///
-/// This locks in the audit's full-key-Bloom-on-mismatch optimization
-/// (commit 9cf39ad9): a tree migrated between extractors must remain
-/// readable AND use the full-key Bloom path (not just `get_without_filter`).
-/// Without the metric assertion below, this test would pass even if the
-/// optimization were reverted (because the data-block scan would still
-/// find the keys); the metric check is what actually locks in the
-/// optimization.
+/// (different name). Point reads keep using the table's whole-key hashes;
+/// the metric check below is what tells that apart from reading the table
+/// without a filter.
 #[test]
 #[cfg(feature = "metrics")]
 fn test_recovery_extractor_change_with_wkf_true_reads_succeed() -> lsm_tree::Result<()> {
@@ -367,12 +355,8 @@ fn test_recovery_extractor_change_with_wkf_true_reads_succeed() -> lsm_tree::Res
         );
     }
 
-    // Verify the optimization (9cf39ad9) is exercised: a missing-key lookup
-    // whose key range falls inside the table should bump the
-    // `io_skipped_by_filter` counter — meaning the full-key Bloom was
-    // consulted and rejected the key. Without the optimization, reads
-    // would fall through to `get_without_filter` and this counter would
-    // not increment.
+    // A missing key inside the table's key range must be ruled out by the
+    // whole-key hashes
     let before = tree.metrics().io_skipped_by_filter();
     // Use a key that lies within the table's key_range but doesn't exist,
     // so it isn't pruned by key-range overlap before reaching the filter.
@@ -383,8 +367,8 @@ fn test_recovery_extractor_change_with_wkf_true_reads_succeed() -> lsm_tree::Res
     let after = tree.metrics().io_skipped_by_filter();
     assert!(
         after > before,
-        "full-key Bloom was not consulted on extractor mismatch — \
-         9cf39ad9 optimization regressed (io_skipped_by_filter: {before} -> {after})"
+        "whole-key hashes were not consulted after the extractor changed \
+         (io_skipped_by_filter: {before} -> {after})"
     );
 
     Ok(())

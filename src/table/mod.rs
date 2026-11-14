@@ -31,6 +31,7 @@ use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
     file_accessor::FileAccessor,
+    prefix::{RangeProbe, SharedPrefixExtractor},
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -83,78 +84,13 @@ impl std::fmt::Debug for Table {
     }
 }
 
-/// Validates a prefix hint against the extractor's stability contract and
-/// returns the hash of the most specific stable prefix.
-///
-/// The "stability guard" is: `extract_X(hint) == extract_X(hint + "\0")`.
-/// If appending a byte to `hint` changes the extracted prefix, then `hint`
-/// is not a stable boundary for the keys that would extend it, and probing
-/// with `hash(extract_X(hint))` could give a false negative.
-///
-/// We try `extract_last` first (most specific prefix → highest cardinality
-/// → best Bloom pruning). If the last-prefix stability guard fails, fall
-/// back to `extract_first`. If neither is stable, return `None` (the
-/// caller should not use a hint-based probe and should fall back to
-/// bounds-based pruning or read the table).
-///
-/// This is the single source of truth for the validation rules used in
-/// `RunReader::new` (multi-table range setup) and
-/// `Table::should_skip_range_by_prefix_filter` (single-table range path).
-/// Both call sites must stay in sync; centralizing the logic here ensures
-/// a fix or invariant change applies to both.
-pub(crate) fn validate_hint_and_hash(
-    extractor: &dyn crate::prefix::PrefixExtractor,
-    hint: &[u8],
-) -> Option<u64> {
-    let mut extended = Vec::with_capacity(hint.len() + 1);
-    extended.extend_from_slice(hint);
-    extended.push(0u8);
-
-    // Try extract_last first (most specific prefix → better Bloom pruning).
-    if let (Some(lh), Some(le)) = (
-        extractor.extract_last(hint),
-        extractor.extract_last(&extended),
-    ) {
-        if lh == le {
-            return Some(crate::table::filter::standard_bloom::Builder::get_hash(lh));
-        }
-    }
-
-    // Fall back to extract_first if the last-prefix guard failed.
-    if let (Some(fh), Some(fe)) = (
-        extractor.extract_first(hint),
-        extractor.extract_first(&extended),
-    ) {
-        if fh == fe {
-            return Some(crate::table::filter::standard_bloom::Builder::get_hash(fh));
-        }
-    }
-
-    None
-}
-
 impl Table {
     #[must_use]
     pub fn global_seqno(&self) -> SeqNo {
         self.0.global_seqno
     }
 
-    /// Returns true if the table's stored prefix extractor configuration is compatible
-    /// with the currently configured extractor name. This is used to decide whether
-    /// prefix-aware filtering is allowed.
-    pub(crate) fn prefix_filter_allowed(&self, current_extractor_name: Option<&str>) -> bool {
-        match (
-            self.metadata.prefix_extractor_name.as_deref(),
-            current_extractor_name,
-        ) {
-            (Some(a), Some(b)) => a == b,
-            (Some(_), None) | (None, Some(_)) => false,
-            (None, None) => true,
-        }
-    }
-
-    /// Loads the filter block corresponding to `key`, if any. This unifies the logic used by
-    /// both `get()` and `maybe_contains_prefix()`.
+    /// Loads the filter block, or the filter partition covering `key`, if any.
     fn load_filter_block_for_key(
         &self,
         key: &[u8],
@@ -348,30 +284,10 @@ impl Table {
         self.metadata.file_size
     }
 
-    pub(crate) fn get_without_filter(
-        &self,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> crate::Result<Option<InternalValue>> {
-        // Translate seqno to "our" seqno, same as Table::get
-        let seqno = seqno.saturating_sub(self.global_seqno());
-
-        if self.metadata.seqnos.0 >= seqno {
-            return Ok(None);
-        }
-
-        self.point_read(key, seqno)
-    }
-
     /// Looks up `key` at or below `seqno`, returning the newest visible value if present.
     ///
-    /// This method performs a hash-based filter check (using `key_hash`) to skip
-    /// data block I/O when possible. It does NOT perform prefix-aware filtering; that is
-    /// handled at a higher level by `Tree::point_read_from_table`.
-    ///
-    /// Returns Ok(None) when the key is not present or shadowed by sequence rules.
-    ///
-    /// Errors reflect I/O or decoding failures when loading index or data blocks.
+    /// Consults the filter with `key_hash`, or with the hash of the key's
+    /// longest prefix if the table was written without whole-key hashes.
     pub fn get(
         &self,
         key: &[u8],
@@ -386,6 +302,23 @@ impl Table {
 
         if self.metadata.seqnos.0 >= seqno {
             return Ok(None);
+        }
+
+        if !self.metadata.whole_key_filtering {
+            let prefix_hash = self
+                .prefix_extractor
+                .as_deref()
+                .and_then(|x| crate::prefix::longest_prefix_len(x, key))
+                .and_then(|len| key.get(..len))
+                .map(filter::standard_bloom::Builder::get_hash);
+
+            if let Some(hash) = prefix_hash {
+                if self.prefix_filter_excludes(key, hash)? {
+                    return Ok(None);
+                }
+            }
+
+            return self.point_read(key, seqno);
         }
 
         let filter_block = self.load_filter_block_for_key(key)?;
@@ -423,71 +356,45 @@ impl Table {
         }
     }
 
-    /// Checks via the filter whether the key's first extracted prefix may be
-    /// present in this table. Returns:
-    /// - Ok(Some(true)) if the filter indicates a possible match
-    /// - Ok(Some(false)) if the filter indicates no match
-    /// - Ok(None) if the key is out of the extractor's domain, the table's
-    ///   stored extractor is incompatible with the current one, or no
-    ///   filter block is available for this table.
-    ///
-    /// Only `extract_first` is consulted (single-probe). Callers that have
-    /// already computed a hash for a more specific prefix should use
-    /// `probe_prefix_filter_with_hash` instead.
-    pub fn maybe_contains_prefix(
-        &self,
-        key: &[u8],
-        extractor: &dyn crate::prefix::PrefixExtractor,
-    ) -> crate::Result<Option<bool>> {
-        // Only consult the prefix-aware filter if the table's stored extractor
-        // configuration is compatible with the current one. Incompatible
-        // extractors or missing filters return None (cannot determine).
-        if !self.prefix_filter_allowed(Some(extractor.name())) {
-            return Ok(None);
+    /// Returns `true` if the filter, or its partition covering `seek_key`,
+    /// lacks the prefix hash `hash`.
+    fn prefix_filter_excludes(&self, seek_key: &[u8], hash: u64) -> crate::Result<bool> {
+        let Some(filter_block) = self.load_filter_block_for_key(seek_key)? else {
+            return Ok(false);
+        };
+
+        let excluded = !filter_block.maybe_contains_hash(hash)?;
+
+        #[cfg(feature = "metrics")]
+        {
+            use std::sync::atomic::Ordering::Relaxed;
+
+            self.metrics.prefix_filter_queries.fetch_add(1, Relaxed);
+
+            if excluded {
+                self.metrics
+                    .io_skipped_by_prefix_filter
+                    .fetch_add(1, Relaxed);
+            }
         }
 
-        self.probe_prefix_filter(key, extractor)
+        Ok(excluded)
     }
 
-    /// Fast prefix filter probe using a precomputed hash. Uses `key` only to
-    /// locate the correct filter partition (TLI seek); the Bloom check uses the
-    /// precomputed `hash` directly, avoiding the `extract()` Box allocation and
-    /// hash computation.
-    ///
-    /// Does NOT update filter metrics.
-    pub(crate) fn probe_prefix_filter_with_hash(
-        &self,
-        key: &[u8],
-        hash: u64,
-    ) -> crate::Result<Option<bool>> {
-        let filter_block = self.load_filter_block_for_key(key)?;
+    /// Returns `true` if the prefix filter shows this table holds no key in
+    /// the probe's range.
+    pub(crate) fn skips_range(&self, probe: &mut RangeProbe<'_>) -> crate::Result<bool> {
+        let Some(extractor) = &self.prefix_extractor else {
+            return Ok(false);
+        };
 
-        if let Some(filter_block) = filter_block {
-            return Ok(Some(filter_block.maybe_contains_hash(hash)?));
-        }
+        let Some(hash) = probe.hash(extractor) else {
+            return Ok(false);
+        };
 
-        Ok(None)
-    }
-
-    /// Core prefix filter probe — assumes the caller already validated extractor
-    /// compatibility. Returns `Ok(Some(false))` if the prefix is definitively absent,
-    /// `Ok(Some(true))` if maybe present, or `Ok(None)` if the key is out-of-domain.
-    ///
-    /// Does NOT update filter metrics — callers are responsible for tracking
-    /// `filter_queries` and `io_skipped_by_filter` in a context-appropriate way.
-    pub(crate) fn probe_prefix_filter(
-        &self,
-        key: &[u8],
-        extractor: &dyn crate::prefix::PrefixExtractor,
-    ) -> crate::Result<Option<bool>> {
-        let filter_block = self.load_filter_block_for_key(key)?;
-
-        if let Some(filter_block) = filter_block {
-            return filter_block.maybe_contains_prefix(key, extractor);
-        }
-
-        // No filter available => cannot determine membership
-        Ok(None)
+        // No key in the range is below the seek key, so the range's first key
+        // in this table, which has the prefix, is in the partition covering it
+        self.prefix_filter_excludes(probe.seek_key(), hash)
     }
 
     // TODO: maybe we can skip Fuse costs of the user key
@@ -633,6 +540,7 @@ impl Table {
         descriptor_table: Option<Arc<DescriptorTable>>,
         pin_filter: bool,
         pin_index: bool,
+        prefix_extractor: Option<&SharedPrefixExtractor>,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
         use meta::ParsedMeta;
@@ -745,6 +653,19 @@ impl Table {
             None
         };
 
+        let prefix_extractor = metadata.prefix_extractor_name.as_deref().and_then(|name| {
+            let resolved = crate::prefix::resolve(name, prefix_extractor);
+
+            if resolved.is_none() {
+                log::warn!(
+                    "Table #{} was written with prefix extractor {name:?}, which is neither configured nor built in: reads ignore its prefix filter until compaction rewrites it",
+                    metadata.id,
+                );
+            }
+
+            resolved
+        });
+
         log::debug!(
             "Recovered table #{} from {}",
             metadata.id,
@@ -767,6 +688,8 @@ impl Table {
             pinned_filter_index,
 
             pinned_filter_block,
+
+            prefix_extractor,
 
             is_deleted: AtomicBool::default(),
 
@@ -791,11 +714,6 @@ impl Table {
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    /// Checks if a key range is (partially or fully) contained in this table.
-    pub(crate) fn check_key_range_overlap(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
-        self.metadata.key_range.overlaps_with_bounds(bounds)
-    }
-
     /// Returns the highest sequence number in the table.
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
@@ -806,131 +724,6 @@ impl Table {
     #[must_use]
     pub fn min_key(&self) -> &UserKey {
         self.metadata.key_range.min()
-    }
-
-    /// Fast variant of `should_skip_range_by_prefix_filter` that uses a hash
-    /// computed once at iterator setup, avoiding per-table re-extraction and
-    /// re-hashing in the L0 single-table loop.
-    ///
-    /// The caller is responsible for having validated the hint's stability
-    /// (via `validate_hint_and_hash`) before precomputing the hash.
-    ///
-    /// Updates filter metrics like `should_skip_range_by_prefix_filter` does.
-    pub(crate) fn should_skip_with_precomputed_hash(
-        &self,
-        hint: &[u8],
-        hash: u64,
-        current_extractor_name: &str,
-    ) -> bool {
-        if !self.prefix_filter_allowed(Some(current_extractor_name)) {
-            return false;
-        }
-
-        let probe = self.probe_prefix_filter_with_hash(hint, hash);
-
-        #[cfg(feature = "metrics")]
-        if matches!(&probe, Ok(Some(_))) {
-            use std::sync::atomic::Ordering::Relaxed;
-            self.metrics.filter_queries.fetch_add(1, Relaxed);
-        }
-
-        if matches!(probe, Ok(Some(false))) {
-            #[cfg(feature = "metrics")]
-            {
-                use std::sync::atomic::Ordering::Relaxed;
-                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
-            }
-            return true;
-        }
-
-        false
-    }
-
-    /// Determines if this table can be skipped for a given user range by consulting the prefix filter.
-    ///
-    /// Behavior:
-    /// - If both bounds share the same extracted prefix, consult once using a bound key.
-    ///   A definite negative (Ok(Some(false))) means the table can be skipped.
-    /// - If the table's stored extractor is incompatible with the provided extractor, do not skip.
-    pub(crate) fn should_skip_range_by_prefix_filter<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: &R,
-        extractor: &dyn crate::prefix::PrefixExtractor,
-        prefix_hint: Option<&[u8]>,
-    ) -> bool {
-        if !self.prefix_filter_allowed(Some(extractor.name())) {
-            return false;
-        }
-
-        // If a prefix hint is available (from tree.prefix()), use it for a
-        // direct probe. This handles the case where prefix_to_range produces
-        // bounds with different extracted prefixes (e.g. prefix "h" → range
-        // "h".."i" with extractor length 1).
-        //
-        // The hint's stability is checked by `validate_hint_and_hash` (shared
-        // with RunReader::new). If neither extract_last nor extract_first
-        // produces a stable result, we don't probe and return false (no skip).
-        if let Some(hint) = prefix_hint {
-            if let Some(hash) = validate_hint_and_hash(extractor, hint) {
-                let probe = self.probe_prefix_filter_with_hash(hint, hash);
-
-                #[cfg(feature = "metrics")]
-                if matches!(&probe, Ok(Some(_))) {
-                    use std::sync::atomic::Ordering::Relaxed;
-                    self.metrics.filter_queries.fetch_add(1, Relaxed);
-                }
-
-                if matches!(probe, Ok(Some(false))) {
-                    #[cfg(feature = "metrics")]
-                    {
-                        use std::sync::atomic::Ordering::Relaxed;
-                        self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
-                    }
-
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        let start_key = match range.start_bound() {
-            std::ops::Bound::Included(k) | std::ops::Bound::Excluded(k) => Some(k.as_ref()),
-            std::ops::Bound::Unbounded => None,
-        };
-        let end_key = match range.end_bound() {
-            std::ops::Bound::Included(k) | std::ops::Bound::Excluded(k) => Some(k.as_ref()),
-            std::ops::Bound::Unbounded => None,
-        };
-
-        let start_pref = start_key.and_then(|k| extractor.extract_first(k));
-        let end_pref = end_key.and_then(|k| extractor.extract_first(k));
-
-        if let (Some(sp), Some(ep)) = (start_pref, end_pref) {
-            if sp == ep {
-                if let Some(sk) = start_key {
-                    let probe = self.probe_prefix_filter(sk, extractor);
-
-                    #[cfg(feature = "metrics")]
-                    if matches!(&probe, Ok(Some(_))) {
-                        use std::sync::atomic::Ordering::Relaxed;
-                        self.metrics.filter_queries.fetch_add(1, Relaxed);
-                    }
-
-                    if matches!(probe, Ok(Some(false))) {
-                        #[cfg(feature = "metrics")]
-                        {
-                            use std::sync::atomic::Ordering::Relaxed;
-                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
-                        }
-
-                        return true;
-                    }
-                }
-                return false;
-            }
-        }
-
-        false
     }
 
     /// Returns the number of tombstone markers in the `Table`.

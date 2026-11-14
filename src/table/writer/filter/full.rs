@@ -4,10 +4,8 @@
 
 use super::FilterWriter;
 use crate::{
-    checksum::ChecksummedWriter,
-    config::BloomConstructionPolicy,
-    table::{filter::standard_bloom::Builder, Block},
-    CompressionType, UserKey,
+    checksum::ChecksummedWriter, config::BloomConstructionPolicy, table::Block, CompressionType,
+    UserKey,
 };
 use std::{fs::File, io::BufWriter};
 
@@ -16,11 +14,6 @@ pub struct FullFilterWriter {
     pub bloom_hash_buffer: Vec<u64>,
 
     bloom_policy: BloomConstructionPolicy,
-
-    /// When true, sort+dedup the hash buffer at finish time to eliminate
-    /// duplicate prefix hashes. Enabled by `enable_dedup()` when a prefix
-    /// extractor is configured.
-    needs_dedup: bool,
 }
 
 impl FullFilterWriter {
@@ -28,7 +21,6 @@ impl FullFilterWriter {
         Self {
             bloom_hash_buffer: Vec::new(),
             bloom_policy,
-            needs_dedup: false,
         }
     }
 }
@@ -50,18 +42,9 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         self
     }
 
-    fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
-        self.bloom_hash_buffer.push(Builder::get_hash(key));
-        Ok(())
-    }
-
-    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
-        self.bloom_hash_buffer.push(Builder::get_hash(bytes));
-        Ok(())
-    }
-
-    fn enable_dedup(&mut self) {
-        self.needs_dedup = true;
+    fn register(&mut self, _: &UserKey, hashes: &[u64]) -> crate::Result<bool> {
+        self.bloom_hash_buffer.extend_from_slice(hashes);
+        Ok(false)
     }
 
     fn finish(
@@ -70,54 +53,41 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
     ) -> crate::Result<usize> {
         if self.bloom_hash_buffer.is_empty() {
             log::trace!("Filter writer has no buffered hashes - not building filter");
-            return Ok(0);
+        } else {
+            file_writer.start("filter")?;
+
+            let n = self.bloom_hash_buffer.len();
+
+            log::trace!(
+                "Constructing Bloom filter with {n} entries: {:?}",
+                self.bloom_policy,
+            );
+
+            let start = std::time::Instant::now();
+
+            let filter_bytes = {
+                let mut builder = self.bloom_policy.init(n);
+
+                for hash in self.bloom_hash_buffer {
+                    builder.set_with_hash(hash);
+                }
+
+                builder.build()
+            };
+
+            log::trace!(
+                "Built Bloom filter ({}B) in {:?}",
+                filter_bytes.len(),
+                start.elapsed(),
+            );
+
+            Block::write_into(
+                file_writer,
+                &filter_bytes,
+                crate::table::block::BlockType::Filter,
+                CompressionType::None,
+            )?;
         }
-
-        file_writer.start("filter")?;
-
-        let mut hashes = self.bloom_hash_buffer;
-
-        // When a prefix extractor is configured, multiple keys can produce the
-        // same prefix hash. Sort + dedup so the filter is sized for the
-        // true number of unique prefixes. Skipped for the full-key path where
-        // each hash is already unique (the Writer deduplicates at the user-key
-        // level before calling register_key).
-        if self.needs_dedup {
-            hashes.sort_unstable();
-            hashes.dedup();
-        }
-
-        let n = hashes.len();
-
-        log::trace!(
-            "Constructing Bloom filter with {n} entries: {:?}",
-            self.bloom_policy,
-        );
-
-        let start = std::time::Instant::now();
-
-        let filter_bytes = {
-            let mut builder = self.bloom_policy.init(n);
-
-            for hash in hashes {
-                builder.set_with_hash(hash);
-            }
-
-            builder.build()
-        };
-
-        log::trace!(
-            "Built Bloom filter ({}B) in {:?}",
-            filter_bytes.len(),
-            start.elapsed(),
-        );
-
-        Block::write_into(
-            file_writer,
-            &filter_bytes,
-            crate::table::block::BlockType::Filter,
-            CompressionType::None,
-        )?;
 
         Ok(1)
     }

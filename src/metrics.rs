@@ -40,6 +40,12 @@ pub struct Metrics {
     /// Number of IOs that were skipped due to filter
     pub(crate) io_skipped_by_filter: AtomicUsize,
 
+    /// Number of times a table's filter was probed with a prefix
+    pub(crate) prefix_filter_queries: AtomicUsize,
+
+    /// Number of table reads skipped because the filter lacked the prefix
+    pub(crate) io_skipped_by_prefix_filter: AtomicUsize,
+
     /// Number of data block bytes that were requested from OS or disk
     pub(crate) data_block_io_requested: AtomicU64,
 
@@ -208,5 +214,16 @@ impl Metrics {
     /// Number of I/O operations skipped by filter.
     pub fn io_skipped_by_filter(&self) -> usize {
         self.io_skipped_by_filter.load(Relaxed)
+    }
+
+    /// Number of times a table's filter was probed with a prefix, by range
+    /// reads or by point reads on tables without whole-key hashes.
+    pub fn prefix_filter_queries(&self) -> usize {
+        self.prefix_filter_queries.load(Relaxed)
+    }
+
+    /// Number of table reads skipped because the filter lacked the prefix.
+    pub fn io_skipped_by_prefix_filter(&self) -> usize {
+        self.io_skipped_by_prefix_filter.load(Relaxed)
     }
 }

@@ -5,6 +5,7 @@
 mod filter;
 mod index;
 mod meta;
+mod prefix_hashes;
 
 use super::{
     block::Header as BlockHeader, filter::BloomConstructionPolicy, Block, BlockOffset, DataBlock,
@@ -93,13 +94,14 @@ pub struct Writer {
 
     initial_level: u8,
 
-    /// Optional prefix extractor used to register extracted prefixes into the filter.
-    /// When present, extracted prefixes are registered instead of the full key.
-    prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
+    /// Hashes extracted prefixes into the filter, if a prefix extractor is set
+    prefix_hashes: Option<prefix_hashes::PrefixHashes>,
 
-    /// When true, full-key hashes are always added to the filter (even with a
-    /// prefix extractor), enabling precise point-read filtering.
+    /// Whether the filter holds whole-key hashes when a prefix extractor is set
     whole_key_filtering: bool,
+
+    /// Filter hashes of the current key
+    filter_hashes: Vec<u64>,
 }
 
 impl Writer {
@@ -149,8 +151,9 @@ impl Writer {
 
             linked_blob_files: Vec::new(),
 
-            prefix_extractor: None,
+            prefix_hashes: None,
             whole_key_filtering: true,
+            filter_hashes: Vec::new(),
         })
     }
 
@@ -173,14 +176,6 @@ impl Writer {
     pub fn use_partitioned_filter(mut self) -> Self {
         self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy))
             .use_tli_compression(self.index_block_compression);
-        // If a prefix extractor was already configured, propagate dedup to
-        // the freshly-installed partitioned writer. Without this, callers
-        // that invoke `use_prefix_extractor` *before* `use_partitioned_filter`
-        // would silently lose dedup because the previous filter writer
-        // (where `enable_dedup` was applied) is discarded above.
-        if self.prefix_extractor.is_some() {
-            self.filter_writer.enable_dedup();
-        }
         self
     }
 
@@ -252,31 +247,18 @@ impl Writer {
         self
     }
 
-    /// Sets the prefix extractor to enable prefix-aware filter construction.
+    /// Sets the prefix extractor whose prefixes the filter indexes.
     #[must_use]
     pub fn use_prefix_extractor(
         mut self,
         extractor: Option<crate::prefix::SharedPrefixExtractor>,
     ) -> Self {
-        if extractor.is_some() {
-            self.filter_writer.enable_dedup();
-        }
-        self.prefix_extractor = extractor;
+        self.prefix_hashes = extractor.map(prefix_hashes::PrefixHashes::new);
         self
     }
 
-    /// Controls whether full-key hashes are added to the filter alongside
-    /// prefix hashes when a prefix extractor is configured (via
-    /// [`Self::use_prefix_extractor`]).
-    ///
-    /// Setting this to `false` produces a prefix-only filter (no full-key
-    /// hashes), saving filter space for seek-only workloads. Only takes
-    /// effect when a prefix extractor is set — without one, the writer
-    /// registers full-key hashes regardless and this flag is not persisted
-    /// to metadata.
-    ///
-    /// Defaults to `true`. See [`crate::Config::whole_key_filtering`] for
-    /// the full semantics.
+    /// Controls whether the filter holds whole-key hashes when a prefix
+    /// extractor is set; see [`crate::Config::whole_key_filtering`].
     #[must_use]
     pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
         self.whole_key_filtering = enabled;
@@ -316,62 +298,16 @@ impl Writer {
         // NOTE: Check if we visit a new key
         if Some(&user_key) != self.current_key.as_ref() {
             self.meta.key_count += 1;
-            self.current_key = Some(user_key.clone());
 
             // IMPORTANT: Do not buffer *every* item's key
             // because there may be multiple versions
             // of the same key
 
             if self.bloom_policy.is_active() {
-                // When a prefix extractor is configured, register extracted
-                // prefix hashes. When whole_key_filtering is also enabled
-                // (the default), register the full key hash too. This allows:
-                // - Prefix scans to use the prefix filter (coarse, table-level)
-                // - Point reads to use the full-key Bloom (precise, when enabled)
-                // This matches RocksDB's whole_key_filtering + prefix_extractor
-                // approach.
-                //
-                // Order matters for partitioned filters:
-                //   1. notify_key flushes any pending oversized partition
-                //      first, using the *previous* user key as the TLI
-                //      boundary — so partition i covers everything up to and
-                //      including the previous user key.
-                //   2. Prefix hashes are buffered (register_bytes never spills).
-                //   3. The full-key hash is registered last; register_key is
-                //      the only spill trigger inside this key, and any spill
-                //      it causes uses the *current* user key as the TLI
-                //      boundary, after all of this key's hashes (prefixes +
-                //      full) are committed to the partition.
-                // This guarantees a partition's TLI key always corresponds
-                // to a key whose hashes are fully present in that partition.
-                // Always call notify_key first so partitioned writers see a
-                // consistent "new user key" boundary in every mode (with or
-                // without an extractor, WKF=true or WKF=false). FullFilterWriter
-                // has a no-op default, so this is free for that path.
-                self.filter_writer.notify_key(&user_key)?;
-
-                if let Some(ref extractor) = self.prefix_extractor {
-                    // Fast path for single-prefix extractors (the common
-                    // case: FixedPrefixExtractor, FixedLengthExtractor,
-                    // FullKeyExtractor). Avoids the per-key Box<dyn Iterator>
-                    // allocation that `extract` requires.
-                    if extractor.is_single_prefix() {
-                        if let Some(prefix) = extractor.extract_first(user_key.as_ref()) {
-                            self.filter_writer.register_bytes(prefix)?;
-                        }
-                    } else {
-                        for prefix in extractor.extract(user_key.as_ref()) {
-                            self.filter_writer.register_bytes(prefix)?;
-                        }
-                    }
-
-                    if self.whole_key_filtering {
-                        self.filter_writer.register_key(&user_key)?;
-                    }
-                } else {
-                    self.filter_writer.register_key(&user_key)?;
-                }
+                self.register_filter_key(&user_key)?;
             }
+
+            self.current_key = Some(user_key.clone());
         }
 
         if self.meta.first_key.is_none() {
@@ -388,6 +324,39 @@ impl Writer {
 
         self.meta.lowest_seqno = self.meta.lowest_seqno.min(seqno);
         self.meta.highest_seqno = self.meta.highest_seqno.max(seqno);
+
+        Ok(())
+    }
+
+    /// Adds the filter hashes of a new user key: its whole-key hash, unless a
+    /// prefix extractor is set with `whole_key_filtering` off, and its new
+    /// prefix hashes.
+    ///
+    /// Must run before `current_key` moves on to `key`.
+    fn register_filter_key(&mut self, key: &UserKey) -> crate::Result<()> {
+        self.filter_hashes.clear();
+
+        let has_key_hash = self.whole_key_filtering || self.prefix_hashes.is_none();
+
+        if has_key_hash {
+            self.filter_hashes
+                .push(crate::table::filter::standard_bloom::Builder::get_hash(key));
+        }
+
+        if let Some(prefixes) = &mut self.prefix_hashes {
+            prefixes.push_new(
+                self.current_key.as_deref(),
+                key,
+                has_key_hash,
+                &mut self.filter_hashes,
+            );
+        }
+
+        if self.filter_writer.register(key, &self.filter_hashes)? {
+            if let Some(prefixes) = &mut self.prefix_hashes {
+                prefixes.start_partition();
+            }
+        }
 
         Ok(())
     }
@@ -504,8 +473,14 @@ impl Writer {
             }
         }
 
+        // A filter without whole-key hashes would make readers that predate
+        // `whole_key_filtering` skip tables holding the key, so such tables
+        // get a version those readers refuse to open.
+        let prefix_only_filter = self.prefix_hashes.is_some() && !self.whole_key_filtering;
+        let table_version: u8 = if prefix_only_filter { 4 } else { 3 };
+
         self.file_writer.start("table_version")?;
-        self.file_writer.write_all(&[0x3])?;
+        self.file_writer.write_all(&[table_version])?;
 
         // Write metadata
         self.file_writer.start("meta")?;
@@ -550,11 +525,13 @@ impl Writer {
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
                     "key#max",
+                    // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
                     "key#min",
+                    // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
@@ -562,14 +539,13 @@ impl Writer {
                 meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
             ];
-            // Persist the extractor name so recovery can compare it to the current extractor.
-            // If names differ, disable prefix-based pruning for this table to avoid false negatives.
-            if let Some(ref extractor) = self.prefix_extractor {
-                meta_items.push(meta("prefix_extractor", extractor.name().as_bytes()));
-                // Persist whether this table contains full-key hashes alongside
-                // prefix hashes. Reads must use this value (not the runtime
-                // config) to decide whether the full-key Bloom is trustworthy.
-                // Mismatched config at recovery would otherwise cause data loss.
+            // Reads use the table's own extractor and whole-key setting, not
+            // the configured ones, which may have changed since
+            if let Some(prefixes) = &self.prefix_hashes {
+                meta_items.push(meta(
+                    "prefix_extractor",
+                    prefixes.extractor().name().as_bytes(),
+                ));
                 meta_items.push(meta(
                     "whole_key_filtering",
                     &[u8::from(self.whole_key_filtering)],
@@ -586,7 +562,7 @@ impl Writer {
             meta_items.push(meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()));
             meta_items.push(meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()));
             meta_items.push(meta("table_id", &self.table_id.to_le_bytes()));
-            meta_items.push(meta("table_version", &[3u8]));
+            meta_items.push(meta("table_version", &[table_version]));
             meta_items.push(meta(
                 "tombstone_count",
                 &(self.meta.tombstone_count as u64).to_le_bytes(),
@@ -604,7 +580,7 @@ impl Writer {
                 &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
             ));
 
-            // Ensure deterministic ordering for metadata entries without cloning keys
+            // NOTE: The optional items make the order depend on which are present
             meta_items.sort_by(|a, b| a.key.cmp(&b.key));
 
             #[cfg(debug_assertions)]

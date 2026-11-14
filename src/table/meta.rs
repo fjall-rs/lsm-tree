@@ -51,16 +51,11 @@ pub struct ParsedMeta {
     pub data_block_compression: CompressionType,
     pub index_block_compression: CompressionType,
 
-    /// Optional name of the prefix extractor used when this table was created.
+    /// Name of the prefix extractor whose prefixes the filter holds
     pub prefix_extractor_name: Option<String>,
 
-    /// Whether this table's filter contains full-key hashes alongside prefix hashes.
-    /// Only meaningful when `prefix_extractor_name` is `Some`. When false, the filter
-    /// has only prefix hashes and the full-key Bloom path is unsafe to use (would
-    /// produce false negatives = data loss).
-    ///
-    /// Defaults to `true` for backward compatibility with tables written before this
-    /// field was persisted (those tables always wrote full-key hashes).
+    /// Whether the filter holds whole-key hashes; if not, probing it with a
+    /// key's hash would skip tables that hold the key
     pub whole_key_filtering: bool,
 }
 
@@ -107,9 +102,9 @@ impl ParsedMeta {
                 .expect("Table version should exist")
                 .value;
 
-            assert_eq!(
-                [3u8],
-                &*table_version,
+            // NOTE: Version 4 marks a filter without whole-key hashes
+            assert!(
+                matches!(&*table_version, [3 | 4]),
                 "unspported table version {}",
                 table_version[0],
             );
@@ -226,10 +221,7 @@ impl ParsedMeta {
             })
             .transpose()?;
 
-        // whole_key_filtering: defaults to true for tables written before this
-        // field was persisted. Such tables predate prefix_extractor support,
-        // so they always wrote full-key hashes (no extractor → register_key
-        // for every key).
+        // NOTE: Only written with a prefix extractor; other tables hash whole keys
         let whole_key_filtering = block
             .point_read(b"whole_key_filtering", SeqNo::MAX)
             .is_none_or(|v| v.value.first().copied().unwrap_or(1) != 0);
