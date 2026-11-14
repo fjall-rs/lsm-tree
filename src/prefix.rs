@@ -49,6 +49,10 @@ use std::{borrow::Cow, ops::Bound, sync::Arc};
 /// Point reads use the longest prefix of the key when the table was written
 /// with `whole_key_filtering` off.
 ///
+/// With [`crate::Config::memtable_prefix_bloom_bytes`] set, memtables keep a
+/// prefix filter too: the same range reads, and every point read, skip
+/// memtables that lack the prefix.
+///
 /// # Example
 ///
 /// Index each `/`-terminated segment, so `user/42/posts` has the prefixes

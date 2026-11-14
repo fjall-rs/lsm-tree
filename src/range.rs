@@ -204,19 +204,18 @@ impl TreeIter {
                 }
             }
 
-            // Sealed memtables
-            for memtable in lock.version.sealed_memtables.iter() {
-                let iter = memtable.range(range.clone());
-
-                iters.push(Box::new(
-                    iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
-                        .map(Ok),
-                ));
-            }
-
-            // Active memtable
+            // Sealed memtables, then the active one
+            for memtable in lock
+                .version
+                .sealed_memtables
+                .iter()
+                .chain([&lock.version.active_memtable])
             {
-                let iter = lock.version.active_memtable.range(range.clone());
+                if memtable.skips_range(&mut probe) {
+                    continue;
+                }
+
+                let iter = memtable.range(range.clone());
 
                 iters.push(Box::new(
                     iter.filter(move |item| seqno_filter(item.key.seqno, seqno))

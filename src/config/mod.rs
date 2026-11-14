@@ -237,6 +237,9 @@ pub struct Config {
     /// to their filters
     pub whole_key_filtering: bool,
 
+    /// Size of each memtable's prefix bloom filter in bytes, 0 for none
+    pub memtable_prefix_bloom_bytes: usize,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -300,6 +303,7 @@ impl Default for Config {
             compaction_filter_factory: None,
             prefix_extractor: None,
             whole_key_filtering: true,
+            memtable_prefix_bloom_bytes: 0,
 
             expect_point_read_hits: false,
 
@@ -360,6 +364,23 @@ impl Config {
     #[must_use]
     pub fn whole_key_filtering(mut self, enabled: bool) -> Self {
         self.whole_key_filtering = enabled;
+        self
+    }
+
+    /// Gives each memtable a bloom filter of `bytes` over its keys' prefixes,
+    /// so point and range reads skip memtables that lack the prefix instead
+    /// of searching them.
+    ///
+    /// Defaults to 0 (no filter). Has no effect without a prefix extractor.
+    ///
+    /// Size it for the distinct prefixes a memtable holds before it is
+    /// rotated: 10 bits (1.25 bytes) per prefix give about 1% false
+    /// positives. The filter is allocated when the memtable is created and
+    /// lives until it is flushed. `RocksDB` calls this
+    /// `memtable_prefix_bloom_size_ratio`, a fraction of the memtable size.
+    #[must_use]
+    pub fn memtable_prefix_bloom_bytes(mut self, bytes: usize) -> Self {
+        self.memtable_prefix_bloom_bytes = bytes;
         self
     }
 

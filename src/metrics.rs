@@ -46,6 +46,12 @@ pub struct Metrics {
     /// Number of table reads skipped because the filter lacked the prefix
     pub(crate) io_skipped_by_prefix_filter: AtomicUsize,
 
+    /// Number of times a memtable's prefix bloom filter was probed
+    pub(crate) memtable_prefix_bloom_queries: AtomicUsize,
+
+    /// Number of memtable reads skipped because the bloom lacked the prefix
+    pub(crate) memtable_reads_skipped_by_prefix_bloom: AtomicUsize,
+
     /// Number of data block bytes that were requested from OS or disk
     pub(crate) data_block_io_requested: AtomicU64,
 
@@ -225,5 +231,18 @@ impl Metrics {
     /// Number of table reads skipped because the filter lacked the prefix.
     pub fn io_skipped_by_prefix_filter(&self) -> usize {
         self.io_skipped_by_prefix_filter.load(Relaxed)
+    }
+
+    /// Number of times a memtable's prefix bloom filter was probed, see
+    /// [`crate::Config::memtable_prefix_bloom_bytes`].
+    pub fn memtable_prefix_bloom_queries(&self) -> usize {
+        self.memtable_prefix_bloom_queries.load(Relaxed)
+    }
+
+    /// Number of memtable reads skipped because the prefix bloom filter
+    /// lacked the prefix. Far fewer skips than queries on reads of absent
+    /// prefixes means the filter is too small for the memtable's prefixes.
+    pub fn memtable_reads_skipped_by_prefix_bloom(&self) -> usize {
+        self.memtable_reads_skipped_by_prefix_bloom.load(Relaxed)
     }
 }
