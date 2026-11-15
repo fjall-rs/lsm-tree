@@ -13,6 +13,10 @@ impl FilterBlock {
         Self(block)
     }
 
+    // NOTE: Inlined into every probe for the same reason as
+    // `Table::load_filter_block_for_key`
+    #[expect(clippy::inline_always, reason = "measured, see above")]
+    #[inline(always)]
     pub fn maybe_contains_hash(&self, hash: u64) -> crate::Result<bool> {
         Ok(StandardBloomFilterReader::new(&self.0.data)?.contains_hash(hash))
     }
