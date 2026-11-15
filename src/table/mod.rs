@@ -92,9 +92,9 @@ impl Table {
 
     /// Loads the filter block, or the filter partition covering `key`, if any.
     // NOTE: Point reads call this and the filter probe for every table they
-    // visit. Once the prefix probe became a second caller of each, the compiler
-    // stopped inlining them; inlining both made point reads over 32 tables
-    // ~1.7x faster
+    // visit. The compiler does not inline them on its own (with LTO it did
+    // while each had a single caller); forcing it made point reads over 32
+    // tables ~1.7x faster
     #[expect(clippy::inline_always, reason = "measured, see above")]
     #[inline(always)]
     fn load_filter_block_for_key(
