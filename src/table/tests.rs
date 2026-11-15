@@ -54,6 +54,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 false,
                 false,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -84,6 +85,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 true,
                 false,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -114,6 +116,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 false,
                 true,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -144,6 +147,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 true,
                 true,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -174,6 +178,7 @@ fn test_with_table(
                 None,
                 true,
                 true,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -222,6 +227,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 false,
                 false,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -251,6 +257,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 true,
                 false,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -280,6 +287,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 false,
                 true,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -310,6 +318,7 @@ fn test_with_table(
                 Some(Arc::new(DescriptorTable::new(10))),
                 true,
                 true,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -340,6 +349,7 @@ fn test_with_table(
                 None,
                 true,
                 true,
+                None,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -1225,6 +1235,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
         Some(Arc::new(crate::DescriptorTable::new(10))),
         true,
         true,
+        None,
     )
     .unwrap();
 
@@ -1299,6 +1310,7 @@ fn table_partitioned_index() -> crate::Result<()> {
         Some(Arc::new(crate::DescriptorTable::new(10))),
         true,
         true,
+        None,
         #[cfg(feature = "metrics")]
         Default::default(),
     )
@@ -1408,6 +1420,7 @@ fn table_global_seqno() -> crate::Result<()> {
         Some(Arc::new(crate::DescriptorTable::new(10))),
         true,
         true,
+        None,
         #[cfg(feature = "metrics")]
         Default::default(),
     )?;
@@ -1457,6 +1470,7 @@ fn table_return_global_seqno() -> crate::Result<()> {
         Some(Arc::new(crate::DescriptorTable::new(10))),
         true,
         true,
+        None,
         #[cfg(feature = "metrics")]
         Default::default(),
     )?;
@@ -1467,6 +1481,333 @@ fn table_return_global_seqno() -> crate::Result<()> {
             .get(b"abc", 2 * SEQNO, BloomBuilder::get_hash(b"abc"))?
             .unwrap(),
     );
+
+    Ok(())
+}
+
+/// Writes `keys` (each at seqno 0) into a table with a 3-byte prefix filter
+/// and recovers it with `configured` as the configured extractor.
+#[expect(clippy::unwrap_used)]
+fn prefix_table(
+    dir: &std::path::Path,
+    keys: &[&[u8]],
+    written_with: crate::prefix::SharedPrefixExtractor,
+    configured: Option<&crate::prefix::SharedPrefixExtractor>,
+    whole_key_filtering: bool,
+    partition_size: Option<u32>,
+    global_seqno: SeqNo,
+) -> crate::Result<Table> {
+    let file = dir.join("table");
+
+    let mut writer = Writer::new(file.clone(), 0, 0)?
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(written_with))
+        .use_whole_key_filtering(whole_key_filtering);
+
+    if let Some(size) = partition_size {
+        writer = writer
+            .use_partitioned_filter()
+            .use_data_block_size(1)
+            .use_meta_partition_size(size);
+    }
+
+    for (seqno, key) in keys.iter().enumerate() {
+        writer.write(InternalValue::from_components(
+            *key,
+            *key,
+            seqno as SeqNo,
+            crate::ValueType::Value,
+        ))?;
+    }
+
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    Table::recover(
+        file,
+        checksum,
+        global_seqno,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        configured,
+        #[cfg(feature = "metrics")]
+        Arc::default(),
+    )
+}
+
+fn fixed3() -> crate::prefix::SharedPrefixExtractor {
+    Arc::new(crate::prefix::FixedPrefixExtractor::new(3))
+}
+
+fn range_skipped(
+    table: &Table,
+    start: std::ops::Bound<&[u8]>,
+    end: std::ops::Bound<&[u8]>,
+) -> bool {
+    #[expect(clippy::unwrap_used)]
+    table
+        .skips_range(&mut crate::prefix::RangeProbe::new(start, end))
+        .unwrap()
+}
+
+/// A table without whole-key hashes must apply `global_seqno` when it reads
+/// past its prefix filter, like the whole-key path does.
+///
+/// With `global_seqno = 7`, "aa1" (seqno 1) has logical seqno 8, so a read at
+/// seqno 8 must not see it, while "aa0" (logical 7) is visible.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_prefix_only_get_applies_global_seqno() -> crate::Result<()> {
+    let dir = tempdir()?;
+    let table = prefix_table(
+        dir.path(),
+        &[b"aa0", b"aa1"],
+        Arc::new(crate::prefix::FixedPrefixExtractor::new(2)),
+        None,
+        false,
+        None,
+        7,
+    )?;
+
+    let get = |key: &[u8], seqno| table.get(key, seqno, BloomBuilder::get_hash(key));
+
+    assert!(get(b"aa1", 8)?.is_none());
+    assert_eq!(b"aa0", &*get(b"aa0", 8)?.unwrap().value);
+    assert_eq!(b"aa1", &*get(b"aa1", 9)?.unwrap().value);
+
+    Ok(())
+}
+
+/// A partitioned prefix-only filter splits keys of one prefix across
+/// partitions; each partition must still answer for its own keys.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_prefix_only_partitioned_filter_reads_every_key() -> crate::Result<()> {
+    let dir = tempdir()?;
+
+    let keys: Vec<Vec<u8>> = [b"aaa", b"bbb", b"ccc", b"ddd"]
+        .iter()
+        .flat_map(|p| (0..20u32).map(move |i| [&p[..], format!("{i:04}").as_bytes()].concat()))
+        .collect();
+    let keys: Vec<&[u8]> = keys.iter().map(Vec::as_slice).collect();
+
+    let table = prefix_table(dir.path(), &keys, fixed3(), None, false, Some(1), 0)?;
+
+    let partitions = table.pinned_filter_index.as_ref().unwrap().iter().count();
+    assert!(
+        partitions > 1,
+        "expected several partitions, got {partitions}"
+    );
+
+    for key in &keys {
+        assert!(
+            table
+                .get(key, SeqNo::MAX, BloomBuilder::get_hash(key))?
+                .is_some(),
+            "lost {key:?}",
+        );
+    }
+
+    #[cfg(feature = "metrics")]
+    let skipped_before = table.metrics.io_skipped_by_prefix_filter();
+
+    assert!(table
+        .get(b"zzz0000", SeqNo::MAX, BloomBuilder::get_hash(b"zzz0000"))?
+        .is_none());
+
+    #[cfg(feature = "metrics")]
+    assert_eq!(
+        skipped_before + 1,
+        table.metrics.io_skipped_by_prefix_filter()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn table_skips_range_by_prefix_filter() -> crate::Result<()> {
+    use std::ops::Bound::{Excluded, Included};
+
+    let dir = tempdir()?;
+    let table = prefix_table(
+        dir.path(),
+        &[b"aaa0", b"aaa1", b"bbb0"],
+        fixed3(),
+        None,
+        true,
+        None,
+        0,
+    )?;
+
+    // prefix("zzz00") and prefix("zzz")
+    assert!(range_skipped(
+        &table,
+        Included(b"zzz00"),
+        Excluded(b"zzz01")
+    ));
+    assert!(range_skipped(&table, Included(b"zzz"), Excluded(b"zz{")));
+    // A range between the table's prefixes
+    assert!(range_skipped(&table, Included(b"mmm"), Excluded(b"mmn")));
+
+    assert!(!range_skipped(&table, Included(b"aaa"), Excluded(b"aab")));
+    assert!(!range_skipped(&table, Included(b"aaa1"), Included(b"aaa5")));
+
+    // "aaa9999..=ccc0000" holds "bbb0" though "aaa9999" shares its prefix
+    // with the table's first key
+    assert!(!range_skipped(
+        &table,
+        Included(b"aaa9999"),
+        Included(b"ccc0000")
+    ));
+
+    // Too short to have a prefix
+    assert!(!range_skipped(&table, Included(b"zz"), Excluded(b"z{")));
+
+    Ok(())
+}
+
+/// A table keeps the extractor that wrote it: a built-in one is rebuilt from
+/// its name, and an unknown one disables the prefix filter.
+#[test]
+fn table_resolves_its_own_extractor() -> crate::Result<()> {
+    use crate::prefix::PrefixExtractor;
+    use std::ops::Bound::{Excluded, Included};
+
+    struct Custom;
+
+    impl PrefixExtractor for Custom {
+        fn extract(&self, key: &[u8], emit: &mut dyn FnMut(usize)) {
+            crate::prefix::FixedPrefixExtractor::new(3).extract(key, emit);
+        }
+
+        fn same_result_when_appended(&self, prefix: &[u8]) -> bool {
+            prefix.len() == 3
+        }
+
+        fn name(&self) -> &'static str {
+            "test::Custom"
+        }
+    }
+
+    let configured: crate::prefix::SharedPrefixExtractor =
+        Arc::new(crate::prefix::FixedPrefixExtractor::new(8));
+
+    {
+        let dir = tempdir()?;
+        let table = prefix_table(
+            dir.path(),
+            &[b"aaa0"],
+            fixed3(),
+            Some(&configured),
+            true,
+            None,
+            0,
+        )?;
+        assert!(range_skipped(&table, Included(b"zzz"), Excluded(b"zz{")));
+    }
+
+    {
+        let dir = tempdir()?;
+        let custom: crate::prefix::SharedPrefixExtractor = Arc::new(Custom);
+
+        let table = prefix_table(
+            dir.path(),
+            &[b"aaa0"],
+            custom.clone(),
+            Some(&configured),
+            true,
+            None,
+            0,
+        )?;
+        assert!(!range_skipped(&table, Included(b"zzz"), Excluded(b"zz{")));
+
+        let table = prefix_table(
+            &{
+                let path = dir.path().join("again");
+                std::fs::create_dir(&path)?;
+                path
+            },
+            &[b"aaa0"],
+            custom.clone(),
+            Some(&custom),
+            true,
+            None,
+            0,
+        )?;
+        assert!(range_skipped(&table, Included(b"zzz"), Excluded(b"zz{")));
+    }
+
+    Ok(())
+}
+
+/// Reads the version a table file carries in its `table_version` section and
+/// in its meta block.
+#[expect(clippy::unwrap_used)]
+fn written_table_versions(table: &Table) -> crate::Result<(Vec<u8>, Vec<u8>)> {
+    use std::io::{Read, Seek};
+
+    let mut file = std::fs::File::open(&*table.path)?;
+    let trailer = sfa::Reader::from_reader(&mut file)?;
+    let section = trailer.toc().section(b"table_version").unwrap();
+
+    let mut section_bytes = vec![0; usize::try_from(section.len()).unwrap()];
+    file.seek(std::io::SeekFrom::Start(section.pos()))?;
+    file.read_exact(&mut section_bytes)?;
+
+    let block = crate::table::block::Block::from_file(
+        &file,
+        table.regions.metadata,
+        crate::CompressionType::None,
+    )?;
+    let meta_bytes = DataBlock::new(block)
+        .point_read(b"table_version", SeqNo::MAX)
+        .unwrap()
+        .value;
+
+    Ok((section_bytes, meta_bytes.to_vec()))
+}
+
+/// A filter without whole-key hashes gets table version 4, which readers that
+/// predate `whole_key_filtering` refuse to open instead of skipping the table
+/// on every point read; every other table keeps version 3.
+#[test]
+fn table_version_marks_prefix_only_filter() -> crate::Result<()> {
+    let dir = tempdir()?;
+    let prefix_only = prefix_table(dir.path(), &[b"aaa0"], fixed3(), None, false, None, 0)?;
+    assert_eq!((vec![4], vec![4]), written_table_versions(&prefix_only)?);
+
+    let dir = tempdir()?;
+    let prefix_and_key = prefix_table(dir.path(), &[b"aaa0"], fixed3(), None, true, None, 0)?;
+    assert_eq!((vec![3], vec![3]), written_table_versions(&prefix_and_key)?);
+
+    // Without an extractor the filter holds whole keys whatever the flag says
+    let dir = tempdir()?;
+    let file = dir.path().join("table");
+    let mut writer = Writer::new(file.clone(), 0, 0)?.use_whole_key_filtering(false);
+    writer.write(InternalValue::from_components(
+        b"aaa0",
+        b"aaa0",
+        0,
+        crate::ValueType::Value,
+    ))?;
+    #[expect(clippy::unwrap_used)]
+    let (_, checksum) = writer.finish()?.unwrap();
+    let key_only = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        None,
+        true,
+        true,
+        None,
+        #[cfg(feature = "metrics")]
+        Arc::default(),
+    )?;
+    assert_eq!((vec![3], vec![3]), written_table_versions(&key_only)?);
 
     Ok(())
 }

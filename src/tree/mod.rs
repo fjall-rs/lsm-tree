@@ -269,7 +269,7 @@ impl AbstractTree for Tree {
             &config.path,
             |v| {
                 let mut copy = v.clone();
-                copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+                copy.active_memtable = Arc::new(self.new_memtable());
                 copy.sealed_memtables = Arc::default();
                 copy.version = Version::new(v.version.id() + 1, self.tree_type());
                 Ok(copy)
@@ -388,7 +388,12 @@ impl AbstractTree for Tree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        // Ensure tables built during flush carry the configured extractor.
+        // This lets writers register prefixes and persist the extractor name in metadata
+        // for compatibility checks at read time.
+        .use_prefix_extractor(self.config.prefix_extractor.clone())
+        .use_whole_key_filtering(self.config.whole_key_filtering);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -421,6 +426,7 @@ impl AbstractTree for Tree {
                     self.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    self.config.prefix_extractor.as_ref(),
                     #[cfg(feature = "metrics")]
                     self.metrics.clone(),
                 )
@@ -501,7 +507,7 @@ impl AbstractTree for Tree {
         }
 
         let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.active_memtable = Arc::new(self.new_memtable());
         copy.sealed_memtables = Arc::new(SealedMemtables::default());
 
         // Clear active is only used for recovery where snapshots do not exist yet
@@ -560,7 +566,7 @@ impl AbstractTree for Tree {
         let yanked_memtable = super_version.active_memtable;
 
         let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.active_memtable = Arc::new(self.new_memtable());
         copy.sealed_memtables =
             Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
 
@@ -906,6 +912,16 @@ impl Tree {
         self.create_range(&range, seqno, ephemeral)
     }
 
+    /// Creates the next active memtable
+    fn new_memtable(&self) -> Memtable {
+        Memtable::configured(
+            self.memtable_id_counter.next(),
+            &self.config,
+            #[cfg(feature = "metrics")]
+            &self.0.metrics,
+        )
+    }
+
     /// Adds an item to the active memtable.
     ///
     /// Returns the added item's size and new size of the memtable.
@@ -987,12 +1003,19 @@ impl Tree {
             );
         }
 
+        let memtable = Memtable::configured(
+            0,
+            &config,
+            #[cfg(feature = "metrics")]
+            &metrics,
+        );
+
         let inner = TreeInner {
             id: tree_id,
             memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
             blob_file_id_counter: SequenceNumberCounter::default(),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version, memtable))),
             stop_signal: StopSignal::default(),
             config: Arc::new(config),
             major_compaction_lock: RwLock::default(),
@@ -1129,6 +1152,7 @@ impl Tree {
                     config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    config.prefix_extractor.as_ref(),
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;

@@ -20,8 +20,9 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
+    compaction::filter::Factory, path::absolute_path, prefix::SharedPrefixExtractor,
+    version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType, DescriptorTable,
+    SequenceNumberCounter, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -229,6 +230,16 @@ pub struct Config {
     /// Compaction filter factory
     pub compaction_filter_factory: Option<Arc<dyn Factory>>,
 
+    /// Prefix extractor whose prefixes new tables add to their filters
+    pub prefix_extractor: Option<SharedPrefixExtractor>,
+
+    /// Whether new tables with a prefix extractor also add whole-key hashes
+    /// to their filters
+    pub whole_key_filtering: bool,
+
+    /// Size of each memtable's prefix bloom filter in bytes, 0 for none
+    pub memtable_prefix_bloom_bytes: usize,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -290,6 +301,9 @@ impl Default for Config {
             )),
 
             compaction_filter_factory: None,
+            prefix_extractor: None,
+            whole_key_filtering: true,
+            memtable_prefix_bloom_bytes: 0,
 
             expect_point_read_hits: false,
 
@@ -311,6 +325,63 @@ impl Config {
             visible_seqno,
             ..Default::default()
         }
+    }
+
+    /// Sets the prefix extractor for building prefix-aware filters.
+    ///
+    /// New tables add each key's extracted prefixes to their filter and store
+    /// the extractor's [`name`](crate::prefix::PrefixExtractor::name), so a
+    /// table keeps using the extractor that wrote it after this setting
+    /// changes. See [`crate::prefix::PrefixExtractor`] for which reads the
+    /// prefixes speed up and the rules an extractor must follow.
+    ///
+    /// Together with [`Self::whole_key_filtering`], this sets what new
+    /// filters contain:
+    ///
+    /// | extractor | `whole_key_filtering` | filter contains |
+    /// |---|---|---|
+    /// | none | ignored | whole-key hashes |
+    /// | set | `true` (default) | whole-key and prefix hashes |
+    /// | set | `false` | prefix hashes |
+    #[must_use]
+    pub fn prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
+        self.prefix_extractor = Some(extractor);
+        self
+    }
+
+    /// Controls whether filters hold whole-key hashes alongside prefix hashes
+    /// when a prefix extractor is set.
+    ///
+    /// Defaults to `true`. Set to `false` for workloads that read by prefix
+    /// and rarely by key: filters shrink to one entry per distinct prefix,
+    /// and point reads probe them with the key's longest prefix instead.
+    ///
+    /// Without a prefix extractor this option has no effect; to disable
+    /// filters, use [`Self::filter_policy`].
+    ///
+    /// Tables written with `false` use table format version 4, which versions
+    /// of this crate without this option refuse to open rather than misread.
+    #[must_use]
+    pub fn whole_key_filtering(mut self, enabled: bool) -> Self {
+        self.whole_key_filtering = enabled;
+        self
+    }
+
+    /// Gives each memtable a bloom filter of `bytes` over its keys' prefixes,
+    /// so point and range reads skip memtables that lack the prefix instead
+    /// of searching them.
+    ///
+    /// Defaults to 0 (no filter). Has no effect without a prefix extractor.
+    ///
+    /// Size it for the distinct prefixes a memtable holds before it is
+    /// rotated: 10 bits (1.25 bytes) per prefix give about 1% false
+    /// positives. The filter is allocated when the memtable is created and
+    /// lives until it is flushed. `RocksDB` calls this
+    /// `memtable_prefix_bloom_size_ratio`, a fraction of the memtable size.
+    #[must_use]
+    pub fn memtable_prefix_bloom_bytes(mut self, bytes: usize) -> Self {
+        self.memtable_prefix_bloom_bytes = bytes;
+        self
     }
 
     /// Sets the global cache.

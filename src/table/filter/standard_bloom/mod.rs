@@ -34,6 +34,10 @@ pub struct StandardBloomFilterReader<'a> {
 }
 
 impl<'a> StandardBloomFilterReader<'a> {
+    // NOTE: `#[inline]` lets `FilterBlock::maybe_contains_hash`, which runs
+    // for every table a point read visits, inline the header parse and the
+    // bit checks below across codegen units
+    #[inline]
     pub fn new(slice: &'a [u8]) -> crate::Result<Self> {
         let mut reader = Cursor::new(slice);
 
@@ -99,6 +103,7 @@ impl<'a> StandardBloomFilterReader<'a> {
     ///
     /// Will never have a false negative.
     #[must_use]
+    #[inline]
     pub fn contains_hash(&self, mut h1: u64) -> bool {
         let mut h2 = secondary_hash(h1);
 

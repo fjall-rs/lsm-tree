@@ -9,6 +9,7 @@ use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegion
 use crate::{
     cache::Cache,
     file_accessor::FileAccessor,
+    prefix::SharedPrefixExtractor,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
@@ -49,6 +50,10 @@ pub struct Inner {
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
+
+    /// Extractor of the prefixes in the filter, if the table has any and it
+    /// is known
+    pub(crate) prefix_extractor: Option<SharedPrefixExtractor>,
 
     /// True when the table was compacted away or dropped
     ///

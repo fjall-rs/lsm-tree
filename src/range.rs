@@ -7,6 +7,7 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    prefix::RangeProbe,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -145,6 +146,16 @@ impl TreeIter {
 
             let range = (lo, hi);
 
+            let user_range = (
+                range.start_bound().map(|x| &x.user_key).cloned(),
+                range.end_bound().map(|x| &x.user_key).cloned(),
+            );
+
+            let mut probe = RangeProbe::new(
+                range.start_bound().map(|x| &*x.user_key),
+                range.end_bound().map(|x| &*x.user_key),
+            );
+
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
             for run in lock
@@ -153,61 +164,58 @@ impl TreeIter {
                 .iter_levels()
                 .flat_map(|lvl| lvl.iter())
             {
-                match run.len() {
-                    0 => {
-                        // Do nothing
-                    }
-                    1 => {
-                        #[expect(clippy::expect_used, reason = "we checked for length")]
-                        let table = run.first().expect("should exist");
+                let Some((lo, hi)) = run.range_overlap_indexes(&user_range) else {
+                    continue;
+                };
 
-                        if table.check_key_range_overlap(&(
-                            range.start_bound().map(|x| &*x.user_key),
-                            range.end_bound().map(|x| &*x.user_key),
-                        )) {
-                            let reader = table
-                                .range((
-                                    range.start_bound().map(|x| &x.user_key).cloned(),
-                                    range.end_bound().map(|x| &x.user_key).cloned(),
-                                ))
+                if lo < hi {
+                    // NOTE: Every table but the first and last lies inside the
+                    // range, and those two hold a bound-side key of it, so if
+                    // all keys in the range share a prefix, every one of these
+                    // tables has it: probing their filters cannot skip any.
+                    let reader =
+                        RunReader::culled(run.clone(), user_range.clone(), (Some(lo), Some(hi)));
+
+                    iters.push(Box::new(reader.filter(move |item| match item {
+                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                        Err(_) => true,
+                    })));
+
+                    continue;
+                }
+
+                #[expect(clippy::expect_used, reason = "index is in bounds")]
+                let table = run.get(lo).expect("should exist");
+
+                match table.skips_range(&mut probe) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let reader =
+                            table
+                                .range(user_range.clone())
                                 .filter(move |item| match item {
                                     Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 });
 
-                            iters.push(Box::new(reader));
-                        }
+                        iters.push(Box::new(reader));
                     }
-                    _ => {
-                        if let Some(reader) = RunReader::new(
-                            run.clone(),
-                            (
-                                range.start_bound().map(|x| &x.user_key).cloned(),
-                                range.end_bound().map(|x| &x.user_key).cloned(),
-                            ),
-                        ) {
-                            iters.push(Box::new(reader.filter(move |item| match item {
-                                Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                Err(_) => true,
-                            })));
-                        }
-                    }
+                    Err(e) => iters.push(Box::new(std::iter::once(Err(e)))),
                 }
             }
 
-            // Sealed memtables
-            for memtable in lock.version.sealed_memtables.iter() {
-                let iter = memtable.range(range.clone());
-
-                iters.push(Box::new(
-                    iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
-                        .map(Ok),
-                ));
-            }
-
-            // Active memtable
+            // Sealed memtables, then the active one
+            for memtable in lock
+                .version
+                .sealed_memtables
+                .iter()
+                .chain([&lock.version.active_memtable])
             {
-                let iter = lock.version.active_memtable.range(range.clone());
+                if memtable.skips_range(&mut probe) {
+                    continue;
+                }
+
+                let iter = memtable.range(range.clone());
 
                 iters.push(Box::new(
                     iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
