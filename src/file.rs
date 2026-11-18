@@ -109,7 +109,7 @@ pub fn persist_temp_file(temp_file: tempfile::NamedTempFile, path: &Path) -> std
 }
 
 /// Atomically rewrites a file.
-pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
+pub fn rewrite_atomic(path: &Path, content: &[u8], fsync: bool) -> std::io::Result<()> {
     #[expect(
         clippy::expect_used,
         reason = "every file should have a parent directory"
@@ -119,12 +119,14 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;
     temp_file.write_all(content)?;
     temp_file.flush()?;
-    temp_file.as_file_mut().sync_all()?;
+    if fsync {
+        temp_file.as_file_mut().sync_all()?;
+    }
     persist_temp_file(temp_file, path)?;
 
     // TODO: not sure why it fails on Windows...
     #[cfg(not(target_os = "windows"))]
-    {
+    if fsync {
         let file = std::fs::File::open(path)?;
         file.sync_all()?;
 
@@ -169,7 +171,7 @@ mod tests {
             write!(file, "asdasdasdasdasd")?;
         }
 
-        rewrite_atomic(&path, b"newcontent")?;
+        rewrite_atomic(&path, b"newcontent", true)?;
 
         let content = std::fs::read_to_string(&path)?;
         assert_eq!("newcontent", content);

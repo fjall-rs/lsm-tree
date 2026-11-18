@@ -54,6 +54,8 @@ pub struct Writer {
     pub(crate) last_key: Option<UserKey>,
 
     pub(crate) blob_compression: BlobCompression,
+
+    pub(crate) fsync: bool,
 }
 
 impl Writer {
@@ -91,11 +93,20 @@ impl Writer {
             last_key: None,
 
             blob_compression: BlobCompression::default(),
+
+            fsync: true,
         })
     }
 
+    #[must_use]
     pub fn use_compression(mut self, compression: BlobCompression) -> Self {
         self.blob_compression = compression;
+        self
+    }
+
+    #[must_use]
+    pub fn use_fsync(mut self, fsync: bool) -> Self {
+        self.fsync = fsync;
         self
     }
 
@@ -248,7 +259,9 @@ impl Writer {
         metadata.encode_into(&mut self.writer)?;
 
         let mut checksum = self.writer.into_inner()?;
-        checksum.inner_mut().get_mut().sync_all()?;
+        if self.fsync {
+            checksum.inner_mut().get_mut().sync_all()?;
+        }
         let checksum = checksum.checksum();
 
         Ok((metadata, checksum))

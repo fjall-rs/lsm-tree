@@ -116,8 +116,9 @@ impl SuperVersions {
         f: F,
         seqno: &SequenceNumberCounter,
         visible_seqno: &SequenceNumberCounter,
+        fsync: bool,
     ) -> crate::Result<()> {
-        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
+        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno, fsync)
     }
 
     /// Like `upgrade_version`, but takes an already-allocated sequence number.
@@ -132,12 +133,13 @@ impl SuperVersions {
         f: F,
         seqno: SeqNo,
         visible_seqno: &SequenceNumberCounter,
+        fsync: bool,
     ) -> crate::Result<()> {
         let mut next_version = f(&self.latest_version())?;
         next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
 
-        persist_version(tree_path, &next_version.version)?;
+        persist_version(tree_path, &next_version.version, fsync)?;
         self.append_version(next_version);
 
         visible_seqno.fetch_max(seqno + 1);

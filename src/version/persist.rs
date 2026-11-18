@@ -9,7 +9,7 @@ use std::{
     path::Path,
 };
 
-pub fn persist_version(folder: &Path, version: &Version) -> crate::Result<()> {
+pub fn persist_version(folder: &Path, version: &Version, fsync: bool) -> crate::Result<()> {
     log::trace!(
         "Persisting version {} in {}",
         version.id(),
@@ -38,17 +38,23 @@ pub fn persist_version(folder: &Path, version: &Version) -> crate::Result<()> {
 
     drop(writer);
 
-    file.sync_all()?;
+    if fsync {
+        file.sync_all()?;
 
-    // IMPORTANT: fsync folder on Unix
-    fsync_directory(folder)?;
+        // IMPORTANT: fsync folder on Unix
+        fsync_directory(folder)?;
+    }
 
     let mut current_file_content = vec![];
     current_file_content.write_u64::<LittleEndian>(version.id())?;
     current_file_content.write_u128::<LittleEndian>(checksum.into_u128())?;
     current_file_content.write_u8(0)?; // 0 = xxh3
 
-    rewrite_atomic(&folder.join(CURRENT_VERSION_FILE), &current_file_content)?;
+    rewrite_atomic(
+        &folder.join(CURRENT_VERSION_FILE),
+        &current_file_content,
+        fsync,
+    )?;
 
     Ok(())
 }
@@ -67,7 +73,7 @@ mod tests {
         // Simulates the leftover of a persist that failed midway
         std::fs::write(dir.path().join("v0"), b"partial")?;
 
-        persist_version(dir.path(), &version)?;
+        persist_version(dir.path(), &version, true)?;
 
         assert_ne!(
             b"partial".as_slice(),

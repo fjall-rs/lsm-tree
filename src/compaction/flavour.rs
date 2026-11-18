@@ -113,7 +113,8 @@ pub(super) fn prepare_table_writer(
                     None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
             }
-        }))
+        })
+        .use_fsync(opts.fsync))
 }
 
 // TODO: find a better name
@@ -310,6 +311,7 @@ impl CompactionFlavour for RelocatingCompaction {
             },
             &opts.global_seqno,
             &opts.visible_seqno,
+            opts.fsync,
         )?;
 
         // NOTE: If the application were to crash >here< it's fine
@@ -440,6 +442,7 @@ impl CompactionFlavour for StandardCompaction {
             },
             &opts.global_seqno,
             &opts.visible_seqno,
+            opts.fsync,
         )?;
 
         // NOTE: If the application were to crash >here< it's fine

@@ -229,6 +229,9 @@ pub struct Config {
     /// Compaction filter factory
     pub compaction_filter_factory: Option<Arc<dyn Factory>>,
 
+    /// Whether to use fsync
+    pub fsync: bool,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -290,6 +293,8 @@ impl Default for Config {
             )),
 
             compaction_filter_factory: None,
+
+            fsync: true,
 
             expect_point_read_hits: false,
 
