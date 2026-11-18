@@ -48,6 +48,8 @@ pub struct MultiWriter {
 
     /// Level the tables are written to
     initial_level: u8,
+
+    fsync: bool,
 }
 
 impl MultiWriter {
@@ -91,6 +93,8 @@ impl MultiWriter {
             current_key: None,
 
             linked_blobs: HashMap::default(),
+
+            fsync: true,
         })
     }
 
@@ -177,6 +181,13 @@ impl MultiWriter {
         self
     }
 
+    #[must_use]
+    pub fn use_fsync(mut self, fsync: bool) -> Self {
+        self.fsync = fsync;
+        self.writer.fsync = fsync;
+        self
+    }
+
     /// Flushes the current writer, stores its metadata, and sets up a new writer for the next table
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating table writer");
@@ -191,7 +202,8 @@ impl MultiWriter {
             .use_data_block_restart_interval(self.data_block_restart_interval)
             .use_index_block_restart_interval(self.index_block_restart_interval)
             .use_bloom_policy(self.bloom_policy)
-            .use_data_block_hash_ratio(self.data_block_hash_ratio);
+            .use_data_block_hash_ratio(self.data_block_hash_ratio)
+            .use_fsync(self.fsync);
 
         if self.use_partitioned_index {
             new_writer = new_writer.use_partitioned_index();

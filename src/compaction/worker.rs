@@ -60,6 +60,8 @@ pub struct Options {
 
     pub compaction_state: Arc<Mutex<CompactionState>>,
 
+    pub fsync: bool,
+
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,
 }
@@ -79,6 +81,8 @@ impl Options {
             mvcc_gc_watermark: 0,
 
             compaction_state: tree.compaction_state.clone(),
+
+            fsync: tree.config.fsync,
 
             #[cfg(feature = "metrics")]
             metrics: tree.metrics.clone(),
@@ -236,6 +240,7 @@ fn move_tables(
         },
         &opts.global_seqno,
         &opts.visible_seqno,
+        opts.fsync,
     )?;
 
     if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
@@ -479,7 +484,8 @@ fn merge_tables(
                     crate::vlog::blob_file::writer::BlobCompression::Passthrough(
                         blob_opts.compression,
                     ),
-                );
+                )
+                .use_fsync(opts.fsync);
 
                 let inner = StandardCompaction::new(table_writer, tables);
 
@@ -666,6 +672,7 @@ fn drop_tables(
         },
         &opts.global_seqno,
         &opts.visible_seqno,
+        opts.fsync,
     )?;
 
     if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {

@@ -143,7 +143,9 @@ impl BlobTree {
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
         std::fs::create_dir_all(&blobs_folder)?;
-        fsync_directory(&blobs_folder)?;
+        if index.config.fsync {
+            fsync_directory(&blobs_folder)?;
+        }
 
         let blob_file_id_to_continue_with = index
             .current_version()
@@ -285,6 +287,7 @@ impl AbstractTree for BlobTree {
             },
             &config.seqno,
             &config.visible_seqno,
+            config.fsync,
         )
     }
 
@@ -399,7 +402,8 @@ impl AbstractTree for BlobTree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        .use_fsync(self.index.config.fsync);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -428,7 +432,8 @@ impl AbstractTree for BlobTree {
         .use_target_size(kv_opts.file_target_size)
         .use_compression(crate::vlog::blob_file::writer::BlobCompression::Standard(
             kv_opts.compression,
-        ));
+        ))
+        .use_fsync(self.index.config.fsync);
 
         let separation_threshold = kv_opts.separation_threshold;
 

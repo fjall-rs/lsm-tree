@@ -81,7 +81,7 @@ impl TreeInner {
                 crate::TreeType::Standard
             },
         );
-        persist_version(&config.path, &version)?;
+        persist_version(&config.path, &version, config.fsync)?;
 
         Ok(Self {
             id: get_next_tree_id(),

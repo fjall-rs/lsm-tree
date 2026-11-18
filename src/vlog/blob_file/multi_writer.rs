@@ -32,6 +32,8 @@ pub struct MultiWriter {
 
     tree_id: TreeId,
     descriptor_table: Option<Arc<DescriptorTable>>,
+
+    fsync: bool,
 }
 
 impl MultiWriter {
@@ -65,6 +67,8 @@ impl MultiWriter {
 
             tree_id,
             descriptor_table,
+
+            fsync: true,
         })
     }
 
@@ -84,6 +88,14 @@ impl MultiWriter {
         self
     }
 
+    /// Whether to use fsync.
+    #[must_use]
+    pub fn use_fsync(mut self, fsync: bool) -> Self {
+        self.fsync = fsync;
+        self.active_writer.fsync = fsync;
+        self
+    }
+
     /// Sets up a new writer for the next blob file.
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating blob file writer");
@@ -92,7 +104,8 @@ impl MultiWriter {
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
         let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
-            .use_compression(self.blob_compression);
+            .use_compression(self.blob_compression)
+            .use_fsync(self.fsync);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
         let blob_file = Self::consume_writer(old_writer, self.descriptor_table.clone())?;
