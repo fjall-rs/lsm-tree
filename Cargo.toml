@@ -56,6 +56,11 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 denylist = []
 
 [[bench]]
+name = "point_read"
+harness = false
+path = "benches/point_read.rs"
+
+[[bench]]
 name = "tli"
 harness = false
 path = "benches/tli.rs"
