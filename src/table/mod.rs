@@ -27,6 +27,7 @@ pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
 
+use crate::value::PointReadResult;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
@@ -232,6 +233,35 @@ impl Table {
         seqno: SeqNo,
         key_hash: u64,
     ) -> crate::Result<Option<InternalValue>> {
+        self.get_with(key, seqno, key_hash, |block, key, seqno| {
+            block.point_read(key, seqno).map(|mut item| {
+                item.key.seqno += self.global_seqno();
+                item
+            })
+        })
+    }
+
+    pub(crate) fn get_value(
+        &self,
+        key: &[u8],
+        seqno: SeqNo,
+        key_hash: u64,
+    ) -> crate::Result<Option<PointReadResult>> {
+        self.get_with(key, seqno, key_hash, |block, key, seqno| {
+            block.point_read_value(key, seqno).map(|mut item| {
+                item.seqno += self.global_seqno();
+                item
+            })
+        })
+    }
+
+    fn get_with<T>(
+        &self,
+        key: &[u8],
+        seqno: SeqNo,
+        key_hash: u64,
+        read: impl Fn(&DataBlock, &[u8], SeqNo) -> Option<T>,
+    ) -> crate::Result<Option<T>> {
         #[cfg(feature = "metrics")]
         use std::sync::atomic::Ordering::Relaxed;
 
@@ -289,7 +319,7 @@ impl Table {
             }
         }
 
-        let item = self.point_read(key, seqno);
+        let item = self.point_read(key, seqno, read);
 
         #[cfg(not(feature = "metrics"))]
         {
@@ -310,11 +340,12 @@ impl Table {
         }
     }
 
-    // TODO: maybe we can skip Fuse costs of the user key
-    // TODO: because we just want to return the value
-    // TODO: we would need to return something like ValueType + Value
-    // TODO: so the caller can decide whether to return the value or not
-    fn point_read(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+    fn point_read<T>(
+        &self,
+        key: &[u8],
+        seqno: SeqNo,
+        read: impl Fn(&DataBlock, &[u8], SeqNo) -> Option<T>,
+    ) -> crate::Result<Option<T>> {
         let Some(iter) = self.block_index.forward_reader(key, seqno) else {
             return Ok(None);
         };
@@ -324,8 +355,7 @@ impl Table {
 
             let block = self.load_data_block(block_handle.as_ref())?;
 
-            if let Some(mut item) = block.point_read(key, seqno) {
-                item.key.seqno += self.global_seqno();
+            if let Some(item) = read(&block, key, seqno) {
                 return Ok(Some(item));
             }
 

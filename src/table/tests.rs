@@ -1425,6 +1425,20 @@ fn table_global_seqno() -> crate::Result<()> {
             .value,
     );
 
+    assert!(table
+        .get_value(b"a1", 8, BloomBuilder::get_hash(b"a1"))?
+        .is_none());
+    for (key, seqno, expected_seqno) in
+        [(&b"a0"[..], 8, 7), (&b"a1"[..], 9, 8), (&b"b"[..], 16, 15)]
+    {
+        let item = table
+            .get_value(key, seqno, BloomBuilder::get_hash(key))?
+            .unwrap();
+        assert_eq!(item.seqno, expected_seqno);
+        assert_eq!(item.value_type, Value);
+        assert_eq!(item.value.as_ref(), key);
+    }
+
     Ok(())
 }
 

@@ -89,35 +89,48 @@ fn resolve_value_handle(
     version: &Version,
     item: InternalValue,
 ) -> RangeItem {
-    if item.key.value_type.is_indirection() {
-        let mut cursor = std::io::Cursor::new(item.value);
-        let vptr = BlobIndirection::decode_from(&mut cursor)?;
+    let value = resolve_point_value(
+        tree_id,
+        blobs_folder,
+        cache,
+        version,
+        &item.key.user_key,
+        item.key.value_type,
+        item.value,
+    )?;
+    Ok((item.key.user_key, value))
+}
 
-        // Resolve indirection using value log
+fn resolve_point_value(
+    tree_id: TreeId,
+    blobs_folder: &Path,
+    cache: &Cache,
+    version: &Version,
+    key: &[u8],
+    value_type: crate::ValueType,
+    value: UserValue,
+) -> crate::Result<UserValue> {
+    if value_type.is_indirection() {
+        let mut cursor = std::io::Cursor::new(value);
+        let vptr = BlobIndirection::decode_from(&mut cursor)?;
         match Accessor::new(&version.blob_files).get(
             tree_id,
             blobs_folder,
-            &item.key.user_key,
+            key,
             &vptr.vhandle,
             cache,
         ) {
-            Ok(Some(v)) => {
-                let k = item.key.user_key;
-                Ok((k, v))
-            }
+            Ok(Some(value)) => Ok(value),
             Ok(None) => {
                 panic!(
-                    "value handle ({:?} => {:?}) did not match any blob - this is a bug; version={}",
-                    item.key.user_key, vptr.vhandle,
-                    version.id(),
-                );
+                "value handle ({:?} => {:?}) did not match any blob - this is a bug; version={}",
+                key, vptr.vhandle, version.id(),
+            )
             }
             Err(e) => Err(e),
         }
     } else {
-        let k = item.key.user_key;
-        let v = item.value;
-        Ok((k, v))
+        Ok(value)
     }
 }
 
@@ -307,11 +320,11 @@ impl AbstractTree for BlobTree {
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>> {
-        let Some(item) = self.index.get_internal_entry(key.as_ref(), seqno)? else {
+        let Some(item) = self.index.get_point_result(key.as_ref(), seqno)? else {
             return Ok(None);
         };
 
-        Ok(Some(if item.key.value_type.is_indirection() {
+        Ok(Some(if item.value_type.is_indirection() {
             let mut cursor = std::io::Cursor::new(item.value);
             let vptr = BlobIndirection::decode_from(&mut cursor)?;
             vptr.size
@@ -607,17 +620,19 @@ impl AbstractTree for BlobTree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        let Some(item) = crate::Tree::get_internal_entry_from_version(&super_version, key, seqno)?
+        let Some(item) = crate::Tree::get_point_result_from_version(&super_version, key, seqno)?
         else {
             return Ok(None);
         };
 
-        let (_, v) = resolve_value_handle(
+        let v = resolve_point_value(
             self.id(),
             self.blobs_folder.as_path(),
             &self.index.config.cache,
             &super_version.version,
-            item,
+            key,
+            item.value_type,
+            item.value,
         )?;
 
         Ok(Some(v))
