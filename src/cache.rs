@@ -136,6 +136,20 @@ impl Cache {
         );
     }
 
+    /// Evicts all cached blocks of a table.
+    ///
+    /// Used when a table is deleted, because its blocks can never be read again.
+    ///
+    /// This needs to visit every cache entry, because blocks are keyed by their offset.
+    pub(crate) fn remove_table_blocks(&self, id: GlobalTableId) {
+        let (tree_id, table_id) = (id.tree_id(), id.table_id());
+
+        self.data.retain(|key, _| {
+            let CacheKey(tag, key_tree_id, key_table_id, _) = key;
+            !(*tag == TAG_BLOCK && *key_tree_id == tree_id && *key_table_id == table_id)
+        });
+    }
+
     #[doc(hidden)]
     pub fn insert_blob(
         &self,

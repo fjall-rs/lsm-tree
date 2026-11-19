@@ -92,6 +92,8 @@ impl Drop for Inner {
             self.file_accessor.as_descriptor_table().inspect(|d| {
                 d.remove_for_table(&global_id);
             });
+
+            self.cache.remove_table_blocks(global_id);
         }
     }
 }
