@@ -188,7 +188,7 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
 
                     // NOTE: Only item of this key and thus latest version, so return it no matter what
                     // ...
-                } else if peeked.key.seqno < self.gc_seqno_threshold {
+                } else if head.key.seqno <= self.gc_seqno_threshold {
                     if head.key.value_type == ValueType::Tombstone && self.evict_tombstones {
                         fail_iter!(self.drain_key(&head.key.user_key));
                         continue;
@@ -575,6 +575,35 @@ mod tests {
             iter.next().unwrap()?,
         );
 
+        iter_closed!(iter);
+
+        Ok(())
+    }
+
+    /// https://github.com/fjall-rs/lsm-tree/issues/321
+    ///
+    /// The newest version (60) is above the GC watermark (50), so the newest version
+    /// below the watermark (5) is still visible to the oldest snapshot and must be kept
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_gc_keeps_newest_visible_version() -> crate::Result<()> {
+        let vec = [
+            InternalValue::from_components(*b"a", *b"60", 60, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"5", 5, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"3", 3, ValueType::Value),
+        ];
+
+        let iter = vec.iter().cloned().map(Ok);
+        let mut iter = CompactionStream::new(iter, 50);
+
+        assert_eq!(
+            InternalValue::from_components(*b"a", *b"60", 60, ValueType::Value),
+            iter.next().unwrap()?,
+        );
+        assert_eq!(
+            InternalValue::from_components(*b"a", *b"5", 5, ValueType::Value),
+            iter.next().unwrap()?,
+        );
         iter_closed!(iter);
 
         Ok(())
