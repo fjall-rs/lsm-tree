@@ -1,5 +1,5 @@
 use super::*;
-use crate::{version_set::MemoryVersionSetProvider, KvSeparationOptions};
+use crate::{version_set::MemorySuperVersionSetProvider, KvSeparationOptions};
 use test_log::test;
 
 #[test]
@@ -7,7 +7,7 @@ use test_log::test;
 fn tree_smoke_test_flush() -> crate::Result<()> {
     let tempdir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 
@@ -49,7 +49,7 @@ fn tree_smoke_test_flush() -> crate::Result<()> {
 fn tree_smoke_test_flush_many_sealed() -> crate::Result<()> {
     let tempdir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 
@@ -87,7 +87,7 @@ fn tree_smoke_test_flush_many_sealed() -> crate::Result<()> {
 fn tree_smoke_test_flush_blob() -> crate::Result<()> {
     let tempdir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = crate::Config::new(&tempdir, version_set_provider.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(2)))
@@ -133,7 +133,7 @@ fn tree_smoke_test_flush_blob() -> crate::Result<()> {
 fn tree_smoke_test_major_compact() -> crate::Result<()> {
     let tempdir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 

@@ -1,6 +1,6 @@
 use lsm_tree::{
-    AbstractTree, Cache, Config, DescriptorTable, KvSeparationOptions, MemoryVersionSetProvider,
-    SeqNo, SequenceNumberCounter,
+    AbstractTree, Cache, Config, DescriptorTable, KvSeparationOptions,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::{path::Path, sync::Arc};
 use test_log::test;
@@ -34,7 +34,7 @@ fn tree_blob_load_v3() -> lsm_tree::Result<()> {
     let current_version =
         lsm_tree::legacy::v3::load_manifest(&dir, &cache, &descriptor_table, None)?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::with_initial_version(
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::with_initial_version(
         current_version,
     ));
 

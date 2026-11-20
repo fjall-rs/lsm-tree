@@ -44,6 +44,17 @@ impl RawVersionData {
         }
     }
 
+    /// Returns all tables of the version (every level and run).
+    pub fn tables(&self) -> impl Iterator<Item = &TableRef> {
+        self.table_ids.iter().flatten().flatten()
+    }
+
+    /// Returns all blob files of the version.
+    #[must_use]
+    pub fn blob_files(&self) -> &[BlobFileRef] {
+        &self.blob_file_ids
+    }
+
     /// Applies a version edit to this raw version.
     ///
     /// Like in [`crate::version::Version`], the runs of a level are ordered
@@ -413,6 +424,37 @@ mod tests {
             Some(&vec![vec![table(1, 101)], vec![table(3, 103)]]),
             "moved run should be first in its destination level",
         );
+    }
+
+    #[test]
+    fn tables_and_blob_files_list_the_current_files() {
+        let mut raw = RawVersionData::new();
+        assert_eq!(0, raw.tables().count());
+        assert!(raw.blob_files().is_empty());
+
+        raw.apply(&VersionEdit::new(vec![
+            EditRecord::AddTables {
+                level: 0,
+                tables: vec![table(1, 101), table(2, 102)],
+            },
+            EditRecord::AddTables {
+                level: 3,
+                tables: vec![table(3, 103)],
+            },
+            EditRecord::AddBlobFiles {
+                blob_files: vec![blob_file(4, 104), blob_file(5, 105)],
+            },
+        ]));
+        raw.apply(&VersionEdit::new(vec![
+            EditRecord::DropTables(vec![2]),
+            EditRecord::DropBlobFiles(vec![4]),
+        ]));
+
+        let mut tables = raw.tables().copied().collect::<Vec<_>>();
+        tables.sort_by_key(TableRef::id);
+        assert_eq!(vec![table(1, 101), table(3, 103)], tables);
+
+        assert_eq!(&[blob_file(5, 105)], raw.blob_files());
     }
 
     #[test]

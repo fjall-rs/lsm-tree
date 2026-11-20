@@ -75,14 +75,14 @@ impl Iterator for RunScanner {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::{version_set::MemoryVersionSetProvider, AbstractTree, Slice};
+    use crate::{version_set::MemorySuperVersionSetProvider, AbstractTree, Slice};
     use test_log::test;
 
     #[test]
     fn run_scanner_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = crate::Config::new(&tempdir, version_set_provider.clone()).open()?;
 

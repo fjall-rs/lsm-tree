@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -14,7 +15,7 @@ fn static_iterator_ownership() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -50,7 +51,7 @@ fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -85,7 +86,7 @@ fn static_iterator_prefix() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -115,7 +116,7 @@ fn static_iterator_reverse() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -145,7 +146,7 @@ fn static_iterator_with_segments() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -183,7 +184,7 @@ fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(Default::default()))
@@ -219,7 +220,7 @@ fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -258,7 +259,7 @@ fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -295,7 +296,7 @@ fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -327,7 +328,7 @@ fn static_iterator_with_tombstones() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 

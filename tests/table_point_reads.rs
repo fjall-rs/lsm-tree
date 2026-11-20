@@ -1,6 +1,6 @@
 use lsm_tree::{
     config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
-    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -12,7 +12,7 @@ fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
@@ -40,7 +40,7 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
@@ -85,7 +85,7 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
@@ -137,7 +137,7 @@ fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))

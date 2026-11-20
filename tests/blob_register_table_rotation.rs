@@ -1,6 +1,6 @@
 use lsm_tree::{
     config::BlockSizePolicy, get_tmp_folder, AbstractTree, KvSeparationOptions,
-    MemoryVersionSetProvider, SequenceNumberCounter,
+    MemorySuperVersionSetProvider, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -16,7 +16,7 @@ fn blob_register_table_rotation() -> lsm_tree::Result<()> {
     let path = folder.path();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(path, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1))
@@ -76,7 +76,7 @@ fn blob_register_table_rotation_relocation() -> lsm_tree::Result<()> {
     let path = folder.path();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(path, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1))

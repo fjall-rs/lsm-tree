@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, Guard, MemoryVersionSetProvider, SeqNo,
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -10,7 +10,7 @@ fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -46,7 +46,7 @@ fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(Default::default()))
@@ -84,7 +84,7 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -117,7 +117,7 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
 fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(Default::default()))
@@ -156,7 +156,7 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -202,7 +202,7 @@ fn tree_shadowing_range_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .with_kv_separation(Some(Default::default()))
@@ -250,7 +250,7 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -324,7 +324,7 @@ fn tree_shadowing_prefix_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 

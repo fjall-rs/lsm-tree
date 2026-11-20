@@ -1,7 +1,7 @@
 #[test_log::test]
 fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+        get_tmp_folder, AbstractTree, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
         SequenceNumberCounter,
     };
     use std::sync::Arc;
@@ -12,7 +12,7 @@ fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()>
     let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(4_096);
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())
@@ -79,7 +79,7 @@ fn blob_tree_major_compact_relocation_recovery_no_comp() -> lsm_tree::Result<()>
 #[cfg(feature = "lz4")]
 fn blob_tree_major_compact_relocation_recovery() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+        get_tmp_folder, AbstractTree, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
         SequenceNumberCounter,
     };
     use std::sync::Arc;

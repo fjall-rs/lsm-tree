@@ -2,7 +2,7 @@ use lsm_tree::{
     compaction::filter::{
         CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
-    AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter,
+    AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter,
 };
 use std::sync::{
     atomic::{AtomicU64, Ordering::Relaxed},
@@ -49,7 +49,7 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
     let factory = TtlFilterFactory(watermark.clone());
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(folder, version_set_provider.clone())
         .with_compaction_filter_factory(Some(Arc::new(factory)))

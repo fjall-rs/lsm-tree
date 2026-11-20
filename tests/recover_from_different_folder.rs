@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, MemoryVersionSetProvider, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -11,7 +11,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     let folder = ".test/asd";
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     {
         let tree = Config::new(folder, version_set_provider.clone()).open()?;
 

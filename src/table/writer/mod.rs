@@ -478,6 +478,7 @@ impl Writer {
                 ),
                 meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("seqnos_zeroed", &[0]),
                 meta("table_id", &self.table_id.to_le_bytes()),
                 meta("table_version", &[3u8]),
                 meta(

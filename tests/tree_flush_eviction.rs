@@ -1,5 +1,6 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -9,7 +10,7 @@ fn tree_flush_eviction_1() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -31,7 +32,7 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -53,7 +54,7 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
@@ -86,7 +87,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 

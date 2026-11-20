@@ -26,7 +26,7 @@ use crate::{
     version::DEFAULT_LEVEL_COUNT,
     vlog::BlobFileId,
     AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, FileResolver,
-    SequenceNumberCounter, TableId, Tree, VersionSetProvider,
+    SequenceNumberCounter, SuperVersionSetProvider, TableId, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -235,7 +235,7 @@ pub struct Config {
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
-    pub(crate) version_set_provider: Arc<dyn VersionSetProvider + Send + Sync>,
+    pub(crate) version_set_provider: Arc<dyn SuperVersionSetProvider + Send + Sync>,
 
     /// Table ID counter, may be shared between trees
     pub(crate) table_id_counter: Option<SequenceNumberCounter>,
@@ -251,7 +251,7 @@ impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(
         path: P,
-        version_set_provider: Arc<dyn VersionSetProvider + Send + Sync>,
+        version_set_provider: Arc<dyn SuperVersionSetProvider + Send + Sync>,
     ) -> Self {
         Self {
             path: absolute_path(path.as_ref()),

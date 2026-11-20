@@ -1,6 +1,6 @@
 use lsm_tree::{
     blob_tree::FragmentationEntry, get_tmp_folder, AbstractTree, KvSeparationOptions,
-    MemoryVersionSetProvider, SeqNo, SequenceNumberCounter,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -14,7 +14,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let new_big_value = b"winter!".repeat(128_000);
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())
@@ -122,7 +122,7 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(2_000);
     let very_big_value = b"winter!".repeat(128_000);
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())
@@ -249,7 +249,7 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(2_000);
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())

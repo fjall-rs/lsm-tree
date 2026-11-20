@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemoryVersionSetProvider,
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, MemorySuperVersionSetProvider,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -11,7 +11,7 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone())
@@ -61,7 +61,7 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = Config::new(&folder, version_set_provider.clone())

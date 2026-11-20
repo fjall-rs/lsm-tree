@@ -1,5 +1,7 @@
 use super::*;
-use crate::{version_set::MemoryVersionSetProvider, AbstractTree, Config, SequenceNumberCounter};
+use crate::{
+    version_set::MemorySuperVersionSetProvider, AbstractTree, Config, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -7,7 +9,7 @@ use test_log::test;
 fn leveled_empty_levels() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -22,7 +24,7 @@ fn leveled_empty_levels() -> crate::Result<()> {
 fn leveled_l0_below_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -47,7 +49,7 @@ fn leveled_l0_below_limit() -> crate::Result<()> {
 fn leveled_l0_reached_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -74,7 +76,7 @@ fn leveled_l0_reached_limit() -> crate::Result<()> {
 fn leveled_l0_reached_limit_disjoint() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -100,7 +102,7 @@ fn leveled_l0_reached_limit_disjoint_l1() -> crate::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -140,7 +142,7 @@ fn leveled_l0_reached_limit_disjoint_l1() -> crate::Result<()> {
 fn leveled_sequential_inserts() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 

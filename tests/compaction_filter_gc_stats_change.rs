@@ -3,7 +3,7 @@ use lsm_tree::{
     compaction::filter::{
         CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
-    get_tmp_folder, AbstractTree, KvSeparationOptions, MemoryVersionSetProvider, SeqNo,
+    get_tmp_folder, AbstractTree, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -46,7 +46,7 @@ fn compaction_filter_gc_stats_change() -> lsm_tree::Result<()> {
     let other_big_value = b"asdasd".repeat(128_000);
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())
@@ -138,7 +138,7 @@ fn compaction_filter_gc_stats_change_non_blob() -> lsm_tree::Result<()> {
     let small_value = b"asdasd";
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())
@@ -222,7 +222,7 @@ fn compaction_filter_gc_stats_change_blob_writer_rotation() -> lsm_tree::Result<
     let other_big_value = b"asdasd".repeat(128_000);
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())

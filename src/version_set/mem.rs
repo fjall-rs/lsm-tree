@@ -10,7 +10,7 @@ use crate::{
     compaction::{drop_range::OwnedBounds, worker::NewCompactionResult},
     memtable::Memtable,
     version::{SuperVersion, SuperVersionSet, Version},
-    AbstractTree, MemtableId, SeqNo, Slice, VersionSetProvider,
+    AbstractTree, MemtableId, SeqNo, Slice, SuperVersionSetProvider,
 };
 use std::{
     ops::{Bound, RangeBounds},
@@ -174,15 +174,14 @@ impl Inner {
     }
 }
 
-/// This is only used for ephemeral tests.
 #[derive(Default)]
 #[doc(hidden)]
-pub struct MemoryVersionSetProvider {
+pub struct MemorySuperVersionSetProvider {
     inner: Arc<RwLock<Inner>>,
 }
 
 #[expect(clippy::unwrap_used, clippy::must_use_candidate)]
-impl MemoryVersionSetProvider {
+impl MemorySuperVersionSetProvider {
     pub fn new(vset: SuperVersionSet) -> Self {
         Self {
             inner: Arc::new(RwLock::new(Inner::new(vset))),
@@ -201,10 +200,8 @@ impl MemoryVersionSetProvider {
         }
     }
 
-    /// Removes versions (and their memtables) that no snapshot at or above `gc_watermark`
-    /// can read anymore, see [`SuperVersionSet::maintenance`].
-    ///
-    /// `SeqNo::MAX` keeps only the latest version.
+    /// Removes [`SuperVersions`](`SuperVersion`) (and their memtables) that no
+    /// snapshot at or above `gc_watermark` can read anymore, see [`SuperVersionSet::maintenance`].
     #[expect(clippy::missing_panics_doc)]
     pub fn prune(&self, gc_watermark: SeqNo) {
         self.inner.write().unwrap().prune(gc_watermark);
@@ -331,7 +328,7 @@ impl MemoryVersionSetProvider {
 }
 
 #[expect(clippy::unwrap_used)]
-impl VersionSetProvider for MemoryVersionSetProvider {
+impl SuperVersionSetProvider for MemorySuperVersionSetProvider {
     fn version_history_len(&self) -> usize {
         self.inner.read().unwrap().len()
     }

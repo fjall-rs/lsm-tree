@@ -1,5 +1,5 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemoryVersionSetProvider,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider,
     SequenceNumberCounter,
 };
 use std::sync::Arc;
@@ -13,7 +13,7 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
@@ -51,7 +51,7 @@ fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))

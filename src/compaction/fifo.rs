@@ -153,14 +153,16 @@ impl CompactionStrategy for Strategy {
 #[cfg(test)]
 mod tests {
     use super::Strategy;
-    use crate::{version_set::MemoryVersionSetProvider, AbstractTree, Config, KvSeparationOptions};
+    use crate::{
+        version_set::MemorySuperVersionSetProvider, AbstractTree, Config, KvSeparationOptions,
+    };
     use std::sync::Arc;
 
     #[test]
     fn fifo_empty_levels() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -176,7 +178,7 @@ mod tests {
     fn fifo_below_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -204,7 +206,7 @@ mod tests {
     fn fifo_more_than_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -233,7 +235,7 @@ mod tests {
     fn fifo_more_than_limit_blobs() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(dir.path(), version_set_provider.clone())
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -263,7 +265,7 @@ mod tests {
     fn fifo_ttl() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
@@ -300,7 +302,7 @@ mod tests {
     fn fifo_ttl_then_limit_additional_drops_blob_unit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(dir.path(), version_set_provider.clone())
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))

@@ -5,19 +5,19 @@
 mod io;
 mod mem;
 
-pub use io::{IoVersionSetProvider, Persister};
-pub use mem::MemoryVersionSetProvider;
+pub use io::{IoSuperVersionSetProvider, Persister};
+pub use mem::MemorySuperVersionSetProvider;
 
 use crate::{version::SuperVersion, SeqNo};
 
-/// Provides access to a history of super versions
-pub trait VersionSetProvider {
-    /// Returns the number of versions in the version set.
+/// Provides access to a history of [`SuperVersions`](`SuperVersion`)
+pub trait SuperVersionSetProvider {
+    /// Returns the number of [`SuperVersions`](`SuperVersion`) in the version set.
     fn version_history_len(&self) -> usize;
 
-    /// Gets the latest super version.
+    /// Gets the latest [`SuperVersion`].
     fn latest_version(&self) -> SuperVersion;
 
-    /// Gets a super version visible to the given snapshot.
+    /// Gets a [`SuperVersion`] visible to the given snapshot seqno.
     fn get_version_for_seqno(&self, seqno: SeqNo) -> SuperVersion;
 }

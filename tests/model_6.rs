@@ -4,7 +4,7 @@
 
 use lsm_tree::{
     get_tmp_folder,
-    AbstractTree, AnyTree, KvSeparationOptions, MemoryVersionSetProvider, Result, SeqNo,
+    AbstractTree, AnyTree, KvSeparationOptions, MemorySuperVersionSetProvider, Result, SeqNo,
     SequenceNumberCounter, config::{BlockSizePolicy, CompressionPolicy}
 };
 use std::{ops::RangeBounds, sync::Arc};
@@ -12,7 +12,7 @@ use test_log::test;
 
 fn flush_active_memtable(
     tree: &AnyTree,
-    version_set_provider: &MemoryVersionSetProvider,
+    version_set_provider: &MemorySuperVersionSetProvider,
     seqno: &SequenceNumberCounter,
     gc_watermark: SeqNo,
 ) -> Result<()> {
@@ -22,7 +22,7 @@ fn flush_active_memtable(
 
 fn compact(
     tree: &AnyTree,
-    version_set_provider: &MemoryVersionSetProvider,
+    version_set_provider: &MemorySuperVersionSetProvider,
     seqno: &SequenceNumberCounter,
     strategy: Arc<dyn lsm_tree::compaction::CompactionStrategy>,
     gc_watermark: SeqNo,
@@ -32,7 +32,7 @@ fn compact(
 
 fn drop_range<R: RangeBounds<&'static str>>(
     tree: &AnyTree,
-    version_set_provider: &MemoryVersionSetProvider,
+    version_set_provider: &MemorySuperVersionSetProvider,
     seqno: &SequenceNumberCounter,
     range: R,
 ) -> Result<()> {
@@ -46,7 +46,7 @@ fn model_6() -> Result<()> {
 
     let path = folder.path();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(path, version_set_provider.clone())
         .data_block_compression_policy(CompressionPolicy::disabled())

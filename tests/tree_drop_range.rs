@@ -1,5 +1,5 @@
 use lsm_tree::{
-    get_tmp_folder, AbstractTree, AnyTree, Config, MemoryVersionSetProvider, Result, SeqNo,
+    get_tmp_folder, AbstractTree, AnyTree, Config, MemorySuperVersionSetProvider, Result, SeqNo,
     SequenceNumberCounter,
 };
 use std::ops::Bound::{Excluded, Included, Unbounded};
@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 fn populate_tables(
     tree: &AnyTree,
-    version_set_provider: &MemoryVersionSetProvider,
+    version_set_provider: &MemorySuperVersionSetProvider,
     seqno: &SequenceNumberCounter,
 ) -> Result<()> {
     for key in 'a'..='e' {
@@ -20,7 +20,7 @@ fn populate_tables(
 
 fn drop_range<R: RangeBounds<&'static str>>(
     tree: &AnyTree,
-    version_set_provider: &MemoryVersionSetProvider,
+    version_set_provider: &MemorySuperVersionSetProvider,
     seqno: &SequenceNumberCounter,
     range: R,
 ) -> Result<()> {
@@ -31,7 +31,7 @@ fn drop_range<R: RangeBounds<&'static str>>(
 fn tree_drop_range_basic() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -57,7 +57,7 @@ fn tree_drop_range_basic() -> Result<()> {
 fn tree_drop_range_partial_table_overlap_kept() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for key in ['a', 'b', 'c', 'd', 'e'] {
@@ -84,7 +84,7 @@ fn tree_drop_range_partial_table_overlap_kept() -> Result<()> {
 fn tree_drop_range_upper_exclusive() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -103,7 +103,7 @@ fn tree_drop_range_upper_exclusive() -> Result<()> {
 fn tree_drop_range_lower_exclusive() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -126,7 +126,7 @@ fn tree_drop_range_lower_exclusive() -> Result<()> {
 fn tree_drop_range_unbounded_lower_inclusive_upper() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -150,7 +150,7 @@ fn tree_drop_range_unbounded_lower_inclusive_upper() -> Result<()> {
 fn tree_drop_range_unbounded_lower_exclusive_upper() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -173,7 +173,7 @@ fn tree_drop_range_unbounded_lower_exclusive_upper() -> Result<()> {
 fn tree_drop_range_exclusive_empty_interval() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -195,7 +195,7 @@ fn tree_drop_range_exclusive_empty_interval() -> Result<()> {
 fn tree_drop_range_empty_tree() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     drop_range(&tree, &version_set_provider, &seqno, "a"..="c")?;
@@ -210,7 +210,7 @@ fn tree_drop_range_empty_tree() -> Result<()> {
 fn tree_drop_range_unbounded_upper() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -229,7 +229,7 @@ fn tree_drop_range_unbounded_upper() -> Result<()> {
 fn tree_drop_range_clear_all() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
@@ -247,7 +247,7 @@ fn tree_drop_range_clear_all() -> Result<()> {
 fn tree_drop_range_inverted_bounds_is_noop() -> Result<()> {
     let folder = get_tmp_folder();
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     populate_tables(&tree, &version_set_provider, &seqno)?;
