@@ -16,6 +16,8 @@ use std::sync::{
 /// # Examples
 ///
 /// ```
+/// # use lsm_tree::MemorySuperVersionSetProvider;
+/// # use std::sync::Arc;
 /// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 /// #
 /// # let path = tempfile::tempdir()?;
@@ -23,7 +25,7 @@ use std::sync::{
 /// let seqno = SequenceNumberCounter::default();
 /// let visible_seqno = SequenceNumberCounter::default();
 ///
-/// let tree = Config::new(path, seqno.clone(), visible_seqno.clone()).open()?;
+/// let tree = Config::new(path, Arc::new(MemorySuperVersionSetProvider::default())).open()?;
 ///
 /// // Do some inserts...
 /// for k in [b"a", b"b", b"c"] {

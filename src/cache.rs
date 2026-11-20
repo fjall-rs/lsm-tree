@@ -51,6 +51,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// Sharing cache between multiple trees
 ///
 /// ```
+/// # use lsm_tree::MemorySuperVersionSetProvider;
 /// # use lsm_tree::{Tree, Config, Cache};
 /// # use std::sync::Arc;
 /// #
@@ -58,9 +59,9 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// let cache = Arc::new(Cache::with_capacity_bytes(64 * 1_000 * 1_000));
 ///
 /// # let folder = tempfile::tempdir()?;
-/// let tree1 = Config::new(folder, Default::default(), Default::default()).use_cache(cache.clone()).open()?;
+/// let tree1 = Config::new(folder, Arc::new(MemorySuperVersionSetProvider::default())).use_cache(cache.clone()).open()?;
 /// # let folder = tempfile::tempdir()?;
-/// let tree2 = Config::new(folder, Default::default(), Default::default()).use_cache(cache.clone()).open()?;
+/// let tree2 = Config::new(folder, Arc::new(MemorySuperVersionSetProvider::default())).use_cache(cache.clone()).open()?;
 /// #
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```

@@ -54,14 +54,27 @@ impl AnyIngestion<'_> {
     /// # Examples
     ///
     /// ```
-    /// # use lsm_tree::Config;
+    /// # use lsm_tree::{Config, MemorySuperVersionSetProvider, SequenceNumberCounter};
+    /// # use std::sync::Arc;
     /// # let folder = tempfile::tempdir()?;
-    /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// # let seqno = SequenceNumberCounter::default();
+    /// # let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    /// # let tree = Config::new(folder, version_set_provider.clone()).open()?;
     /// #
     /// let mut ingestion = tree.ingestion()?;
     /// ingestion.write("a", "abc")?;
     /// ingestion.write_weak_tombstone("b")?;
-    /// ingestion.finish()?;
+    ///
+    /// if let Some((result, ingestion_seqno)) = ingestion.finish(
+    ///     || {
+    ///         version_set_provider
+    ///             .flush_active_memtable(&tree, seqno.next(), 0)
+    ///             .map(|_| ())
+    ///     },
+    ///     || seqno.next(),
+    /// )? {
+    ///     version_set_provider.register_flush(result, ingestion_seqno);
+    /// }
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
