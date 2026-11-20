@@ -9,6 +9,7 @@ use crate::{
 
 /// Tracks fragmentation information in a blob file
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub struct FragmentationEntry {
     /// Number of unreferenced (garbage) blobs
     pub(crate) len: usize,
@@ -33,6 +34,7 @@ impl FragmentationEntry {
 
 /// Tracks fragmentation information in a value log (list of blob files)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 pub struct FragmentationMap(crate::HashMap<BlobFileId, FragmentationEntry>);
 
 impl std::ops::Deref for FragmentationMap {

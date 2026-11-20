@@ -17,12 +17,12 @@ use crate::{
     run_scanner::RunScanner,
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    version::{Run, SuperVersions, Version},
+    version::{EditRecord, Run, Version, VersionEdit},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
     BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, Table, TableId,
 };
 use std::{
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
+    sync::{Arc, Mutex, MutexGuard},
     time::Instant,
 };
 
@@ -31,13 +31,50 @@ use crate::metrics::Metrics;
 
 pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
+#[derive(Debug)]
+pub enum CompactionOperation {
+    Noop,
+    Merge {
+        created_tables: Vec<Table>,
+        dst_lvl: usize,
+        tables_to_delete: Vec<Table>,
+        blob_frag_map: FragmentationMap,
+        created_blob_files: Vec<BlobFile>,
+        blob_files_to_drop: Vec<BlobFile>,
+    },
+    Drop {
+        tables: Vec<Table>,
+
+        /// Blob bytes referenced by the dropped tables, which are now stale
+        blob_frag_map: FragmentationMap,
+
+        /// Blob files that are dead after the drop
+        blob_files_to_drop: Vec<BlobFile>,
+    },
+    Move {
+        dst_lvl: usize,
+        tables: Vec<Table>,
+    },
+}
+
+#[derive(Debug)]
+pub struct NewCompactionResult {
+    pub inner: CompactionOperation,
+    pub version_edit: VersionEdit,
+}
+
+impl NewCompactionResult {
+    pub fn empty() -> Self {
+        Self {
+            inner: CompactionOperation::Noop,
+            version_edit: VersionEdit::empty(),
+        }
+    }
+}
+
 /// Compaction options
 pub struct Options {
     pub tree_id: TreeId,
-
-    pub global_seqno: SequenceNumberCounter,
-
-    pub visible_seqno: SequenceNumberCounter,
 
     pub table_id_generator: SequenceNumberCounter,
 
@@ -45,8 +82,6 @@ pub struct Options {
 
     /// Configuration of tree.
     pub config: Arc<Config>,
-
-    pub version_history: Arc<RwLock<SuperVersions>>,
 
     /// Compaction strategy to use.
     pub strategy: Arc<dyn CompactionStrategy>,
@@ -67,13 +102,10 @@ pub struct Options {
 impl Options {
     pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
         Self {
-            global_seqno: tree.config.seqno.clone(),
-            visible_seqno: tree.config.visible_seqno.clone(),
             tree_id: tree.id,
             table_id_generator: tree.table_id_counter.clone(),
             blob_file_id_generator: tree.blob_file_id_counter.clone(),
             config: tree.config.clone(),
-            version_history: tree.version_history.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
             mvcc_gc_watermark: 0,
@@ -89,47 +121,40 @@ impl Options {
 /// Runs compaction task.
 ///
 /// This will block until the compactor is fully finished.
-pub fn do_compaction(opts: &Options) -> crate::Result<()> {
+pub fn do_compaction(opts: &Options) -> crate::Result<NewCompactionResult> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
-    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let version_history_lock = opts.version_history.read().expect("lock is poisoned");
+    let latest_version = opts.config.version_set_provider.latest_version().version;
 
     let start = Instant::now();
     log::trace!(
         "Consulting compaction strategy {:?}",
         opts.strategy.get_name(),
     );
-    let choice = opts.strategy.choose(
-        &version_history_lock.latest_version().version,
-        &opts.config,
-        &compaction_state,
-    );
+    let choice = opts
+        .strategy
+        .choose(&latest_version, &opts.config, &compaction_state);
 
     log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
-        Choice::Merge(payload) => {
-            merge_tables(compaction_state, version_history_lock, opts, &payload)
-        }
-        Choice::Move(payload) => {
-            drop(version_history_lock);
-
-            move_tables(&compaction_state, opts, &payload)
-        }
-        Choice::Drop(payload) => {
-            drop(version_history_lock);
-
-            drop_tables(
-                compaction_state,
-                opts,
-                &payload.into_iter().collect::<Vec<_>>(),
-            )
-        }
+        Choice::Merge(payload) => merge_tables(compaction_state, &latest_version, opts, &payload),
+        Choice::Move(payload) => Ok(move_tables(
+            &compaction_state,
+            &latest_version,
+            opts,
+            &payload,
+        )),
+        Choice::Drop(payload) => drop_tables(
+            compaction_state,
+            &latest_version,
+            opts,
+            &payload.into_iter().collect::<Vec<_>>(),
+        ),
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
-            Ok(())
+            Ok(NewCompactionResult::empty())
         }
     }
 }
@@ -184,12 +209,10 @@ fn create_compaction_stream<'a>(
 #[allow(clippy::significant_drop_tightening)]
 fn move_tables(
     compaction_state: &MutexGuard<'_, CompactionState>,
+    version: &Version,
     opts: &Options,
     payload: &CompactionPayload,
-) -> crate::Result<()> {
-    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
-
+) -> NewCompactionResult {
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
@@ -199,51 +222,39 @@ fn move_tables(
         "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
     );
-        return Ok(());
+        return NewCompactionResult::empty();
     }
 
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
-    // NOTE: Check for race condition - https://github.com/fjall-rs/fjall/issues/287
-    //
-    // The compaction choice was made under a *read* lock which we dropped before taking
-    // this write lock, so the version may have been swapped out in between (`clear()` for
-    // example installs a brand new, empty version).
-    // `Version::with_moved` asserts that every input table is still present, so committing a
-    // stale move would panic while holding both the compaction state mutex and the version
-    // history write lock, poisoning them.
-    if table_ids.iter().any(|&id| {
-        version_history_lock
-            .latest_version()
-            .version
-            .get_table(id)
-            .is_none()
-    }) {
-        log::debug!("{table_ids:?} are not referenced anymore; skipping move");
-        return Ok(());
-    }
+    let tables = table_ids
+        .iter()
+        .map(|id| version.get_table(*id).cloned())
+        .collect::<Option<Vec<_>>>();
 
-    version_history_lock.upgrade_version(
-        &opts.config.path,
-        |current| {
-            let mut copy = current.clone();
+    let Some(tables) = tables else {
+        // NOTE: Check for race condition - https://github.com/fjall-rs/fjall/issues/287
+        //
+        // The compaction choice was made under a *read* lock which we dropped before taking
+        // this write lock, so the version may have been swapped out in between (`clear()` for
+        // example installs a brand new, empty version).
+        // `Version::with_moved` asserts that every input table is still present, so committing a
+        // stale move would panic while holding both the compaction state mutex and the version
+        // history write lock, poisoning them.
+        log::debug!("Tables {table_ids:?} are not referenced anymore; skipping move");
+        return NewCompactionResult::empty();
+    };
 
-            copy.version = copy
-                .version
-                .with_moved(&table_ids, payload.dest_level as usize);
-
-            Ok(copy)
+    NewCompactionResult {
+        inner: CompactionOperation::Move {
+            dst_lvl: payload.dest_level as usize,
+            tables,
         },
-        &opts.global_seqno,
-        &opts.visible_seqno,
-    )?;
-
-    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
-        log::error!("Manifest maintenance failed: {e:?}");
-        return Err(e);
+        version_edit: VersionEdit::new(vec![EditRecord::MoveTables {
+            dst_lvl: payload.dest_level as usize,
+            tables: table_ids,
+        }]),
     }
-
-    Ok(())
 }
 
 /// Picks blob files to rewrite (defragment)
@@ -348,13 +359,13 @@ fn hidden_guard<T>(
 #[expect(clippy::too_many_lines)]
 fn merge_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
-    version_history_lock: RwLockReadGuard<'_, SuperVersions>,
+    version: &Version,
     opts: &Options,
     payload: &CompactionPayload,
-) -> crate::Result<()> {
+) -> crate::Result<NewCompactionResult> {
     if opts.stop_signal.is_stopped() {
         log::debug!("Stopping before compaction because of stop signal");
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     }
 
     // Fail-safe for buggy compaction strategies
@@ -366,28 +377,26 @@ fn merge_tables(
             "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     }
-
-    let current_super_version = version_history_lock.latest_version();
 
     let Some(tables) = payload
         .table_ids
         .iter()
-        .map(|&id| current_super_version.version.get_table(id).cloned())
+        .map(|&id| version.get_table(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
             "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     };
 
     let mut blob_frag_map = FragmentationMap::default();
 
     let Some(mut merge_iter) = create_compaction_stream(
-        &current_super_version.version,
+        version,
         &payload.table_ids.iter().copied().collect::<Vec<_>>(),
         opts.mvcc_gc_watermark,
     )?
@@ -395,10 +404,9 @@ fn merge_tables(
         log::warn!(
             "Compaction task tried to compact tables that do not exist, declining to run it"
         );
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     };
 
-    let dst_lvl = payload.canonical_level.into();
     let last_level = opts.config.level_count - 1;
 
     // NOTE: Only evict tombstones when reaching the last level,
@@ -407,7 +415,7 @@ fn merge_tables(
 
     merge_iter = merge_iter
         .evict_tombstones(is_last_level)
-        .zero_seqnos(false);
+        .zero_seqnos(false); // TODO: if we end up enabling this again, make sure to add it to table metadata (seqnos_zeroed 0/1)!!!
 
     let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
 
@@ -426,14 +434,13 @@ fn merge_tables(
     let mut merge_iter = merge_iter.with_filter(StreamFilterAdapter::new(
         compaction_filter.as_deref_mut(),
         opts,
-        &current_super_version.version,
+        version,
         &blobs_folder,
         &mut filter_blob_writer,
         &filter_ctx,
     ));
 
-    let table_writer =
-        super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
+    let table_writer = super::flavour::prepare_table_writer(version, opts, payload)?;
 
     let start = Instant::now();
 
@@ -441,11 +448,8 @@ fn merge_tables(
         Some(blob_opts) => {
             merge_iter = merge_iter.with_drop_callback(&mut blob_frag_map);
 
-            let blob_files_to_rewrite = pick_blob_files_to_rewrite(
-                &payload.table_ids,
-                &current_super_version.version,
-                blob_opts,
-            )?;
+            let blob_files_to_rewrite =
+                pick_blob_files_to_rewrite(&payload.table_ids, version, blob_opts)?;
 
             if blob_files_to_rewrite.is_empty() {
                 log::debug!("No blob relocation needed");
@@ -496,8 +500,6 @@ fn merge_tables(
 
     log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
 
-    drop(version_history_lock);
-
     {
         compaction_state
             .hidden_set_mut()
@@ -529,10 +531,8 @@ fn merge_tables(
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
-    log::trace!("Acquiring super version write lock");
-    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
-    log::trace!("Acquired super version write lock");
+    // TODO: check synchronize this with VersionSetProvider
+    let version = opts.config.version_set_provider.latest_version().version;
 
     // NOTE: Check for race condition - https://github.com/fjall-rs/fjall/issues/287
     //
@@ -540,20 +540,21 @@ fn merge_tables(
     // in the meantime (`clear()` for example installs a brand new, empty version).
     // Committing the merge result would then insert the compacted tables into a version that no longer
     // references their inputs, resurrecting data that was already logically removed.
-    if payload.table_ids.iter().any(|&id| {
-        version_history_lock
-            .latest_version()
-            .version
-            .get_table(id)
-            .is_none()
-    }) {
-        log::debug!("Input table(s) are not referenced anymore; skipping result installation");
+    if payload
+        .table_ids
+        .iter()
+        .any(|&id| version.get_table(id).is_none())
+    {
+        log::debug!(
+            "Input table(s) ({:?}) are not referenced anymore; skipping result installation",
+            payload.table_ids,
+        );
 
         compaction_state
             .hidden_set_mut()
             .show(payload.table_ids.iter().copied());
 
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     }
 
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
@@ -572,15 +573,8 @@ fn merge_tables(
         })?
         .unwrap_or_default();
 
-    compactor
-        .finish(
-            &mut version_history_lock,
-            opts,
-            payload,
-            dst_lvl,
-            blob_frag_map,
-            extra_blob_files,
-        )
+    let result = compactor
+        .finish(&version, opts, payload, blob_frag_map, extra_blob_files)
         .inspect_err(|e| {
             // NOTE: We cannot use hidden_guard here because we already locked the compaction state
 
@@ -595,28 +589,19 @@ fn merge_tables(
         .hidden_set_mut()
         .show(payload.table_ids.iter().copied());
 
-    version_history_lock
-        .maintenance(&opts.config.path, opts.mvcc_gc_watermark)
-        .inspect_err(|e| {
-            log::error!("Manifest maintenance failed: {e:?}");
-        })?;
-
-    drop(version_history_lock);
     drop(compaction_state);
 
     log::trace!("Compaction successful");
 
-    Ok(())
+    Ok(result)
 }
 
 fn drop_tables(
     compaction_state: MutexGuard<'_, CompactionState>,
+    version: &Version,
     opts: &Options,
     ids_to_drop: &[TableId],
-) -> crate::Result<()> {
-    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
-
+) -> crate::Result<NewCompactionResult> {
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
@@ -626,71 +611,85 @@ fn drop_tables(
             "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     }
 
-    let Some(tables) = ids_to_drop
+    let tables = ids_to_drop
         .iter()
-        .map(|&id| {
-            version_history_lock
-                .latest_version()
-                .version
-                .get_table(id)
-                .cloned()
-        })
-        .collect::<Option<Vec<_>>>()
-    else {
+        .map(|id| version.get_table(*id).cloned())
+        .collect::<Option<Vec<_>>>();
+
+    let Some(tables) = tables else {
         log::warn!(
-            "Compaction task created by {:?} contained tables not referenced in the level manifest",
+            "Compaction task created by {:?} contained tables ({ids_to_drop:?}) not referenced in the level manifest",
             opts.strategy.get_name(),
         );
-        return Ok(());
+        return Ok(NewCompactionResult::empty());
     };
 
     log::debug!("Dropping tables: {ids_to_drop:?}");
 
-    let mut dropped_blob_files = vec![];
+    // NOTE: Every blob referenced by a dropped table becomes stale
+    let mut blob_frag_map = FragmentationMap::default();
 
-    // IMPORTANT: Write the manifest with the removed tables first
-    // Otherwise the table files are deleted, but are still referenced!
-    version_history_lock.upgrade_version(
-        &opts.config.path,
-        |current| {
-            let mut copy = current.clone();
+    for table in &tables {
+        for blob_file in table.list_blob_file_references()?.unwrap_or_default() {
+            blob_frag_map
+                .entry(blob_file.blob_file_id)
+                .and_modify(|counter| {
+                    counter.bytes += blob_file.bytes;
+                    counter.len += blob_file.len;
+                    counter.on_disk_bytes += blob_file.on_disk_bytes;
+                })
+                .or_insert_with(|| {
+                    crate::blob_tree::FragmentationEntry::new(
+                        blob_file.len,
+                        blob_file.bytes,
+                        blob_file.on_disk_bytes,
+                    )
+                });
+        }
+    }
 
-            copy.version = copy
-                .version
-                .with_dropped(ids_to_drop, &mut dropped_blob_files)?;
+    let blob_files_to_drop = if blob_frag_map.is_empty() {
+        vec![]
+    } else {
+        let mut gc_stats = version.gc_stats().clone();
+        blob_frag_map.clone().merge_into(&mut gc_stats);
 
-            Ok(copy)
+        version
+            .blob_files
+            .iter()
+            .filter(|blob_file| blob_file.is_dead(&gc_stats))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    // IMPORTANT: Persist the blob file changes as well, because dead blob files get deleted
+    //
+    // Otherwise:
+    // 1. flush a table with blobs, then drop it: its blob file is dead, so it is deleted
+    // 2. recover: the manifest still lists the blob file, which no longer exists
+    let mut version_edit = vec![EditRecord::DropTables(ids_to_drop.to_vec())];
+
+    if !blob_frag_map.is_empty() {
+        version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
+    }
+
+    if !blob_files_to_drop.is_empty() {
+        version_edit.push(EditRecord::DropBlobFiles(
+            blob_files_to_drop.iter().map(BlobFile::id).collect(),
+        ));
+    }
+
+    Ok(NewCompactionResult {
+        inner: CompactionOperation::Drop {
+            tables,
+            blob_frag_map,
+            blob_files_to_drop,
         },
-        &opts.global_seqno,
-        &opts.visible_seqno,
-    )?;
-
-    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
-        log::error!("Manifest maintenance failed: {e:?}");
-        return Err(e);
-    }
-
-    drop(version_history_lock);
-
-    // NOTE: If the application were to crash >here< it's fine
-    // The tables are not referenced anymore, and will be
-    // cleaned up upon recovery
-    for table in tables {
-        table.mark_as_deleted();
-    }
-
-    for blob_file in dropped_blob_files {
-        blob_file.mark_as_deleted();
-    }
-
-    drop(compaction_state);
-
-    log::trace!("Dropped {} tables", ids_to_drop.len());
-
-    Ok(())
+        version_edit: VersionEdit::new(version_edit),
+    })
 }
 
 #[cfg(test)]
@@ -704,7 +703,8 @@ mod tests {
         },
         config::{BlockSizePolicy, Config as TreeConfig, KvSeparationOptions},
         version::Version,
-        AbstractTree, AnyTree, SequenceNumberCounter, TableId,
+        version_set::MemorySuperVersionSetProvider,
+        AbstractTree, AnyTree, TableId,
     };
     use std::sync::{Arc, Mutex};
     use test_log::test;
@@ -713,15 +713,13 @@ mod tests {
     fn compaction_stream_run_not_found() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert!(create_compaction_stream(&tree.current_version(), &[666], 0)?.is_none());
 
@@ -733,21 +731,21 @@ mod tests {
     fn compaction_stream_run() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("b", "b", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("c", "c", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert_eq!(
             Some((0, 2)),
@@ -770,21 +768,21 @@ mod tests {
     fn compaction_stream_run_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("b", "b", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("c", "c", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert_eq!(
             Some((0, 0)),
@@ -807,21 +805,21 @@ mod tests {
     fn compaction_stream_run_3() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("b", "b", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("c", "c", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert_eq!(
             Some((2, 2)),
@@ -844,21 +842,21 @@ mod tests {
     fn compaction_stream_run_4() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("b", "b", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         tree.insert("c", "c", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         assert_eq!(
             None,
@@ -880,29 +878,37 @@ mod tests {
     fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(1, tree.approximate_len());
         assert_eq!(0, tree.sealed_memtable_count());
 
-        tree.insert("b", "a", 1);
-        tree.flush_active_memtable(0)?;
+        tree.insert("b", "a", 2);
+
+        version_set_provider.flush_active_memtable(&tree, 3, 0)?;
+
         assert_eq!(2, tree.approximate_len());
         assert_eq!(0, tree.sealed_memtable_count());
 
-        tree.insert("c", "a", 2);
-        tree.flush_active_memtable(0)?;
+        tree.insert("c", "a", 4);
+
+        version_set_provider.flush_active_memtable(&tree, 5, 0)?;
+
         assert_eq!(3, tree.approximate_len());
         assert_eq!(0, tree.sealed_memtable_count());
 
-        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(crate::compaction::Fifo::new(1, None)),
+            6,
+            3,
+        )?;
 
         assert_eq!(0, tree.table_count());
 
@@ -930,35 +936,44 @@ mod tests {
 
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .data_block_size_policy(BlockSizePolicy::all(1))
-        .with_kv_separation(Some(
-            KvSeparationOptions::default()
-                .separation_threshold(1)
-                .age_cutoff(1.0)
-                .staleness_threshold(0.01)
-                .compression(crate::CompressionType::None),
-        ))
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = crate::Config::new(folder, version_set_provider.clone())
+            .data_block_size_policy(BlockSizePolicy::all(1))
+            .with_kv_separation(Some(
+                KvSeparationOptions::default()
+                    .separation_threshold(1)
+                    .age_cutoff(1.0)
+                    .staleness_threshold(0.01)
+                    .compression(crate::CompressionType::None),
+            ))
+            .open()?;
 
         tree.insert("a", "a", 0);
         tree.insert("b", "b", 0);
         tree.insert("c", "c", 0);
-        tree.flush_active_memtable(1_000)?;
+
+        version_set_provider.rotate_active_memtable(&tree);
+        let flush_result = tree.flush(1_000)?.expect("should flush to table files");
+        version_set_provider.register_flush(flush_result, 1);
+
         assert_eq!(0, tree.sealed_memtable_count());
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.major_compact(1, 1_000)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(crate::compaction::Major::new(/* 1 byte */ 1)),
+            2,
+            1_000,
+        )?;
+
         assert_eq!(3, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
         // We now have tables [1, 2, 3] pointing into blob file 0
 
-        tree.drop_range("a"..="a")?;
+        version_set_provider.drop_range(&tree, "a"..="a", 3, 0)?;
+
         assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -975,7 +990,8 @@ mod tests {
 
         // Even though we are compacting table #2, blob file is not rewritten
         // because table #3 still points into it
-        tree.compact(Arc::new(InPlaceStrategy(vec![2])), 1_000)?;
+        version_set_provider.compact(&tree, Arc::new(InPlaceStrategy(vec![2])), 4, 1_000)?;
+
         assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -992,7 +1008,8 @@ mod tests {
 
         // Because tables #3 & #4 both point into the blob file
         // Only selecting both for compaction will actually rewrite the file
-        tree.compact(Arc::new(InPlaceStrategy(vec![3, 4])), 1_000)?;
+        version_set_provider.compact(&tree, Arc::new(InPlaceStrategy(vec![3, 4])), 5, 1_000)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -1033,15 +1050,13 @@ mod tests {
     fn compaction_move_declines_tables_removed_by_clear() -> crate::Result<()> {
         let folder = crate::get_tmp_folder();
 
-        let tree = TreeConfig::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = TreeConfig::new(&folder, version_set_provider.clone()).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
 
         let table_ids = tree
             .current_version()
@@ -1051,10 +1066,12 @@ mod tests {
 
         assert_eq!(1, table_ids.len());
 
-        tree.clear()?;
+        version_set_provider.clear(&tree, 2)?;
+
         assert_eq!(0, tree.table_count());
 
-        tree.compact(Arc::new(StaleMove(table_ids)), 0)?;
+        version_set_provider.compact(&tree, Arc::new(StaleMove(table_ids)), 3, 0)?;
+
         assert_eq!(0, tree.table_count());
 
         Ok(())
@@ -1062,7 +1079,8 @@ mod tests {
 
     /// Calls `clear()` on the first filtered item, which happens
     /// while the compaction worker holds no lock at all
-    struct ClearMidCompaction(Arc<Mutex<Option<AnyTree>>>);
+    #[expect(clippy::type_complexity)]
+    struct ClearMidCompaction(Arc<Mutex<Option<(AnyTree, Arc<MemorySuperVersionSetProvider>)>>>);
 
     impl Factory for ClearMidCompaction {
         fn name(&self) -> &'static str {
@@ -1074,7 +1092,10 @@ mod tests {
         }
     }
 
-    struct ClearMidCompactionFilter(Arc<Mutex<Option<AnyTree>>>);
+    #[expect(clippy::type_complexity)]
+    struct ClearMidCompactionFilter(
+        Arc<Mutex<Option<(AnyTree, Arc<MemorySuperVersionSetProvider>)>>>,
+    );
 
     impl CompactionFilter for ClearMidCompactionFilter {
         #[allow(clippy::unwrap_used)]
@@ -1083,8 +1104,8 @@ mod tests {
             _: ItemAccessor<'_>,
             _: &FilterContext,
         ) -> crate::Result<Verdict> {
-            if let Some(tree) = self.0.lock().unwrap().take() {
-                tree.clear()?;
+            if let Some((tree, version_set_provider)) = self.0.lock().unwrap().take() {
+                version_set_provider.clear(&tree, 2)?;
             }
             Ok(Verdict::Keep)
         }
@@ -1098,21 +1119,27 @@ mod tests {
 
         let handle = Arc::new(Mutex::new(None));
 
-        let tree = TreeConfig::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_compaction_filter_factory(Some(Arc::new(ClearMidCompaction(handle.clone()))))
-        .open()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = TreeConfig::new(&folder, version_set_provider.clone())
+            .with_compaction_filter_factory(Some(Arc::new(ClearMidCompaction(handle.clone()))))
+            .open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+
+        version_set_provider.flush_active_memtable(&tree, 1, 0)?;
+
         assert_eq!(1, tree.table_count());
 
-        *handle.lock().unwrap() = Some(tree.clone());
+        *handle.lock().unwrap() = Some((tree.clone(), version_set_provider.clone()));
 
-        tree.compact(Arc::new(crate::compaction::major::Strategy::default()), 0)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(crate::compaction::major::Strategy::default()),
+            3,
+            0,
+        )?;
+
         assert_eq!(0, tree.table_count());
 
         Ok(())

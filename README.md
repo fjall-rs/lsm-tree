@@ -12,7 +12,7 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 
 > [!NOTE]
 > This crate only provides a primitive LSM-tree, not a full storage engine.
-> For example, it does not ship with a write-ahead log.
+> Most importantly, it does not ship with a persistence (e.g. write-ahead log).
 > You probably want to use https://github.com/fjall-rs/fjall instead.
 
 ## About
@@ -44,7 +44,15 @@ As is normal with any kind of storage engine, larger keys and values have a bigg
   <picture>
     <source width="240" alt="Orbitinghail" media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail.svg" />
     <source width="240" alt="Orbitinghail" media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail_dark.svg" />
-    <img width="240" alt="Orbitinghail" src="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail_dark.svg" />
+    <img align="center" width="240" alt="Orbitinghail" src="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/d22fcb1e6966ce08327ea3bf6cf2ea86a840b071/public/logos/orbitinghail_dark.svg" />
+  </picture>
+</a>
+
+<a href="https://svix.com">
+  <picture>
+    <source width="240" alt="Svix" media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/refs/heads/main/public/logos/svix.svg" />
+    <source width="240" alt="Svix" media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/refs/heads/main/public/logos/svix_dark.svg" />
+    <img hspace=20 align="center" width="240" alt="Svix" src="https://raw.githubusercontent.com/fjall-rs/fjall-rs.github.io/refs/heads/main/public/logos/svix_dark.svg" />
   </picture>
 </a>
 

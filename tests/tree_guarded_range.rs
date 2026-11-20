@@ -1,24 +1,26 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 2);
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 3);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 4);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 5);
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     assert_eq!(
         2,
@@ -40,21 +42,20 @@ fn tree_guarded_range() -> lsm_tree::Result<()> {
 fn blob_tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 2);
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 3);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 4);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 5);
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     assert_eq!(
         2,

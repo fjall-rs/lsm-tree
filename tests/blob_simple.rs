@@ -1,4 +1,8 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Guard, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -9,18 +13,18 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let new_big_value = b"winter!".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("smol", "small value", 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("smol", "small value", batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
@@ -29,7 +33,8 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
             tree.size_of("big", SeqNo::MAX)?.unwrap(),
         );
 
-        tree.flush_active_memtable(0)?;
+        let snapshot_seqno = seqno.get();
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
@@ -40,31 +45,30 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        tree.insert("big", &new_big_value, 1);
+        tree.insert("big", &new_big_value, seqno.next());
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, new_big_value);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, new_big_value);
 
-        let value = tree.get("big", 1)?.expect("should exist");
+        let value = tree.get("big", snapshot_seqno)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        let g = tree.prefix("big", 1, None).next().expect("should exist");
+        let g = tree
+            .prefix("big", snapshot_seqno, None)
+            .next()
+            .expect("should exist");
         assert_eq!(big_value.len() as u32, g.size()?);
     }
 
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         let value = tree.get("smol", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, b"small value");

@@ -96,6 +96,8 @@ pub struct Writer {
 
 impl Writer {
     pub fn new(path: PathBuf, table_id: TableId, initial_level: u8) -> crate::Result<Self> {
+        log::trace!("Creating table writer into {}", path.display());
+
         let writer = BufWriter::with_capacity(u16::MAX.into(), File::create_new(&path)?);
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
@@ -476,6 +478,7 @@ impl Writer {
                 ),
                 meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("seqnos_zeroed", &[0]),
                 meta("table_id", &self.table_id.to_le_bytes()),
                 meta("table_version", &[3u8]),
                 meta(

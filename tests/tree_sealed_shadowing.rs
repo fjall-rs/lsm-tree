@@ -1,4 +1,8 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -7,33 +11,34 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a", "123", 0);
+    let tree = Config::new(path, version_set_provider.clone()).open()?;
+
+    tree.insert("a", "123", seqno.next());
     assert!(tree.contains_key("a", SeqNo::MAX)?);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.remove("a", 1);
+    tree.remove("a", seqno.next());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    tree.rotate_memtable().unwrap();
-
-    assert!(!tree.contains_key("a", SeqNo::MAX)?);
-
-    {
-        let flush_lock = tree.get_flush_lock();
-        assert!(tree.flush(&flush_lock, 0)?.unwrap() > 0);
-    }
+    version_set_provider.rotate_active_memtable(&tree);
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    tree.major_compact(u64::MAX, 2)?;
+    let flush_result = tree.flush(0)?.expect("should flush to table files");
+    version_set_provider.register_flush(flush_result, seqno.next());
+
+    assert!(!tree.contains_key("a", SeqNo::MAX)?);
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        0,
+    )?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 

@@ -1,19 +1,22 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn recovery_mac_underscore_file() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
-        tree.insert("a", "a", 0);
-        tree.flush_active_memtable(0)?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+        tree.insert("a", "a", seqno.next());
+
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
         assert_eq!(1, tree.table_count());
     }
 
@@ -22,12 +25,7 @@ fn recovery_mac_underscore_file() -> lsm_tree::Result<()> {
     assert!(ds_store.try_exists()?);
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, version_set_provider.clone()).open()?;
         assert_eq!(1, tree.table_count());
     }
     assert!(ds_store.try_exists()?);

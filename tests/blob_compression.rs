@@ -2,32 +2,35 @@
 #[cfg(feature = "lz4")]
 fn blob_tree_compression() -> lsm_tree::Result<()> {
     use lsm_tree::{
-        blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo,
-        SequenceNumberCounter,
+        blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions,
+        MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
     };
+    use std::sync::Arc;
 
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(
-        KvSeparationOptions::default()
-            .compression(lsm_tree::CompressionType::Lz4)
-            .separation_threshold(1)
-            .staleness_threshold(0.0000001)
-            .age_cutoff(1.0),
-    ))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .compression(lsm_tree::CompressionType::Lz4)
+                .separation_threshold(1)
+                .staleness_threshold(0.0000001)
+                .age_cutoff(1.0),
+        ))
+        .open()?;
 
     let big_value = b"abc".repeat(50);
 
-    tree.insert("a", &big_value, 0);
-    tree.insert("b", b"smol", 0);
-    tree.flush_active_memtable(0)?;
+    let batch_seqno = seqno.next();
+    tree.insert("a", &big_value, batch_seqno);
+    tree.insert("b", b"smol", batch_seqno);
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
     assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
@@ -39,8 +42,10 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
         assert_eq!(&*value, b"smol");
     }
 
-    tree.remove("b", 1);
-    tree.flush_active_memtable(0)?;
+    tree.remove("b", seqno.next());
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
     assert_eq!(2, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
@@ -51,7 +56,13 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
         assert!(!tree.contains_key("b", SeqNo::MAX)?);
     }
 
-    tree.major_compact(u64::MAX, 1_000)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        1_000,
+    )?;
+
     assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
@@ -78,7 +89,13 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
         assert!(!tree.contains_key("b", SeqNo::MAX)?);
     }
 
-    tree.major_compact(u64::MAX, 1_000)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        1_000,
+    )?;
+
     assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 

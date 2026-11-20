@@ -1,4 +1,8 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -6,23 +10,21 @@ fn tree_clear_snapshot() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let visible_seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    assert_eq!(0, tree.len(visible_seqno.get(), None)?);
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     for c in ["a", "b", "c"] {
-        let seqno = seqno.next();
-        tree.insert(c, c, seqno);
-        visible_seqno.fetch_max(seqno + 1);
+        tree.insert(c, c, seqno.next());
     }
-    assert_eq!(3, tree.len(visible_seqno.get(), None)?);
+    assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
-    let snapshot = visible_seqno.get();
+    let snapshot = seqno.get();
 
-    tree.clear()?;
-    assert_eq!(0, tree.len(visible_seqno.get(), None)?);
+    version_set_provider.clear(&tree, seqno.next())?;
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     assert_eq!(3, tree.len(snapshot, None)?);
 

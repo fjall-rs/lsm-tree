@@ -12,9 +12,9 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 use crate::{
     abstract_tree::{AbstractTree, RangeItem},
     coding::Decode,
+    compaction::worker::NewCompactionResult,
     iter_guard::{IterGuard, IterGuardImpl},
     table::Table,
-    tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter},
@@ -23,7 +23,7 @@ use crate::{
 use handle::BlobIndirection;
 use std::{
     ops::RangeBounds,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, MutexGuard},
 };
 
@@ -44,7 +44,6 @@ impl IterGuard for Guard {
         if pred(&kv.key.user_key) {
             resolve_value_handle(
                 self.tree.id(),
-                self.tree.blobs_folder.as_path(),
                 &self.tree.index.config.cache,
                 &self.version,
                 kv,
@@ -74,7 +73,6 @@ impl IterGuard for Guard {
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
         resolve_value_handle(
             self.tree.id(),
-            self.tree.blobs_folder.as_path(),
             &self.tree.index.config.cache,
             &self.version,
             self.kv?,
@@ -84,7 +82,6 @@ impl IterGuard for Guard {
 
 fn resolve_value_handle(
     tree_id: TreeId,
-    blobs_folder: &Path,
     cache: &Cache,
     version: &Version,
     item: InternalValue,
@@ -96,7 +93,6 @@ fn resolve_value_handle(
         // Resolve indirection using value log
         match Accessor::new(&version.blob_files).get(
             tree_id,
-            blobs_folder,
             &item.key.user_key,
             &vptr.vhandle,
             cache,
@@ -156,7 +152,7 @@ impl BlobTree {
         index
             .0
             .blob_file_id_counter
-            .set(blob_file_id_to_continue_with);
+            .fetch_max(blob_file_id_to_continue_with);
 
         Ok(Self {
             index,
@@ -166,18 +162,16 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn inner(&self) -> &crate::tree::inner::TreeInner {
+        self.index.inner()
+    }
+
     fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
         self.index.print_trace(key)
     }
 
     fn table_file_cache_size(&self) -> usize {
         self.index.table_file_cache_size()
-    }
-
-    fn get_version_history_lock(
-        &self,
-    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
-        self.index.get_version_history_lock()
     }
 
     fn next_table_id(&self) -> TableId {
@@ -192,17 +186,9 @@ impl AbstractTree for BlobTree {
         self.index.get_internal_entry(key, seqno)
     }
 
-    fn current_version(&self) -> Version {
-        self.index.current_version()
-    }
-
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics> {
         self.index.metrics()
-    }
-
-    fn version_free_list_len(&self) -> usize {
-        self.index.version_free_list_len()
     }
 
     fn prefix<K: AsRef<[u8]>>(
@@ -265,37 +251,6 @@ impl AbstractTree for BlobTree {
         self.index.weak_tombstone_reclaimable_count()
     }
 
-    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
-        self.index.drop_range(range)
-    }
-
-    fn clear(&self) -> crate::Result<()> {
-        let config = self.tree_config();
-        let mut versions = self.get_version_history_lock();
-
-        versions.upgrade_version(
-            &config.path,
-            |v| {
-                let mut copy = v.clone();
-                copy.active_memtable =
-                    Arc::new(Memtable::new(self.index.memtable_id_counter.next()));
-                copy.sealed_memtables = Arc::default();
-                copy.version = Version::new(v.version.id() + 1, self.tree_type());
-                Ok(copy)
-            },
-            &config.seqno,
-            &config.visible_seqno,
-        )
-    }
-
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
-        self.index.major_compact(target_size, seqno_threshold)
-    }
-
-    fn clear_active_memtable(&self) {
-        self.index.clear_active_memtable();
-    }
-
     fn l0_run_count(&self) -> usize {
         self.index.l0_run_count()
     }
@@ -337,10 +292,6 @@ impl AbstractTree for BlobTree {
 
     fn pinned_block_index_size(&self) -> usize {
         self.index.pinned_block_index_size()
-    }
-
-    fn sealed_memtable_count(&self) -> usize {
-        self.index.sealed_memtable_count()
     }
 
     fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
@@ -499,29 +450,12 @@ impl AbstractTree for BlobTree {
         Ok(Some((tables, Some(blob_files))))
     }
 
-    fn register_tables(
-        &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
-        frag_map: Option<FragmentationMap>,
-        sealed_memtables_to_delete: &[MemtableId],
-        gc_watermark: SeqNo,
-    ) -> crate::Result<()> {
-        self.index.register_tables(
-            tables,
-            blob_files,
-            frag_map,
-            sealed_memtables_to_delete,
-            gc_watermark,
-        )
-    }
-
-    fn compact(
+    fn run_compaction(
         &self,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<()> {
-        self.index.compact(strategy, seqno_threshold)
+        gc_watermark: SeqNo,
+    ) -> crate::Result<NewCompactionResult> {
+        self.index.run_compaction(strategy, gc_watermark)
     }
 
     fn get_next_table_id(&self) -> TableId {
@@ -534,14 +468,6 @@ impl AbstractTree for BlobTree {
 
     fn get_highest_seqno(&self) -> Option<SeqNo> {
         self.index.get_highest_seqno()
-    }
-
-    fn active_memtable(&self) -> Arc<Memtable> {
-        self.index.active_memtable()
-    }
-
-    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
-        self.index.rotate_memtable()
     }
 
     fn table_count(&self) -> usize {
@@ -583,8 +509,8 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_memtable_seqno()
     }
 
-    fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        self.index.get_highest_persisted_seqno()
+    fn get_flush_watermark(&self) -> Option<SeqNo> {
+        self.index.get_flush_watermark()
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
@@ -599,13 +525,7 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         let key = key.as_ref();
 
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let super_version = self
-            .index
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .get_version_for_snapshot(seqno);
+        let super_version = self.index.get_version_for_snapshot(seqno);
 
         let Some(item) = crate::Tree::get_internal_entry_from_version(&super_version, key, seqno)?
         else {
@@ -614,7 +534,6 @@ impl AbstractTree for BlobTree {
 
         let (_, v) = resolve_value_handle(
             self.id(),
-            self.blobs_folder.as_path(),
             &self.index.config.cache,
             &super_version.version,
             item,

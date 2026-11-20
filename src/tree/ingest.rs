@@ -4,8 +4,8 @@
 
 use super::Tree;
 use crate::{
-    config::FilterPolicyEntry, table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey,
-    UserValue,
+    abstract_tree::FlushToTablesResult, config::FilterPolicyEntry,
+    table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey, UserValue,
 };
 use std::path::PathBuf;
 
@@ -229,12 +229,16 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn finish(self) -> crate::Result<()> {
+    pub fn finish(
+        self,
+        maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
+        get_seqno: impl FnOnce() -> SeqNo,
+    ) -> crate::Result<Option<(FlushToTablesResult, SeqNo)>> {
         use crate::{AbstractTree, Table};
 
         if self.last_key.is_none() {
             log::trace!("No data written to Ingestion, returning early");
-            return Ok(());
+            return Ok(None);
         }
 
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
@@ -254,13 +258,11 @@ impl<'a> Ingestion<'a> {
         // The seqno would be disconnected from the flush, violating MVCC.
         //
         // By holding the flush lock throughout, we guarantee atomicity.
-        let flush_lock = self.tree.get_flush_lock();
+        let _flush_lock = self.tree.get_flush_lock();
 
         // Flush any pending memtable writes to ensure ingestion sees a
         // consistent snapshot and lookup order remains correct.
-        // We call rotate + flush directly because we already hold the lock.
-        self.tree.rotate_memtable();
-        self.tree.flush(&flush_lock, 0)?;
+        maybe_rotate_and_flush()?;
 
         // Finalize the ingestion writer, writing all buffered data to disk.
         let results = self.writer.finish()?;
@@ -273,13 +275,10 @@ impl<'a> Ingestion<'a> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
 
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
-
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables and the version that registers them, ensuring
         // consistent MVCC snapshots.
-        let global_seqno = self.tree.config.seqno.next();
+        let global_seqno = get_seqno();
 
         // Recover all created tables, assigning them the global_seqno we just
         // allocated. This ensures all ingested tables share the same sequence
@@ -288,7 +287,7 @@ impl<'a> Ingestion<'a> {
         // We intentionally do NOT pin filter/index blocks here. Large ingests
         // are typically placed in level 1, and pinning would increase memory
         // pressure unnecessarily.
-        let created_tables = results
+        let tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
                 Table::recover(
@@ -306,30 +305,23 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Upgrade the version with our ingested tables, using the global_seqno
-        // we allocated earlier. This ensures the version and all tables share
-        // the same sequence number.
-        //
-        // We use upgrade_version_with_seqno (instead of upgrade_version) because
-        // we need precise control over the seqno: it must match the seqno we
-        // already assigned to the recovered tables.
-        version_lock.upgrade_version_with_seqno(
-            &self.tree.config.path,
-            |current| {
-                let mut copy = current.clone();
-                copy.version = copy.version.with_new_l0_run(&created_tables, None, None);
-                Ok(copy)
+        let version_edit = crate::VersionEdit::new(vec![crate::EditRecord::AddTables {
+            level: 0,
+            tables: tables.iter().map(Into::into).collect(),
+        }]);
+
+        Ok(Some((
+            FlushToTablesResult {
+                // NOTE: Ingested items never went through the WAL or a memtable
+                flush_watermark: tables.iter().map(Table::get_highest_seqno).max(),
+                tables,
+                blob_files: None,
+                evicted_sealed_memtables: Vec::new(),
+                flushed_size: 0,
+                frag_map: None,
+                version_edit,
             },
             global_seqno,
-            &self.tree.config.visible_seqno,
-        )?;
-
-        // Perform maintenance on the version history (e.g., clean up old versions).
-        // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(&self.tree.config.path, 0) {
-            log::warn!("Version GC failed: {e:?}");
-        }
-
-        Ok(())
+        )))
     }
 }

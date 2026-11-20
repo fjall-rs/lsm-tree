@@ -1,11 +1,15 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter,
+};
+use std::sync::Arc;
 
 #[test]
 fn ingestion_dirty_snapshot() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     tree.insert("a", "a", seqno.next());
     tree.insert("a", "b", seqno.next());
@@ -15,7 +19,17 @@ fn ingestion_dirty_snapshot() -> lsm_tree::Result<()> {
 
     let mut ingest = tree.ingestion()?;
     ingest.write("b", "b")?;
-    ingest.finish()?;
+    let (ingestion_result, ingestion_seqno) = ingest
+        .finish(
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
+            || seqno.next(),
+        )?
+        .expect("ingestion should contain writes");
+    version_set_provider.register_flush(ingestion_result, ingestion_seqno);
 
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 

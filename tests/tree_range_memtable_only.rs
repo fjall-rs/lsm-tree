@@ -1,20 +1,23 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_range_memtable_only() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a", "", 0);
-    tree.insert("b", "", 0);
-    tree.insert("c", "", 0);
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+
+    let batch_seqno = seqno.next();
+    tree.insert("a", "", batch_seqno);
+    tree.insert("b", "", batch_seqno);
+    tree.insert("c", "", batch_seqno);
 
     let found: Vec<String> = tree
         .range("a".."a", SeqNo::MAX, None)

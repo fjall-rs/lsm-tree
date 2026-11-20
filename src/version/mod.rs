@@ -3,31 +3,32 @@
 // (found in the LICENSE-* files in the repository)
 
 mod blob_file_list;
+mod edit;
+mod hydrate;
 mod optimize;
-mod persist;
-pub mod recovery;
+mod raw;
 pub mod run;
 mod super_version;
 
 pub use blob_file_list::BlobFileList;
-pub use persist::persist_version;
+pub use edit::{EditRecord, VersionEdit};
+pub use hydrate::hydrate;
+pub use raw::{BlobFileRef, RawVersionData, TableRef};
 pub use run::Run;
-pub use super_version::{SuperVersion, SuperVersions};
+pub use super_version::DeletedFiles;
+pub use super_version::{SuperVersion, SuperVersionSet};
 
-use crate::blob_tree::{FragmentationEntry, FragmentationMap};
-use crate::checksum::ChecksumType;
-use crate::coding::Encode;
+use crate::blob_tree::FragmentationMap;
 use crate::compaction::state::hidden_set::HiddenSet;
-use crate::version::recovery::Recovery;
-use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, Table, TableId,
+    HashSet, KeyRange, SeqNo, Table, TableId,
 };
 use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
 
+/// Default number of levels of a tree
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
 /// Monotonically increasing ID of a version.
@@ -65,7 +66,7 @@ impl<T: Ranged> GenericLevel<T> {
     }
 
     pub fn is_disjoint(&self) -> bool {
-        self.run_count() == 1
+        self.run_count() <= 1
     }
 
     pub fn is_empty(&self) -> bool {
@@ -142,7 +143,18 @@ pub struct VersionInner {
     /// The version's ID
     id: VersionId,
 
-    tree_type: TreeType,
+    /// Sequence number at which this version became visible.
+    seqno: SeqNo,
+
+    /// Every item with a seqno at or below this is in a table, or was removed
+    /// on purpose (flush, compaction, drop range, clear).
+    ///
+    /// Moved up by flushes (highest seqno of the flushed memtables, which may be above the
+    /// created tables, because a flush can drop its newest items) and clears (the clear's seqno),
+    /// never by compactions, so dropped items stay dropped.
+    ///
+    /// `None` if nothing was flushed yet.
+    flush_watermark: Option<SeqNo>,
 
     /// The individual LSM-tree levels which consist of runs of tables
     levels: Vec<Level>,
@@ -176,29 +188,81 @@ impl std::ops::Deref for Version {
     }
 }
 
+/// Prints the version's layout: every non-empty level, its runs (newest first)
+/// and their tables, plus the blob files
+impl std::fmt::Debug for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Version #{} (seqno {}, flush watermark {:?})",
+            self.id, self.seqno, self.flush_watermark,
+        )?;
+
+        for (level_idx, level) in self.levels.iter().enumerate() {
+            if level.is_empty() {
+                continue;
+            }
+
+            writeln!(f, "  L{level_idx}:")?;
+
+            for (run_idx, run) in level.iter().enumerate() {
+                writeln!(f, "    run #{run_idx}:")?;
+
+                for table in run.iter() {
+                    writeln!(
+                        f,
+                        "      table {} [{:?}..={:?}] seqno {}..={}",
+                        table.id(),
+                        String::from_utf8_lossy(table.metadata.key_range.min()),
+                        String::from_utf8_lossy(table.metadata.key_range.max()),
+                        table.get_lowest_seqno(),
+                        table.get_highest_seqno(),
+                    )?;
+                }
+            }
+        }
+
+        let mut blob_file_ids = self.blob_files.list_ids().copied().collect::<Vec<_>>();
+        blob_file_ids.sort_unstable();
+        write!(f, "  blob files: {blob_file_ids:?}")
+    }
+}
+
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
-    /// Returns the initial tree type.
-    pub fn tree_type(&self) -> TreeType {
-        self.tree_type
-    }
-
     /// Returns the version ID.
+    #[doc(hidden)]
+    #[must_use]
     pub fn id(&self) -> VersionId {
         self.id
     }
 
+    /// Returns the sequence number at which this version became visible.
+    #[must_use]
+    pub fn seqno(&self) -> SeqNo {
+        self.seqno
+    }
+
+    /// Returns the flush watermark: every item with a seqno at or below it
+    /// is in a table, or was removed on purpose (flush, compaction, drop range, clear).
+    #[must_use]
+    pub fn flush_watermark(&self) -> Option<SeqNo> {
+        self.flush_watermark
+    }
+
+    #[doc(hidden)]
+    #[must_use]
     pub fn gc_stats(&self) -> &FragmentationMap {
         &self.gc_stats
     }
 
-    pub fn l0(&self) -> &Level {
+    pub(crate) fn l0(&self) -> &Level {
         #[expect(clippy::expect_used)]
         self.levels.first().expect("L0 should exist")
     }
 
     #[must_use]
-    pub fn level_is_busy(&self, idx: usize, hidden_set: &HiddenSet) -> bool {
+    pub(crate) fn level_is_busy(&self, idx: usize, hidden_set: &HiddenSet) -> bool {
         self.level(idx).is_some_and(|level| {
             level
                 .iter()
@@ -208,13 +272,14 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub fn new(id: VersionId, tree_type: TreeType) -> Self {
+    pub(crate) fn new(id: VersionId, version_seqno: SeqNo, flush_watermark: Option<SeqNo>) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                tree_type,
+                seqno: version_seqno,
+                flush_watermark,
                 levels,
                 blob_files: Arc::default(),
                 gc_stats: Arc::default(),
@@ -222,64 +287,21 @@ impl Version {
         }
     }
 
-    pub(crate) fn from_recovery(
-        recovery: Recovery,
-        tables: &[Table],
-        blob_files: &[BlobFile],
-    ) -> crate::Result<Self> {
-        let version_levels = recovery
-            .table_ids
-            .iter()
-            .map(|level| {
-                let level_runs = level
-                    .iter()
-                    .map(|run| {
-                        let run_tables = run
-                            .iter()
-                            .map(|table| {
-                                tables
-                                    .iter()
-                                    .find(|x| x.id() == table.id)
-                                    .cloned()
-                                    .ok_or(crate::Error::Unrecoverable)
-                            })
-                            .collect::<crate::Result<Vec<_>>>()?;
-
-                        Ok(Arc::new(
-                            #[expect(
-                                clippy::expect_used,
-                                reason = "empty runs should not exist, so there should not be any empty persisted runs"
-                            )]
-                            Run::new(run_tables).expect("persisted runs should not be empty"),
-                        ))
-                    })
-                    .collect::<crate::Result<Vec<_>>>()?;
-
-                Ok(Level::from_runs(level_runs))
-            })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        Ok(Self::from_levels(
-            recovery.curr_version_id,
-            recovery.tree_type,
-            version_levels,
-            BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
-            recovery.gc_stats,
-        ))
-    }
-
+    // TODO: v4 maybe move into legacy
     /// Creates a new pre-populated version.
-    pub fn from_levels(
+    pub(crate) fn from_levels(
         id: VersionId,
-        tree_type: TreeType,
         levels: Vec<Level>,
         blob_files: BlobFileList,
         gc_stats: FragmentationMap,
+        version_seqno: SeqNo,
+        flush_watermark: Option<SeqNo>,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                tree_type,
+                seqno: version_seqno,
+                flush_watermark,
                 levels,
                 blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
@@ -287,22 +309,63 @@ impl Version {
         }
     }
 
+    /// Returns edit records that rebuild this version
+    /// when applied to an empty [`RawVersionData`].
+    ///
+    /// Used to write a full snapshot of a version into a manifest,
+    /// e.g. when migrating a tree or rotating a manifest.
+    #[must_use]
+    pub fn get_edit_records(&self) -> Vec<EditRecord> {
+        let mut records = Vec::new();
+
+        for (level, lvl) in self.iter_levels().enumerate() {
+            // IMPORTANT: `RawVersionData::apply` puts every added run at the front
+            // of its level (newest first), so emit the oldest run first
+            // to rebuild the same run order
+            for run in lvl.iter().rev() {
+                records.push(EditRecord::AddTables {
+                    level,
+                    tables: run.iter().map(TableRef::from).collect(),
+                });
+            }
+        }
+
+        if self.blob_file_count() > 0 {
+            records.push(EditRecord::AddBlobFiles {
+                blob_files: self.blob_files.iter().map(BlobFileRef::from).collect(),
+            });
+        }
+
+        if !self.gc_stats.is_empty() {
+            records.push(EditRecord::UpdateFragMap(self.gc_stats().clone()));
+        }
+
+        if let Some(flush_watermark) = self.flush_watermark() {
+            records.push(EditRecord::SetFlushWatermark(flush_watermark));
+        }
+
+        records.push(EditRecord::SetVersionSeqno(self.seqno()));
+
+        records
+    }
+
     /// Returns the number of levels.
-    pub fn level_count(&self) -> usize {
+    pub(crate) fn level_count(&self) -> usize {
         self.levels.len()
     }
 
     /// Returns an iterator through all levels.
-    pub fn iter_levels(&self) -> impl Iterator<Item = &Level> {
+    pub(crate) fn iter_levels(&self) -> impl Iterator<Item = &Level> {
         self.levels.iter()
     }
 
     /// Returns the number of tables in all levels.
-    pub fn table_count(&self) -> usize {
+    pub(crate) fn table_count(&self) -> usize {
         self.iter_levels().map(|x| x.table_count()).sum()
     }
 
-    pub fn blob_file_count(&self) -> usize {
+    /// Returns the number of blob files.
+    pub(crate) fn blob_file_count(&self) -> usize {
         self.blob_files.len()
     }
 
@@ -319,16 +382,20 @@ impl Version {
     }
 
     /// Gets the n-th level.
+    #[doc(hidden)]
+    #[must_use]
     pub fn level(&self, n: usize) -> Option<&Level> {
         self.levels.get(n)
     }
 
     /// Creates a new version with the additional run added to the "top" of L0.
-    pub fn with_new_l0_run(
+    pub(crate) fn with_new_l0_run(
         &self,
         run: &[Table],
         blob_files: Option<&[BlobFile]>,
         diff: Option<FragmentationMap>,
+        flush_watermark: Option<SeqNo>,
+        version_seqno: SeqNo,
     ) -> Self {
         let id = self.id + 1;
 
@@ -387,7 +454,8 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                tree_type: self.tree_type,
+                seqno: version_seqno,
+                flush_watermark: flush_watermark.or(self.flush_watermark),
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -397,17 +465,20 @@ impl Version {
 
     /// Returns a new version with a list of tables removed.
     ///
-    /// The table files are not immediately deleted, this is handled by the version system's free list.
-    pub fn with_dropped(
+    /// The table files are not immediately deleted, this is handled
+    /// by the version system's free list.
+    ///
+    /// Returns a new version without the given tables.
+    pub(crate) fn with_dropped(
         &self,
         ids: &[TableId],
-        dropped_blob_files: &mut Vec<BlobFile>,
-    ) -> crate::Result<Self> {
+        diff: Option<FragmentationMap>,
+        blob_files_to_drop: &[BlobFileId],
+        version_seqno: SeqNo,
+    ) -> Self {
         let id = self.id + 1;
 
         let mut levels = vec![];
-
-        let mut dropped_tables: Vec<Table> = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -416,13 +487,7 @@ impl Version {
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
                     let mut run: Run<_> = run.deref().clone();
-
-                    let removed_tables = run
-                        .inner_mut()
-                        .extract_if(.., |x| ids.contains(&x.metadata.id));
-
-                    dropped_tables.extend(removed_tables);
-
+                    run.retain(|x| !ids.contains(&x.metadata.id));
                     run
                 })
                 .filter(|x| !x.is_empty())
@@ -433,60 +498,54 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        let gc_stats = if dropped_tables.is_empty() {
-            self.gc_stats.clone()
+        let value_log = if blob_files_to_drop.is_empty() {
+            self.blob_files.clone()
         } else {
-            let mut copy = self.gc_stats.deref().clone();
+            let mut copy = self.blob_files.deref().clone();
 
-            for table in &dropped_tables {
-                let linked_blob_files = table.list_blob_file_references()?.unwrap_or_default();
-
-                for blob_file in linked_blob_files {
-                    copy.entry(blob_file.blob_file_id)
-                        .and_modify(|counter| {
-                            counter.bytes += blob_file.bytes;
-                            counter.len += blob_file.len;
-                        })
-                        .or_insert_with(|| {
-                            FragmentationEntry::new(
-                                blob_file.len,
-                                blob_file.bytes,
-                                blob_file.on_disk_bytes,
-                            )
-                        });
-                }
+            for &id in blob_files_to_drop {
+                copy.remove(id);
             }
 
             Arc::new(copy)
         };
 
-        let value_log = if dropped_tables.is_empty() {
-            self.blob_files.clone()
-        } else {
-            let mut copy = self.blob_files.deref().clone();
-            dropped_blob_files.extend(copy.prune_dead(&gc_stats));
+        let gc_stats = if diff.is_some() || !blob_files_to_drop.is_empty() {
+            let mut copy = self.gc_stats.deref().clone();
+
+            if let Some(diff) = diff {
+                diff.merge_into(&mut copy);
+            }
+
+            copy.prune(&value_log);
+
             Arc::new(copy)
+        } else {
+            self.gc_stats.clone()
         };
 
-        Ok(Self {
+        Self {
             inner: Arc::new(VersionInner {
                 id,
-                tree_type: self.tree_type,
+                seqno: version_seqno,
+                flush_watermark: self.flush_watermark,
                 levels,
                 blob_files: value_log,
                 gc_stats,
             }),
-        })
+        }
     }
 
-    pub fn with_merge(
+    #[expect(clippy::too_many_arguments)]
+    pub(crate) fn with_merge(
         &self,
         old_ids: &[TableId],
         new_tables: &[Table],
         dest_level: usize,
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
-        blob_files_to_drop: &HashSet<BlobFileId>,
+        blob_files_to_drop: &Vec<BlobFileId>,
+        version_seqno: SeqNo,
     ) -> Self {
         let id = self.id + 1;
 
@@ -552,7 +611,8 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                tree_type: self.tree_type,
+                seqno: version_seqno,
+                flush_watermark: self.flush_watermark,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -560,7 +620,12 @@ impl Version {
         }
     }
 
-    pub fn with_moved(&self, ids: &[TableId], dest_level: usize) -> Self {
+    pub(crate) fn with_moved(
+        &self,
+        ids: &[TableId],
+        dest_level: usize,
+        version_seqno: SeqNo,
+    ) -> Self {
         let id = self.id + 1;
 
         let affected_tables = self
@@ -600,105 +665,12 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
-                tree_type: self.tree_type,
+                seqno: version_seqno,
+                flush_watermark: self.flush_watermark,
                 levels,
                 blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),
             }),
         }
-    }
-}
-
-impl Version {
-    pub(crate) fn encode_into(
-        &self,
-        writer: &mut sfa::Writer<impl std::io::Write + std::io::Seek>,
-    ) -> Result<(), crate::Error> {
-        use crate::FormatVersion;
-        use byteorder::{LittleEndian, WriteBytesExt};
-        use std::io::Write;
-
-        //
-        // Manifest
-        //
-
-        writer.start("format_version")?;
-        writer.write_u8(FormatVersion::V3.into())?;
-
-        writer.start("crate_version")?;
-        writer.write_all(env!("CARGO_PKG_VERSION").as_bytes())?;
-
-        writer.start("tree_type")?;
-        writer.write_u8(self.tree_type.into())?;
-
-        writer.start("level_count")?;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "level count is bounded by 255"
-        )]
-        writer.write_u8(self.level_count() as u8)?;
-
-        writer.start("filter_hash_type")?;
-        writer.write_u8(u8::from(ChecksumType::Xxh3))?;
-
-        //
-        // Levels
-        //
-
-        writer.start("tables")?;
-
-        // Level count
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "there are always less than 256 levels"
-        )]
-        writer.write_u8(self.level_count() as u8)?;
-
-        for level in self.iter_levels() {
-            // Run count
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "there are always less than 256 runs"
-            )]
-            writer.write_u8(level.len() as u8)?;
-
-            for run in level.iter() {
-                // Table count
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "there are always less than 4 billion tables in a run"
-                )]
-                writer.write_u32::<LittleEndian>(run.len() as u32)?;
-
-                // Tables
-                for table in run.iter() {
-                    writer.write_u64::<LittleEndian>(table.id())?;
-                    writer.write_u8(0)?; // Checksum type, 0 = XXH3
-                    writer.write_u128::<LittleEndian>(table.checksum().into_u128())?;
-                    writer.write_u64::<LittleEndian>(table.global_seqno())?;
-                }
-            }
-        }
-
-        writer.start("blob_files")?;
-
-        // Blob file count
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "there are always less than 4 billion blob files"
-        )]
-        writer.write_u32::<LittleEndian>(self.blob_files.len() as u32)?;
-
-        for file in self.blob_files.iter() {
-            writer.write_u64::<LittleEndian>(file.id())?;
-            writer.write_u8(0)?; // Checksum type, 0 = XXH3
-            writer.write_u128::<LittleEndian>(file.0.checksum.into_u128())?;
-        }
-
-        writer.start("blob_gc_stats")?;
-
-        self.gc_stats.encode_into(writer)?;
-
-        Ok(())
     }
 }

@@ -20,8 +20,13 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
+    compaction::filter::Factory,
+    file::{BLOBS_FOLDER, TABLES_FOLDER},
+    path::absolute_path,
+    version::DEFAULT_LEVEL_COUNT,
+    vlog::BlobFileId,
+    AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, FileResolver,
+    SequenceNumberCounter, SuperVersionSetProvider, TableId, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -58,8 +63,6 @@ impl TryFrom<u8> for TreeType {
         }
     }
 }
-
-const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 
 /// Options for key-value separation
 #[derive(Clone, Debug, PartialEq)]
@@ -232,22 +235,30 @@ pub struct Config {
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
-    /// The global sequence number generator
-    ///
-    /// Should be shared between multple trees of a database
-    pub(crate) seqno: SequenceNumberCounter,
+    pub(crate) version_set_provider: Arc<dyn SuperVersionSetProvider + Send + Sync>,
 
-    pub(crate) visible_seqno: SequenceNumberCounter,
+    /// Table ID counter, may be shared between trees
+    pub(crate) table_id_counter: Option<SequenceNumberCounter>,
+
+    /// Blob file ID counter, may be shared between trees
+    pub(crate) blob_file_id_counter: Option<SequenceNumberCounter>,
+
+    /// Resolves the paths of existing tables and blob files
+    pub(crate) file_resolver: Option<Arc<dyn FileResolver>>,
 }
 
-// TODO: remove default?
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    /// Initializes a new config
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        version_set_provider: Arc<dyn SuperVersionSetProvider + Send + Sync>,
+    ) -> Self {
         Self {
-            path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
+            path: absolute_path(path.as_ref()),
+
+            version_set_provider,
+
             descriptor_table: Some(Arc::new(DescriptorTable::new(256))),
-            seqno: SequenceNumberCounter::default(),
-            visible_seqno: SequenceNumberCounter::default(),
 
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
@@ -294,22 +305,57 @@ impl Default for Config {
             expect_point_read_hits: false,
 
             kv_separation_opts: None,
+
+            table_id_counter: None,
+            blob_file_id_counter: None,
+            file_resolver: None,
         }
     }
-}
 
-impl Config {
-    /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        seqno: SequenceNumberCounter,
-        visible_seqno: SequenceNumberCounter,
-    ) -> Self {
-        Self {
-            path: absolute_path(path.as_ref()),
-            seqno,
-            visible_seqno,
-            ..Default::default()
+    /// Sets the table ID counter.
+    ///
+    /// Can be shared between trees, so table IDs are unique across them.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn with_table_id_counter(mut self, counter: SequenceNumberCounter) -> Self {
+        self.table_id_counter = Some(counter);
+        self
+    }
+
+    /// Sets the blob file ID counter.
+    ///
+    /// Can be shared between trees, so blob file IDs are unique across them.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn with_blob_file_id_counter(mut self, counter: SequenceNumberCounter) -> Self {
+        self.blob_file_id_counter = Some(counter);
+        self
+    }
+
+    /// Sets the file resolver, which maps the IDs of existing tables
+    /// and blob files to their paths when a version is recovered.
+    ///
+    /// Defaults to `<path>/tables/<id>` and `<path>/blobs/<id>`.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn with_file_resolver(mut self, resolver: Arc<dyn FileResolver>) -> Self {
+        self.file_resolver = Some(resolver);
+        self
+    }
+
+    /// Returns the path of an existing table.
+    pub(crate) fn table_file_path(&self, id: TableId) -> PathBuf {
+        match &self.file_resolver {
+            Some(resolver) => resolver.resolve_table(id),
+            None => self.path.join(TABLES_FOLDER).join(id.to_string()),
+        }
+    }
+
+    /// Returns the path of an existing blob file.
+    pub(crate) fn blob_file_path(&self, id: BlobFileId) -> PathBuf {
+        match &self.file_resolver {
+            Some(resolver) => resolver.resolve_blob_file(id),
+            None => self.path.join(BLOBS_FOLDER).join(id.to_string()),
         }
     }
 

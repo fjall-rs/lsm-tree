@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER, table::Table,
-    tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey, UserValue,
+    abstract_tree::FlushToTablesResult, blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER,
+    table::Table, tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey,
+    UserValue,
 };
 
 /// Bulk ingestion for [`BlobTree`]
@@ -155,7 +156,11 @@ impl<'a> BlobIngestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn finish(self) -> crate::Result<()> {
+    pub fn finish(
+        self,
+        maybe_rotate_and_flush: impl FnOnce() -> crate::Result<()>,
+        get_seqno: impl FnOnce() -> SeqNo,
+    ) -> crate::Result<Option<(FlushToTablesResult, SeqNo)>> {
         use crate::AbstractTree;
 
         let index = self.index().clone();
@@ -178,13 +183,11 @@ impl<'a> BlobIngestion<'a> {
         //
         // This prevents race conditions where blob files and their index
         // entries could have mismatched sequence numbers.
-        let flush_lock = index.get_flush_lock();
+        let _flush_lock = index.get_flush_lock();
 
         // Flush any pending index memtable writes to ensure ingestion sees
         // a consistent snapshot of the index.
-        // We call rotate + flush directly because we already hold the lock.
-        index.rotate_memtable();
-        index.flush(&flush_lock, 0)?;
+        maybe_rotate_and_flush()?;
 
         // Finalize the blob writer first, ensuring all large values are
         // written to blob files before we finalize the index tables that
@@ -200,13 +203,11 @@ impl<'a> BlobIngestion<'a> {
         // safely modify the tree's version.
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_lock = index.version_history.write().expect("lock is poisoned");
 
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables, blob files, and the version that registers
         // them, ensuring consistent MVCC snapshots across the value log.
-        let global_seqno = index.config.seqno.next();
+        let global_seqno = get_seqno();
 
         // Recover all created index tables, assigning them the global_seqno
         // we just allocated. These tables contain indirections to the blob
@@ -216,7 +217,7 @@ impl<'a> BlobIngestion<'a> {
         // We intentionally do NOT pin filter/index blocks here. Large ingests
         // are typically placed in level 1, and pinning would increase memory
         // pressure unnecessarily.
-        let created_tables = results
+        let tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
                 Table::recover(
@@ -238,35 +239,32 @@ impl<'a> BlobIngestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Upgrade the version with our ingested tables and blob files, using
-        // the global_seqno we allocated earlier. This ensures the version,
-        // tables, and blob files all share the same sequence number, which is
-        // critical for GC correctness - we must not delete blob files that are
-        // still referenced by visible snapshots.
-        //
-        // We use upgrade_version_with_seqno (instead of upgrade_version) because
-        // we need precise control over the seqno: it must match the seqno we
-        // already assigned to the recovered tables.
-        version_lock.upgrade_version_with_seqno(
-            &index.config.path,
-            |current| {
-                let mut copy = current.clone();
-                copy.version =
-                    copy.version
-                        .with_new_l0_run(&created_tables, Some(&blob_files), None);
-                Ok(copy)
+        let version_edit = crate::VersionEdit::new({
+            let mut edits = vec![crate::EditRecord::AddTables {
+                level: 0,
+                tables: tables.iter().map(Into::into).collect(),
+            }];
+            if !blob_files.is_empty() {
+                edits.push(crate::EditRecord::AddBlobFiles {
+                    blob_files: blob_files.iter().map(Into::into).collect(),
+                });
+            }
+            edits
+        });
+
+        Ok(Some((
+            FlushToTablesResult {
+                // NOTE: Ingested items never went through the WAL or a memtable
+                flush_watermark: tables.iter().map(Table::get_highest_seqno).max(),
+                tables,
+                blob_files: Some(blob_files),
+                evicted_sealed_memtables: Vec::new(),
+                flushed_size: 0,
+                frag_map: None,
+                version_edit,
             },
             global_seqno,
-            &self.tree.index.config.visible_seqno,
-        )?;
-
-        // Perform maintenance on the version history (e.g., clean up old versions).
-        // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(&index.config.path, 0) {
-            log::warn!("Version GC failed: {e:?}");
-        }
-
-        Ok(())
+        )))
     }
 
     #[inline]

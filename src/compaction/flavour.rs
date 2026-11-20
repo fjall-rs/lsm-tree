@@ -5,14 +5,15 @@
 use crate::blob_tree::handle::BlobIndirection;
 use crate::blob_tree::FragmentationMap;
 use crate::coding::{Decode, Encode};
-use crate::compaction::worker::Options;
+use crate::compaction::worker::{NewCompactionResult, Options};
 use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
 use crate::table::multi_writer::MultiWriter;
-use crate::version::{SuperVersions, Version};
+use crate::version::Version;
 use crate::vlog::blob_file::ScanEntry;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
 use crate::{BlobFile, HashSet, InternalValue, Table};
+use crate::{EditRecord, VersionEdit};
 use std::iter::Peekable;
 use std::time::Instant;
 
@@ -123,13 +124,12 @@ pub(super) trait CompactionFlavour {
     #[warn(clippy::too_many_arguments)]
     fn finish(
         self: Box<Self>,
-        super_version: &mut SuperVersions,
+        version: &Version,
         opts: &Options,
         payload: &CompactionPayload,
-        dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
-    ) -> crate::Result<()>;
+    ) -> crate::Result<NewCompactionResult>;
 }
 
 /// Compaction worker that will relocate blobs that sit in blob files that are being rewritten
@@ -257,19 +257,19 @@ impl CompactionFlavour for RelocatingCompaction {
 
     fn finish(
         mut self: Box<Self>,
-        super_version: &mut SuperVersions,
+        version: &Version,
         opts: &Options,
         payload: &CompactionPayload,
-        dst_lvl: usize,
-        blob_frag_map_diff: FragmentationMap,
+        blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<NewCompactionResult> {
         log::debug!(
             "Relocating compaction done in {:?}",
             self.inner.start.elapsed(),
         );
 
-        let table_ids_to_delete = std::mem::take(&mut self.inner.tables_to_rewrite);
+        let tables_to_delete = std::mem::take(&mut self.inner.tables_to_rewrite);
+        let dst_lvl = payload.dest_level as usize;
 
         let created_tables = self.inner.consume_writer(opts, dst_lvl)?;
         let mut created_blob_files = self.blob_writer.finish()?;
@@ -277,13 +277,54 @@ impl CompactionFlavour for RelocatingCompaction {
 
         let mut blob_files_to_drop = self.rewriting_blob_files;
 
-        let current_version = super_version.latest_version();
-
-        for blob_file in current_version.version.blob_files.iter() {
-            if blob_file.is_dead(current_version.version.gc_stats()) {
+        for blob_file in version.blob_files.iter() {
+            if blob_file.is_dead(version.gc_stats()) {
                 blob_files_to_drop.push(blob_file.clone());
             }
         }
+
+        let mut version_edit = vec![
+            EditRecord::AddTables {
+                level: dst_lvl,
+                tables: created_tables.iter().map(Into::into).collect(),
+            },
+            EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
+        ];
+
+        // IMPORTANT: Relocated blobs (and blobs written by a compaction filter) live in new blob
+        // files, which the new tables point to; add them before the other blob file records,
+        // because dropping blob files prunes fragmentation stats of unknown blob files
+        if !created_blob_files.is_empty() {
+            version_edit.push(EditRecord::AddBlobFiles {
+                blob_files: created_blob_files.iter().map(Into::into).collect(),
+            });
+        }
+
+        if !blob_frag_map.is_empty() {
+            version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
+        }
+
+        if !blob_files_to_drop.is_empty() {
+            version_edit.push(EditRecord::DropBlobFiles(
+                blob_files_to_drop.iter().map(BlobFile::id).collect(),
+            ));
+        }
+
+        Ok(NewCompactionResult {
+            version_edit: VersionEdit::new(version_edit),
+            inner: crate::compaction::worker::CompactionOperation::Merge {
+                created_tables,
+                tables_to_delete,
+                dst_lvl,
+                blob_frag_map,
+                created_blob_files,
+                blob_files_to_drop,
+            },
+        })
+
+        /*let current_version = super_version.latest_version();
+
+
 
         super_version.upgrade_version(
             &opts.config.path,
@@ -321,9 +362,7 @@ impl CompactionFlavour for RelocatingCompaction {
 
         for blob_file in blob_files_to_drop {
             blob_file.mark_as_deleted();
-        }
-
-        Ok(())
+        }*/
     }
 }
 
@@ -392,30 +431,65 @@ impl CompactionFlavour for StandardCompaction {
 
     fn finish(
         mut self: Box<Self>,
-        super_version: &mut SuperVersions,
+        version: &Version,
         opts: &Options,
         payload: &CompactionPayload,
-        dst_lvl: usize,
         blob_frag_map: FragmentationMap,
         extra_blob_files: Vec<BlobFile>,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<NewCompactionResult> {
         log::debug!("Compaction done in {:?}", self.start.elapsed());
 
-        let table_ids_to_delete = std::mem::take(&mut self.tables_to_rewrite);
-
+        let dst_lvl = usize::from(payload.dest_level);
+        let tables_to_delete = std::mem::take(&mut self.tables_to_rewrite);
         let created_tables = self.consume_writer(opts, dst_lvl)?;
 
         let mut blob_files_to_drop = Vec::default();
 
-        let current_version = super_version.latest_version();
-
-        for blob_file in current_version.version.blob_files.iter() {
-            if blob_file.is_dead(current_version.version.gc_stats()) {
+        for blob_file in version.blob_files.iter() {
+            if blob_file.is_dead(version.gc_stats()) {
                 blob_files_to_drop.push(blob_file.clone());
             }
         }
 
-        super_version.upgrade_version(
+        let mut version_edit = vec![
+            EditRecord::AddTables {
+                level: dst_lvl,
+                tables: created_tables.iter().map(Into::into).collect(),
+            },
+            EditRecord::DropTables(tables_to_delete.iter().map(Table::id).collect()),
+        ];
+
+        // IMPORTANT: Blobs written by a compaction filter live in new blob files,
+        // see `RelocatingCompaction::finish`
+        if !extra_blob_files.is_empty() {
+            version_edit.push(EditRecord::AddBlobFiles {
+                blob_files: extra_blob_files.iter().map(Into::into).collect(),
+            });
+        }
+
+        if !blob_frag_map.is_empty() {
+            version_edit.push(EditRecord::UpdateFragMap(blob_frag_map.clone()));
+        }
+
+        if !blob_files_to_drop.is_empty() {
+            version_edit.push(EditRecord::DropBlobFiles(
+                blob_files_to_drop.iter().map(BlobFile::id).collect(),
+            ));
+        }
+
+        Ok(NewCompactionResult {
+            version_edit: VersionEdit::new(version_edit),
+            inner: crate::compaction::worker::CompactionOperation::Merge {
+                created_tables,
+                tables_to_delete,
+                dst_lvl,
+                blob_frag_map,
+                created_blob_files: extra_blob_files,
+                blob_files_to_drop,
+            },
+        })
+
+        /*super_version.upgrade_version(
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -451,9 +525,9 @@ impl CompactionFlavour for StandardCompaction {
 
         for blob_file in blob_files_to_drop {
             blob_file.mark_as_deleted();
-        }
+        }*/
 
-        Ok(())
+        // Ok(())
     }
 }
 

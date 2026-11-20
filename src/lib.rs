@@ -93,18 +93,23 @@ pub mod descriptor_table;
 #[doc(hidden)]
 pub mod file_accessor;
 
+/// Compatibility helpers for loading manifests from older on-disk formats.
+#[doc(hidden)]
+pub mod legacy;
+
 mod double_ended_peekable;
 mod error;
 
 #[doc(hidden)]
 pub mod file;
 
+mod file_resolver;
+
 mod hash;
 mod ingestion;
 mod iter_guard;
 mod key;
 mod key_range;
-mod manifest;
 mod memtable;
 mod run_reader;
 mod run_scanner;
@@ -114,8 +119,6 @@ pub mod merge;
 
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
-
-// mod multi_reader;
 
 #[doc(hidden)]
 pub mod mvcc_stream;
@@ -145,6 +148,8 @@ pub mod util;
 mod value;
 mod value_type;
 mod version;
+mod version_set;
+
 mod vlog;
 
 /// User defined key (byte array)
@@ -158,6 +163,7 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
+    abstract_tree::FlushToTablesResult,
     blob_tree::{handle::BlobIndirection, Guard as BlobGuard},
     checksum::Checksum,
     iter_guard::IterGuardImpl,
@@ -168,6 +174,11 @@ pub use {
     tree::inner::TreeId,
     tree::Guard as StandardGuard,
     value::InternalValue,
+    version::{BlobFileRef, EditRecord, RawVersionData, TableRef, Version, VersionEdit},
+    version_set::SuperVersionSetProvider,
+    version_set::{
+        IoSuperVersionSetProvider, MemorySuperVersionSetProvider, Persister as VersionEditPersister,
+    },
 };
 
 pub use {
@@ -179,6 +190,7 @@ pub use {
     config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
+    file_resolver::FileResolver,
     format_version::FormatVersion,
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
@@ -188,6 +200,7 @@ pub use {
     tree::Tree,
     value::SeqNo,
     value_type::ValueType,
+    version::DEFAULT_LEVEL_COUNT,
     vlog::BlobFile,
 };
 

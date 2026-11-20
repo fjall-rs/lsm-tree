@@ -1,7 +1,8 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo,
-    SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
 };
+use std::sync::Arc;
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -10,20 +11,21 @@ const ITEM_COUNT: usize = 1_000;
 fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
+
+    let batch_seqno = seqno.next();
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
         let value = nanoid::nanoid!();
-        tree.insert(key, value.as_bytes(), 0);
+        tree.insert(key, value.as_bytes(), batch_seqno);
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -37,21 +39,26 @@ fn table_point_reads() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
+
+    let batch_seqno_0 = seqno.next();
+    let batch_seqno_1 = seqno.next();
+    let batch_seqno_2 = seqno.next();
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
-        tree.insert(key, "0", 0);
-        tree.insert(key, "1", 1);
-        tree.insert(key, "2", 2);
+        tree.insert(key, "0", batch_seqno_0);
+        tree.insert(key, "1", batch_seqno_1);
+        tree.insert(key, "2", batch_seqno_2);
     }
-    tree.flush_active_memtable(0)?;
+
+    let snapshot_seqno = seqno.get();
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -60,13 +67,13 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
         assert_eq!(item.key.seqno, 2);
         assert_eq!(&*item.value, b"2");
 
-        let item = tree.get_internal_entry(&key, 3)?.unwrap();
+        let item = tree.get_internal_entry(&key, snapshot_seqno)?.unwrap();
         assert_eq!(&*item.value, b"2");
 
-        let item = tree.get_internal_entry(&key, 2)?.unwrap();
+        let item = tree.get_internal_entry(&key, batch_seqno_2)?.unwrap();
         assert_eq!(&*item.value, b"1");
 
-        let item = tree.get_internal_entry(&key, 1)?.unwrap();
+        let item = tree.get_internal_entry(&key, batch_seqno_1)?.unwrap();
         assert_eq!(&*item.value, b"0");
     }
 
@@ -77,25 +84,29 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     let keys = [0, 1, 2]
         .into_iter()
         .map(u64::to_be_bytes)
         .collect::<Vec<_>>();
 
+    let batch_seqnos = (0..ITEM_COUNT as u64)
+        .map(|seqno_value| (seqno_value, seqno.next()))
+        .collect::<Vec<_>>();
+
     for key in &keys {
-        for seqno in 0..ITEM_COUNT as u64 {
-            tree.insert(key, seqno.to_string(), seqno);
+        for (seqno_value, batch_seqno) in &batch_seqnos {
+            tree.insert(key, seqno_value.to_string(), *batch_seqno);
         }
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     for key in &keys {
         let item = tree.get_internal_entry(key, SeqNo::MAX)?.unwrap();
@@ -103,17 +114,17 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     }
 
     for key in &keys {
-        // NOTE: Need to start at seqno=1
-        for seqno in 1..ITEM_COUNT as u64 {
-            let item = tree.get_internal_entry(key, seqno)?.unwrap();
+        // NOTE: Need to start at the second batch
+        for (seqno_value, snapshot_seqno) in batch_seqnos.iter().skip(1) {
+            let item = tree.get_internal_entry(key, *snapshot_seqno)?.unwrap();
 
-            // NOTE: When snapshot is =1, it will read any items with
-            // seqno less than 1
+            // NOTE: A snapshot at a batch sequence number reads the preceding
+            // item version.
             assert_eq!(
                 String::from_utf8_lossy(&item.value)
                     .parse::<SeqNo>()
                     .unwrap(),
-                seqno - 1
+                *seqno_value - 1
             );
         }
     }
@@ -125,26 +136,30 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+        .open()?;
 
     let keys = [0, 1, 2]
         .into_iter()
         .map(u64::to_be_bytes)
         .collect::<Vec<_>>();
 
+    let batch_seqnos = (0..ITEM_COUNT as u64)
+        .map(|seqno_value| (seqno_value, seqno.next()))
+        .collect::<Vec<_>>();
+
     for key in &keys {
-        for seqno in 0..ITEM_COUNT as u64 {
-            tree.insert(key, seqno.to_string(), seqno);
+        for (seqno_value, batch_seqno) in &batch_seqnos {
+            tree.insert(key, seqno_value.to_string(), *batch_seqno);
         }
     }
-    tree.flush_active_memtable(0)?;
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     for key in &keys {
         let item = tree.get(key, SeqNo::MAX)?.unwrap();
@@ -155,15 +170,15 @@ fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     }
 
     for key in &keys {
-        // NOTE: Need to start at seqno=1
-        for seqno in 1..ITEM_COUNT as u64 {
-            let value = tree.get(key, seqno)?.unwrap();
+        // NOTE: Need to start at the second batch
+        for (seqno_value, snapshot_seqno) in batch_seqnos.iter().skip(1) {
+            let value = tree.get(key, *snapshot_seqno)?.unwrap();
 
-            // NOTE: When snapshot is =1, it will read any items with
-            // seqno less than 1
+            // NOTE: A snapshot at a batch sequence number reads the preceding
+            // item version.
             assert_eq!(
                 String::from_utf8_lossy(&value).parse::<SeqNo>().unwrap(),
-                seqno - 1
+                *seqno_value - 1
             );
         }
     }

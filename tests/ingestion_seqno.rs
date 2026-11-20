@@ -1,25 +1,48 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter,
+};
+use std::sync::Arc;
 
 #[test]
 fn ingestion_persisted_seqno() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let mut ingest = tree.ingestion()?;
     ingest.write("a", "a")?;
-    ingest.finish()?;
-    assert_eq!(Some(0), tree.get_highest_persisted_seqno());
+    let (ingestion_result, ingestion_seqno) = ingest
+        .finish(
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
+            || seqno.next(),
+        )?
+        .unwrap();
+    version_set_provider.register_flush(ingestion_result, ingestion_seqno);
+    assert_eq!(1, tree.table_count());
+    assert_eq!(Some(1), tree.get_flush_watermark());
 
     let mut ingest = tree.ingestion()?;
     ingest.write("b", "b")?;
-    ingest.finish()?;
-    assert_eq!(Some(1), tree.get_highest_persisted_seqno());
+    let (ingestion_result, ingestion_seqno) = ingest
+        .finish(
+            || {
+                version_set_provider
+                    .flush_active_memtable(&tree, seqno.next(), 0)
+                    .map(|_| ())
+            },
+            || seqno.next(),
+        )?
+        .unwrap();
+    version_set_provider.register_flush(ingestion_result, ingestion_seqno);
+    assert_eq!(2, tree.table_count());
+    assert_eq!(Some(3), tree.get_flush_watermark());
 
     Ok(())
 }

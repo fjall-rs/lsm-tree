@@ -1,4 +1,8 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -7,20 +11,18 @@ fn tree_range_count() -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 2);
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 3);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 4);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 5);
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     assert_eq!(2, tree.range("a"..="f", SeqNo::MAX, None).count());
     assert_eq!(2, tree.range("f"..="g", SeqNo::MAX, None).count());
@@ -35,7 +37,7 @@ fn tree_range_count() -> lsm_tree::Result<()> {
         .count()
     );
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(2, tree.range("a"..="f", SeqNo::MAX, None).count());
     assert_eq!(
@@ -48,9 +50,9 @@ fn tree_range_count() -> lsm_tree::Result<()> {
         .count()
     );
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 6);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 7);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 8);
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     assert_eq!(2, tree.range("a"..="f", SeqNo::MAX, None).count());
     assert_eq!(
@@ -72,21 +74,20 @@ fn blob_tree_range_count() -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
-    tree.insert("g".as_bytes(), b"neptune!".repeat(128_000), 2);
+    let tree = Config::new(&folder, version_set_provider.clone())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 3);
-    tree.insert("f".as_bytes(), b"neptune!".repeat(128_000), 4);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 5);
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), b"neptune!".repeat(128_000), seqno.next());
+
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), b"neptune!".repeat(128_000), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     assert_eq!(2, tree.range("a"..="f", SeqNo::MAX, None).count());
     assert_eq!(2, tree.range("f"..="g", SeqNo::MAX, None).count());
@@ -101,7 +102,7 @@ fn blob_tree_range_count() -> lsm_tree::Result<()> {
         .count()
     );
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(2, tree.range("a"..="f", SeqNo::MAX, None).count());
     assert_eq!(
@@ -114,9 +115,9 @@ fn blob_tree_range_count() -> lsm_tree::Result<()> {
         .count()
     );
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 6);
-    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 7);
-    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 8);
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     assert_eq!(2, tree.range("a"..="f", SeqNo::MAX, None).count());
     assert_eq!(

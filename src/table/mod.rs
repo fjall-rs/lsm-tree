@@ -80,7 +80,13 @@ impl std::ops::Deref for Table {
 #[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)
+        write!(
+            f,
+            "Table:{}({:?}<=>{:?})",
+            self.id(),
+            &**self.metadata.key_range.min(),
+            &**self.metadata.key_range.max()
+        )
     }
 }
 
@@ -620,6 +626,12 @@ impl Table {
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
         self.metadata.seqnos.1 + self.global_seqno()
+    }
+
+    /// Returns the lowest sequence number in the table.
+    #[must_use]
+    pub(crate) fn get_lowest_seqno(&self) -> SeqNo {
+        self.metadata.seqnos.0 + self.global_seqno()
     }
 
     /// Returns the number of tombstone markers in the `Table`.

@@ -1,4 +1,5 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -8,33 +9,23 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     }
 
     let folder = ".test/asd";
+    let seqno = SequenceNumberCounter::default();
 
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
     {
-        let tree = Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(folder, version_set_provider.clone()).open()?;
 
-        tree.insert("abc", "def", 0);
-        tree.insert("wqewe", "def", 0);
-        tree.insert("ewewq", "def", 0);
-        tree.insert("asddas", "def", 0);
-        tree.insert("ycxycx", "def", 0);
-        tree.insert("asdsda", "def", 0);
-        tree.insert("wewqe", "def", 0);
+        for key in [
+            "abc", "wqewe", "ewewq", "asddas", "ycxycx", "asdsda", "wewqe",
+        ] {
+            tree.insert(key, "def", seqno.next());
+        }
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     }
 
     {
-        let _tree = Config::new(
-            folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let _tree = Config::new(folder, version_set_provider.clone()).open()?;
     }
 
     let absolute_folder = std::path::Path::new(folder).canonicalize()?;
@@ -43,31 +34,19 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     std::env::set_current_dir(".test/def")?;
 
     {
-        let tree = Config::new(
-            &absolute_folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&absolute_folder, version_set_provider.clone()).open()?;
 
-        tree.insert("abc", "def", 0);
-        tree.insert("wqewe", "def", 0);
-        tree.insert("ewewq", "def", 0);
-        tree.insert("asddas", "def", 0);
-        tree.insert("ycxycx", "def", 0);
-        tree.insert("asdsda", "def", 0);
-        tree.insert("wewqe", "def", 0);
+        for key in [
+            "abc", "wqewe", "ewewq", "asddas", "ycxycx", "asdsda", "wewqe",
+        ] {
+            tree.insert(key, "def", seqno.next());
+        }
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     }
 
     for _ in 0..10 {
-        let _tree = Config::new(
-            &absolute_folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let _tree = Config::new(&absolute_folder, version_set_provider.clone()).open()?;
     }
 
     Ok(())

@@ -1,26 +1,53 @@
 // Found by model testing
 
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, KvSeparationOptions, Result,
-    SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, AnyTree, KvSeparationOptions,
+    MemorySuperVersionSetProvider, Result, SeqNo, SequenceNumberCounter,
 };
-use std::sync::Arc;
+use std::{ops::RangeBounds, sync::Arc};
 use test_log::test;
+
+fn flush_active_memtable(
+    tree: &AnyTree,
+    version_set_provider: &MemorySuperVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    gc_watermark: SeqNo,
+) -> Result<()> {
+    version_set_provider.flush_active_memtable(tree, seqno.next(), gc_watermark)?;
+    Ok(())
+}
+
+fn compact(
+    tree: &AnyTree,
+    version_set_provider: &MemorySuperVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    strategy: Arc<dyn lsm_tree::compaction::CompactionStrategy>,
+    gc_watermark: SeqNo,
+) -> Result<()> {
+    version_set_provider.compact(tree, strategy, seqno.next(), gc_watermark)
+}
+
+fn drop_range<R: RangeBounds<&'static str>>(
+    tree: &AnyTree,
+    version_set_provider: &MemorySuperVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    range: R,
+) -> Result<()> {
+    version_set_provider.drop_range(tree, range, seqno.next(), 0)
+}
 
 #[test]
 fn model_5() -> Result<()> {
     let folder = get_tmp_folder();
 
     let path = folder.path();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
-    .data_block_size_policy(BlockSizePolicy::all(100))
-    .open()?;
+    let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
+        .data_block_size_policy(BlockSizePolicy::all(100))
+        .open()?;
 
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default().with_table_target_size(150));
 
@@ -38,13 +65,13 @@ fn model_5() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 212], value, 842);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 152], value, 843);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 241], value, 844);
-    tree.flush_active_memtable(798)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 798)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 3, 120], value, 898);
-    tree.flush_active_memtable(799)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 799)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 3, 89], value, 899);
-    tree.flush_active_memtable(800)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 800)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 1, 52], value, 901);
     tree.insert([0, 0, 0, 0, 0, 0, 0, 177], value, 902);
@@ -62,23 +89,39 @@ fn model_5() -> Result<()> {
     tree.insert([0, 0, 0, 0, 0, 0, 1, 202], value, 934);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 140], value, 936);
     tree.insert([0, 0, 0, 0, 0, 0, 2, 152], value, 937);
-    tree.flush_active_memtable(886)?;
-    tree.compact(compaction.clone(), 886)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 886)?;
+    compact(
+        &tree,
+        &version_set_provider,
+        &seqno,
+        compaction.clone(),
+        886,
+    )?;
+    assert!(
+        tree.level_table_count(6).unwrap() > 0,
+        "should have compacted into Lmax",
+    );
 
     tree.insert([0, 0, 0, 0, 0, 0, 3, 145], value, 989);
-    tree.flush_active_memtable(890)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 890)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 3, 99], value, 993);
-    tree.flush_active_memtable(894)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 894)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 1, 106], value, 997);
-    tree.flush_active_memtable(898)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 898)?;
 
     tree.insert([0, 0, 0, 0, 0, 0, 2, 99], value, 1001);
-    tree.flush_active_memtable(902)?;
-    tree.compact(compaction.clone(), 902)?;
+    flush_active_memtable(&tree, &version_set_provider, &seqno, 902)?;
+    compact(
+        &tree,
+        &version_set_provider,
+        &seqno,
+        compaction.clone(),
+        902,
+    )?;
 
-    tree.drop_range::<&[u8], _>(..)?;
+    drop_range(&tree, &version_set_provider, &seqno, ..)?;
 
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.blob_file_count());

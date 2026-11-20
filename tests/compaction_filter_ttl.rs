@@ -2,7 +2,7 @@ use lsm_tree::{
     compaction::filter::{
         CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
-    AbstractTree, Config,
+    AbstractTree, Config, MemorySuperVersionSetProvider, SequenceNumberCounter,
 };
 use std::sync::{
     atomic::{AtomicU64, Ordering::Relaxed},
@@ -48,25 +48,50 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
     let watermark: Arc<AtomicU64> = Arc::default();
     let factory = TtlFilterFactory(watermark.clone());
 
-    let tree = Config::new(folder, Default::default(), Default::default())
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(folder, version_set_provider.clone())
         .with_compaction_filter_factory(Some(Arc::new(factory)))
         .open()?;
 
-    tree.insert(1_000u64.to_be_bytes(), "my_value", 0);
-    tree.insert(1_001u64.to_be_bytes(), "my_value2", 1);
-    tree.flush_active_memtable(0)?;
-    assert_eq!(2, tree.len(100_000, None)?);
+    tree.insert(1_000u64.to_be_bytes(), "my_value", seqno.next());
+    tree.insert(1_001u64.to_be_bytes(), "my_value2", seqno.next());
 
-    tree.major_compact(64_000_000, 100_000)?;
-    assert_eq!(2, tree.len(100_000, None)?);
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
+    assert_eq!(2, tree.len(seqno.get(), None)?);
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        100_000,
+    )?;
+
+    assert_eq!(2, tree.len(seqno.get(), None)?);
 
     watermark.store(1_000, Relaxed);
-    tree.major_compact(64_000_000, 100_000)?;
-    assert_eq!(2, tree.len(100_000, None)?);
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        100_000,
+    )?;
+
+    assert_eq!(2, tree.len(seqno.get(), None)?);
 
     watermark.store(1_001, Relaxed);
-    tree.major_compact(64_000_000, 100_000)?;
-    assert_eq!(1, tree.len(100_000, None)?);
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        100_000,
+    )?;
+
+    assert_eq!(1, tree.len(seqno.get(), None)?);
 
     Ok(())
 }

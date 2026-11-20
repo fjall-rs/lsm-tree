@@ -3,17 +3,65 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
-    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree, UserKey, UserValue,
+    blob_tree::FragmentationMap,
+    compaction::worker::NewCompactionResult,
+    iter_guard::IterGuardImpl,
+    table::Table,
+    version::{SuperVersion, Version},
+    vlog::BlobFile,
+    AnyTree, BlobTree, Config, EditRecord, Guard, InternalValue, KvPair, Memtable, MemtableId,
+    SeqNo, TableId, Tree, UserKey, UserValue, VersionEdit,
 };
 use std::{
     ops::RangeBounds,
-    sync::{Arc, MutexGuard, RwLockWriteGuard},
+    sync::{Arc, MutexGuard},
 };
 
 pub type RangeItem = crate::Result<KvPair>;
 
-type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
+/// Result of writing sealed memtables into tables, see [`AbstractTree::flush`]
+///
+/// It is not visible until it is registered in a new version
+/// (see [`crate::IoVersionSetProvider::register_flush`]).
+pub struct FlushToTablesResult {
+    /// The written tables
+    pub(crate) tables: Vec<Table>,
+
+    /// The written blob files (if KV separated)
+    pub(crate) blob_files: Option<Vec<BlobFile>>,
+
+    /// Fragmentation of blob files caused by the flush
+    pub(crate) frag_map: Option<FragmentationMap>,
+
+    /// IDs of the flushed sealed memtables, released once the result is registered
+    pub(crate) evicted_sealed_memtables: Vec<MemtableId>,
+
+    /// Size of the flushed sealed memtables in bytes
+    pub(crate) flushed_size: u64,
+
+    /// The new flush watermark (see [`Version::flush_watermark`]).
+    ///
+    /// For a flush, this is the highest seqno of the flushed memtables, NOT of the
+    /// created tables: the flush may drop its newest items (e.g. a weak tombstone cancels
+    /// the value it removes), and those must not be replayed from the WAL again.
+    pub(crate) flush_watermark: Option<SeqNo>,
+
+    /// Version edit that adds the written tables and blob files
+    pub(crate) version_edit: VersionEdit,
+}
+
+impl FlushToTablesResult {
+    /// Throws the flush result away, deleting its (never registered) files once they are dropped.
+    pub(crate) fn discard(self) {
+        for table in &self.tables {
+            table.mark_as_deleted();
+        }
+
+        for blob_file in self.blob_files.iter().flatten() {
+            blob_file.mark_as_deleted();
+        }
+    }
+}
 
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
@@ -28,7 +76,33 @@ pub trait AbstractTree {
     // TODO: remove
     #[doc(hidden)]
     fn version_memtable_size_sum(&self) -> u64 {
-        self.get_version_history_lock().memtable_size_sum()
+        //self.get_version_history_lock().memtable_size_sum()
+        todo!()
+    }
+
+    #[doc(hidden)]
+    fn inner(&self) -> &crate::tree::inner::TreeInner;
+
+    /// Returns a new [`SuperVersion`] with the active memtable removed.
+    fn clear_active_memtable(&self) -> Option<SuperVersion> {
+        let mut super_version = self.current_super_version();
+
+        if super_version.active_memtable.is_empty() {
+            return None;
+        }
+
+        super_version.active_memtable =
+            Arc::new(Memtable::new(self.inner().memtable_id_counter.next()));
+        super_version.sealed_memtables = Arc::new(crate::tree::sealed::SealedMemtables::default());
+
+        // Clear active is only used for recovery where snapshots do not exist yet
+        Some(super_version)
+    }
+
+    // TODO: remove this? just provide active_memtable_size and write_buffer_size?
+    /// Returns the active memtable.
+    fn active_memtable(&self) -> Arc<Memtable> {
+        self.current_super_version().active_memtable
     }
 
     #[doc(hidden)]
@@ -43,80 +117,19 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
 
+    // TODO: rename latest_*
     #[doc(hidden)]
-    fn current_version(&self) -> Version;
-
-    #[doc(hidden)]
-    fn get_version_history_lock(&self) -> RwLockWriteGuard<'_, crate::version::SuperVersions>;
-
-    /// Seals the active memtable and flushes to table(s).
-    ///
-    /// If there are already other sealed memtables lined up, those will be flushed as well.
-    ///
-    /// Only used in tests.
-    #[doc(hidden)]
-    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<()> {
-        let lock = self.get_flush_lock();
-        self.rotate_memtable();
-        self.flush(&lock, eviction_seqno)?;
-        Ok(())
+    fn current_super_version(&self) -> SuperVersion {
+        self.tree_config()
+            .version_set_provider
+            // TODO: rename latest_super_version
+            .latest_version()
     }
 
-    /// Synchronously flushes pending sealed memtables to tables.
-    ///
-    /// Returns the sum of flushed memtable sizes that were flushed.
-    ///
-    /// The function may not return a result, if nothing was flushed.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn flush(
-        &self,
-        _lock: &MutexGuard<'_, ()>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<u64>> {
-        use crate::{compaction::stream::CompactionStream, merge::Merger};
-
-        let version_history = self.get_version_history_lock();
-        let latest = version_history.latest_version();
-
-        if latest.sealed_memtables.len() == 0 {
-            return Ok(None);
-        }
-
-        let sealed_ids = latest
-            .sealed_memtables
-            .iter()
-            .map(|mt| mt.id)
-            .collect::<Vec<_>>();
-
-        log::debug!("Flushing sealed memtables {sealed_ids:?} to table(s)");
-
-        let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
-
-        let merger = Merger::new(
-            latest
-                .sealed_memtables
-                .iter()
-                .map(|mt| mt.iter().map(Ok))
-                .collect::<Vec<_>>(),
-        );
-        let stream = CompactionStream::new(merger, seqno_threshold);
-
-        drop(version_history);
-
-        if let Some((tables, blob_files)) = self.flush_to_tables(stream)? {
-            self.register_tables(
-                &tables,
-                blob_files.as_deref(),
-                None,
-                &sealed_ids,
-                seqno_threshold,
-            )?;
-        }
-
-        Ok(Some(flushed_size))
+    // TODO: rename latest_*
+    #[doc(hidden)]
+    fn current_version(&self) -> Version {
+        self.current_super_version().version
     }
 
     /// Returns an iterator that scans through the entire tree.
@@ -159,31 +172,6 @@ pub trait AbstractTree {
     /// Returns the approximate number of values reclaimable once weak tombstones can be GC'd.
     fn weak_tombstone_reclaimable_count(&self) -> u64;
 
-    /// Drops tables that are fully contained in a given range.
-    ///
-    /// Accepts any `RangeBounds`, including unbounded or exclusive endpoints.
-    /// If the normalized lower bound is greater than the upper bound, the
-    /// method returns without performing any work.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` only if an IO error occurs.
-    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()>;
-
-    /// Drops all tables and clears all memtables atomically.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` only if an IO error occurs.
-    fn clear(&self) -> crate::Result<()>;
-
-    /// Performs major compaction, blocking the caller until it's done.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
-
     /// Returns the disk space used by stale blobs.
     fn stale_blob_bytes(&self) -> u64 {
         0
@@ -201,11 +189,99 @@ pub trait AbstractTree {
     fn pinned_block_index_size(&self) -> usize;
 
     /// Gets the length of the version free list.
-    fn version_free_list_len(&self) -> usize;
+    fn version_set_len(&self) -> usize {
+        self.tree_config()
+            .version_set_provider
+            .version_history_len()
+    }
 
     /// Returns the metrics structure.
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
+
+    /// Runs a compaction.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn run_compaction(
+        &self,
+        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<NewCompactionResult>;
+
+    /// Flushes the write buffer.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn flush(&self, gc_watermark: SeqNo) -> crate::Result<Option<FlushToTablesResult>> {
+        use crate::{compaction::stream::CompactionStream, merge::Merger};
+
+        let latest = self.tree_config().version_set_provider.latest_version();
+
+        if latest.sealed_memtables.len() == 0 {
+            log::trace!("Flushing aborted because there are no sealed memtables");
+            return Ok(None);
+        }
+
+        let sealed_ids = latest
+            .sealed_memtables
+            .iter()
+            .map(|mt| mt.id)
+            .collect::<Vec<_>>();
+
+        log::debug!("Flushing sealed memtables {sealed_ids:?} to table(s)");
+
+        let flushed_size: u64 = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
+
+        // NOTE: Every item of the sealed memtables ends up in a table,
+        // or is dropped on purpose by the compaction stream below
+        let flush_watermark = latest
+            .sealed_memtables
+            .iter()
+            .filter_map(|mt| mt.get_highest_seqno())
+            .max();
+
+        let merger = Merger::new(
+            latest
+                .sealed_memtables
+                .iter()
+                .map(|mt| mt.iter().map(Ok))
+                .collect::<Vec<_>>(),
+        );
+        let stream = CompactionStream::new(merger, gc_watermark);
+
+        let Some((tables, blob_files)) = self.flush_to_tables(stream)? else {
+            return Ok(None);
+        };
+
+        let mut version_edit = vec![EditRecord::AddTables {
+            level: 0,
+            tables: tables.iter().map(Into::into).collect(),
+        }];
+
+        if let Some(blob_files) = &blob_files {
+            if !blob_files.is_empty() {
+                version_edit.push(EditRecord::AddBlobFiles {
+                    blob_files: blob_files.iter().map(Into::into).collect(),
+                });
+            }
+        }
+
+        let version_edit = VersionEdit::new(version_edit);
+
+        Ok(Some(FlushToTablesResult {
+            tables,
+            blob_files,
+            frag_map: None,
+            evicted_sealed_memtables: sealed_ids,
+            flushed_size,
+            flush_watermark,
+
+            version_edit,
+        }))
+    }
 
     /// Acquires the flush lock which is required to call [`Tree::flush`].
     fn get_flush_lock(&self) -> MutexGuard<'_, ()>;
@@ -218,42 +294,20 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[warn(clippy::type_complexity)]
+    #[allow(clippy::type_complexity)]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<FlushToTablesResult>>;
-
-    /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn register_tables(
-        &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
-        frag_map: Option<crate::blob_tree::FragmentationMap>,
-        sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
-        gc_watermark: SeqNo,
-    ) -> crate::Result<()>;
-
-    /// Clears the active memtable atomically.
-    fn clear_active_memtable(&self);
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>>;
 
     /// Returns the number of sealed memtables.
-    fn sealed_memtable_count(&self) -> usize;
-
-    /// Performs compaction on the tree's levels, blocking the caller until it's done.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn compact(
-        &self,
-        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<()>;
+    fn sealed_memtable_count(&self) -> usize {
+        self.tree_config()
+            .version_set_provider
+            .latest_version()
+            .sealed_memtables
+            .len()
+    }
 
     /// Returns the next table's ID.
     fn get_next_table_id(&self) -> TableId;
@@ -264,12 +318,9 @@ pub trait AbstractTree {
     /// Returns the highest sequence number.
     fn get_highest_seqno(&self) -> Option<SeqNo> {
         let memtable_seqno = self.get_highest_memtable_seqno();
-        let table_seqno = self.get_highest_persisted_seqno();
-        memtable_seqno.max(table_seqno)
+        let flushed_seqno = self.get_flush_watermark();
+        memtable_seqno.max(flushed_seqno)
     }
-
-    /// Returns the active memtable.
-    fn active_memtable(&self) -> Arc<Memtable>;
 
     /// Returns the tree type.
     fn tree_type(&self) -> crate::TreeType {
@@ -281,9 +332,6 @@ pub trait AbstractTree {
             crate::TreeType::Standard
         }
     }
-
-    /// Seals the active memtable.
-    fn rotate_memtable(&self) -> Option<Arc<Memtable>>;
 
     /// Returns the number of tables currently in the tree.
     fn table_count(&self) -> usize;
@@ -310,8 +358,12 @@ pub trait AbstractTree {
     /// Returns the highest sequence number of the active memtable.
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo>;
 
-    /// Returns the highest sequence number that is flushed to disk.
-    fn get_highest_persisted_seqno(&self) -> Option<SeqNo>;
+    /// Returns the flush watermark: every item with a seqno at or below it
+    /// is in a table, or was removed on purpose (flush, compaction, drop range, clear).
+    ///
+    /// Only flushes and clears move it up, compactions never do.
+    /// `None` if nothing was flushed (or cleared) yet.
+    fn get_flush_watermark(&self) -> Option<SeqNo>;
 
     /// Scans the entire tree, returning the number of items.
     ///

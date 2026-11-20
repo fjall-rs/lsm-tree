@@ -1,20 +1,22 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_write_and_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
-    tree.insert("b".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
-    tree.insert("c".as_bytes(), nanoid::nanoid!().as_bytes(), 2);
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
+
+    tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("b".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
+    tree.insert("c".as_bytes(), nanoid::nanoid!().as_bytes(), seqno.next());
 
     let item = tree.get_internal_entry(b"a", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "a".as_bytes());
@@ -31,14 +33,11 @@ fn tree_write_and_read() -> lsm_tree::Result<()> {
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 2);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    drop(tree);
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let item = tree.get_internal_entry(b"a", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "a".as_bytes());

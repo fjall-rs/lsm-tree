@@ -3,7 +3,8 @@ use lsm_tree::{
     compaction::filter::{
         CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
-    get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+    get_tmp_folder, AbstractTree, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 use test_log::test;
@@ -44,30 +45,37 @@ fn compaction_filter_gc_stats_change() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let other_big_value = b"asdasd".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-        ))
-        .with_compaction_filter_factory(Some(Arc::new(MyFilterFactory)))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
+            .with_compaction_filter_factory(Some(Arc::new(MyFilterFactory)))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("changethis", &other_big_value, 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("changethis", &other_big_value, batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.major_compact(64_000_000, 1_000)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::default()),
+            seqno.next(),
+            1_000,
+        )?;
+
         assert_eq!(1, tree.table_count());
         // Because we are creating a new value, a new blob file is created
         assert_eq!(2, tree.blob_file_count());
@@ -129,30 +137,37 @@ fn compaction_filter_gc_stats_change_non_blob() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
     let small_value = b"asdasd";
 
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-        ))
-        .with_compaction_filter_factory(Some(Arc::new(MyFilterFactory)))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
+            .with_compaction_filter_factory(Some(Arc::new(MyFilterFactory)))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("changethis", small_value, 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("changethis", small_value, batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.major_compact(64_000_000, 1_000)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::default()),
+            seqno.next(),
+            1_000,
+        )?;
+
         assert_eq!(1, tree.table_count());
         // Because we are creating a new value, but a small one, a new blob file is not created
         assert_eq!(1, tree.blob_file_count());
@@ -206,33 +221,40 @@ fn compaction_filter_gc_stats_change_blob_writer_rotation() -> lsm_tree::Result<
     let big_value = b"neptune!".repeat(128_000);
     let other_big_value = b"asdasd".repeat(128_000);
 
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default()
-                .file_target_size(1)
-                .compression(lsm_tree::CompressionType::None),
-        ))
-        .with_compaction_filter_factory(Some(Arc::new(MyFilterFactory)))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default()
+                    .file_target_size(1)
+                    .compression(lsm_tree::CompressionType::None),
+            ))
+            .with_compaction_filter_factory(Some(Arc::new(MyFilterFactory)))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("changethis", &other_big_value, 0);
-        tree.insert("changethis2", &other_big_value, 0);
+        let batch_seqno = seqno.next();
+        tree.insert("big", &big_value, batch_seqno);
+        tree.insert("changethis", &other_big_value, batch_seqno);
+        tree.insert("changethis2", &other_big_value, batch_seqno);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(3, tree.blob_file_count());
 
-        tree.major_compact(64_000_000, 1_000)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(lsm_tree::compaction::Major::default()),
+            seqno.next(),
+            1_000,
+        )?;
+
         assert_eq!(1, tree.table_count());
         // Because we are creating a new value, a new blob file is created
         assert_eq!(5, tree.blob_file_count());

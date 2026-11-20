@@ -1,7 +1,8 @@
 use lsm_tree::{
-    blob_tree::FragmentationEntry, get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo,
+    get_tmp_folder, AbstractTree, KvSeparationOptions, MemorySuperVersionSetProvider, SeqNo,
     SequenceNumberCounter,
 };
+use std::{collections::HashMap, sync::Arc};
 use test_log::test;
 
 #[test]
@@ -9,30 +10,30 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
+    let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(128_000);
 
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-        ))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
+        tree.insert("big", &big_value, seqno.next());
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.drop_range::<&[u8], _>(..)?;
+        version_set_provider.drop_range::<&[u8], _>(&tree, .., seqno.next(), 0)?;
 
         // NOTE: Because the blob does not have any incoming references anymore
         // it is pruned from the Version
@@ -42,15 +43,7 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
         let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 was dropped
-        assert_eq!(
-            &{
-                let mut map = lsm_tree::HashMap::default();
-                let size = big_value.len() as u64;
-                map.insert(0, FragmentationEntry::new(1, size, size));
-                map
-            },
-            &*gc_stats,
-        );
+        assert_eq!(&HashMap::default(), &*gc_stats);
     }
 
     Ok(())
@@ -61,31 +54,31 @@ fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
+    let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(128_000);
 
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
     {
-        let tree = lsm_tree::Config::new(
-            path,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .with_kv_separation(Some(
-            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-        ))
-        .open()?;
+        let tree = lsm_tree::Config::new(path, version_set_provider.clone())
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
-        tree.insert("big", &big_value, 0);
-        tree.insert("big", &big_value, 1);
+        tree.insert("big", &big_value, seqno.next());
+        tree.insert("big", &big_value, seqno.next());
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
 
-        tree.flush_active_memtable(0)?;
+        version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
-        tree.drop_range::<&[u8], _>(..)?;
+        version_set_provider.drop_range::<&[u8], _>(&tree, .., seqno.next(), 0)?;
 
         // NOTE: Because the blob does not have any incoming references anymore
         // it is pruned from the Version
@@ -95,15 +88,7 @@ fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
         let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0, big":1 were dropped
-        assert_eq!(
-            &{
-                let mut map = lsm_tree::HashMap::default();
-                let size = big_value.len() as u64;
-                map.insert(0, FragmentationEntry::new(2, size * 2, size * 2));
-                map
-            },
-            &*gc_stats,
-        );
+        assert_eq!(&HashMap::default(), &*gc_stats);
     }
 
     Ok(())

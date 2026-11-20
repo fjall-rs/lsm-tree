@@ -1,4 +1,8 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -7,12 +11,9 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -25,7 +26,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
         tree.insert(format!("c:{x}").as_bytes(), value, batch_seqno);
     }
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 3);
     assert_eq!(
@@ -64,28 +65,28 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 fn tree_delete_by_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let value = "old".as_bytes();
-    tree.insert("a".as_bytes(), value, 0);
-    tree.insert("b".as_bytes(), value, 0);
-    tree.insert("c".as_bytes(), value, 0);
-    tree.insert("d".as_bytes(), value, 0);
-    tree.insert("e".as_bytes(), value, 0);
-    tree.insert("f".as_bytes(), value, 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a".as_bytes(), value, batch_seqno);
+    tree.insert("b".as_bytes(), value, batch_seqno);
+    tree.insert("c".as_bytes(), value, batch_seqno);
+    tree.insert("d".as_bytes(), value, batch_seqno);
+    tree.insert("e".as_bytes(), value, batch_seqno);
+    tree.insert("f".as_bytes(), value, batch_seqno);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 6);
 
+    let batch_seqno = seqno.next();
     for item in tree.range("c"..="e", SeqNo::MAX, None) {
         let key = item.key()?;
-        tree.remove(key, 1);
+        tree.remove(key, batch_seqno);
     }
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 3);

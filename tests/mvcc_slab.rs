@@ -1,6 +1,8 @@
 use lsm_tree::{
-    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider,
+    SequenceNumberCounter,
 };
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -11,7 +13,9 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -19,9 +23,9 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
     for _ in 0..ITEM_COUNT {
         tree.insert("a", "", seqno.next());
     }
-    tree.insert("b", "", 0);
+    tree.insert("b", "", seqno.next());
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     let version = tree.current_version();
 
@@ -47,7 +51,9 @@ fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(&folder, version_set_provider.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))
@@ -56,9 +62,9 @@ fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     for _ in 0..ITEM_COUNT {
         tree.insert("a", "neptune".repeat(10_000), seqno.next());
     }
-    tree.insert("b", "", 0);
+    tree.insert("b", "", seqno.next());
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     let version = tree.current_version();
 

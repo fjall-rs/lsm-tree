@@ -3,13 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::state::CompactionState,
-    config::Config,
-    stop_signal::StopSignal,
-    version::{persist_version, SuperVersions, Version},
+    compaction::state::CompactionState, config::Config, stop_signal::StopSignal,
     SequenceNumberCounter, TableId,
 };
-use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
+use std::sync::{atomic::AtomicU64, Arc, Mutex};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -46,8 +43,6 @@ pub struct TreeInner {
     /// Hands out a unique (monotonically increasing) blob file ID
     pub(crate) blob_file_id_counter: SequenceNumberCounter,
 
-    pub(crate) version_history: Arc<RwLock<SuperVersions>>,
-
     pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
     /// Tree configuration
@@ -56,12 +51,6 @@ pub struct TreeInner {
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
-
-    /// Used by major compaction to be the exclusive compaction going on.
-    ///
-    /// Minor compactions use `major_compaction_lock.read()` instead, so they
-    /// can be concurrent next to each other.
-    pub(crate) major_compaction_lock: RwLock<()>,
 
     /// Serializes flush operations.
     pub(crate) flush_lock: Mutex<()>,
@@ -72,34 +61,6 @@ pub struct TreeInner {
 }
 
 impl TreeInner {
-    pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let version = Version::new(
-            0,
-            if config.kv_separation_opts.is_some() {
-                crate::TreeType::Blob
-            } else {
-                crate::TreeType::Standard
-            },
-        );
-        persist_version(&config.path, &version)?;
-
-        Ok(Self {
-            id: get_next_tree_id(),
-            memtable_id_counter: SequenceNumberCounter::new(1),
-            table_id_counter: SequenceNumberCounter::default(),
-            blob_file_id_counter: SequenceNumberCounter::default(),
-            config: Arc::new(config),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
-            stop_signal: StopSignal::default(),
-            major_compaction_lock: RwLock::default(),
-            flush_lock: Mutex::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
-
-            #[cfg(feature = "metrics")]
-            metrics: Metrics::default().into(),
-        })
-    }
-
     pub fn get_next_table_id(&self) -> TableId {
         self.table_id_counter.next()
     }

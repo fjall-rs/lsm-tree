@@ -1,8 +1,10 @@
 use lsm_tree::compaction::filter::{
     CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
 };
-use lsm_tree::compaction::PullDown;
-use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    compaction::PullDown, get_tmp_folder, AbstractTree, KvSeparationOptions,
+    MemorySuperVersionSetProvider, SeqNo, SequenceNumberCounter,
+};
 use std::sync::{Arc, Mutex};
 use test_log::test;
 
@@ -103,36 +105,45 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let mut config = lsm_tree::Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(if blob {
-        Some(KvSeparationOptions::default().separation_threshold(2))
-    } else {
-        None
-    })
-    .with_compaction_filter_factory(Some(Arc::new(FilterFactory(filter_state.clone()))));
+    let seqno = SequenceNumberCounter::default();
+
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let mut config = lsm_tree::Config::new(&folder, version_set_provider.clone())
+        .with_kv_separation(if blob {
+            Some(KvSeparationOptions::default().separation_threshold(2))
+        } else {
+            None
+        })
+        .with_compaction_filter_factory(Some(Arc::new(FilterFactory(filter_state.clone()))));
+
     config.level_count = 3;
     let tree = config.open()?;
 
+    let batch_seqno = seqno.next();
     for i in 0u32..255 {
-        tree.insert(u32_s(i), "old", 0);
+        tree.insert(u32_s(i), "old", batch_seqno);
     }
 
-    tree.flush_active_memtable(0)?;
-    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        SeqNo::MAX,
+    )?;
+
+    let batch_seqno = seqno.next();
     for i in 0u32..255 {
-        tree.insert(u32_s(i), "a", 0);
-        tree.insert(u32_s(i | 0xff000000), u32_s(i), 0);
+        tree.insert(u32_s(i), "a", batch_seqno);
+        tree.insert(u32_s(i | 0xff000000), u32_s(i), batch_seqno);
     }
 
-    tree.insert(u32_s(0x00abcdef), "test", 0);
-    tree.insert(u32_s(0x01abcdef), "test", 0);
+    tree.insert(u32_s(0x00abcdef), "test", batch_seqno);
+    tree.insert(u32_s(0x01abcdef), "test", batch_seqno);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     let mut state = filter_state.lock().unwrap();
     state.disable = false;
@@ -140,7 +151,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     state.expect_last_level = Some(false);
     drop(state);
 
-    tree.compact(Arc::new(PullDown(0, 1)), SeqNo::MAX)?;
+    version_set_provider.compact(&tree, Arc::new(PullDown(0, 1)), seqno.next(), SeqNo::MAX)?;
 
     // filter should have dropped this
     assert!(tree.get(u32_s(2), SeqNo::MAX)?.is_none());
@@ -166,7 +177,12 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     drop(state);
 
     // compact to last level
-    tree.major_compact(u64::MAX, SeqNo::MAX)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::new(u64::MAX)),
+        seqno.next(),
+        SeqNo::MAX,
+    )?;
 
     // verify values gone
     assert!(tree.get(u32_s(2), SeqNo::MAX)?.is_none());

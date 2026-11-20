@@ -36,7 +36,7 @@ impl CompactionStrategy for Strategy {
             table_ids,
             dest_level: self.1,
             target_size: 64_000_000,
-            canonical_level: 6, // We don't really care - this compaction is only used for very specific unit tests
+            canonical_level: self.1, // We don't really care - this compaction is only used for very specific unit tests
         })
     }
 }

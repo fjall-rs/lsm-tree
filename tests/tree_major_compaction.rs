@@ -1,4 +1,8 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, SeqNo,
+    SequenceNumberCounter,
+};
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
@@ -9,16 +13,23 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(path, seqno.clone(), SequenceNumberCounter::default()).open()?;
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(path, version_set_provider.clone()).open()?;
 
     tree.insert("a".as_bytes(), "abc", seqno.next());
     tree.insert("b".as_bytes(), "abc", seqno.next());
     tree.insert("c".as_bytes(), "abc", seqno.next());
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
     assert_eq!(1, tree.table_count());
 
-    tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        1_000, // NOTE: Simulate some time passing
+    )?;
     assert_eq!(1, tree.table_count());
 
     let item = tree.get_internal_entry(b"a", SeqNo::MAX)?.unwrap();
@@ -44,13 +55,61 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.remove("b".as_bytes(), batch_seqno);
     tree.remove("c".as_bytes(), batch_seqno);
 
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
     assert_eq!(2, tree.table_count());
 
-    tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        10_000, // NOTE: Simulate some time passing
+    )?;
 
     assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
+
+    Ok(())
+}
+
+#[test]
+fn tree_major_compaction_evict_file() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let path = folder.path();
+
+    let seqno = SequenceNumberCounter::default();
+
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+    let tree = Config::new(path, version_set_provider.clone()).open()?;
+
+    tree.insert("a".as_bytes(), "abc", seqno.next());
+    tree.insert("b".as_bytes(), "abc", seqno.next());
+    tree.insert("c".as_bytes(), "abc", seqno.next());
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+    assert_eq!(1, tree.table_count());
+
+    assert!(
+        path.join("tables").join("0").try_exists()?,
+        "table should exist",
+    );
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Major::default()),
+        seqno.next(),
+        1_000, // NOTE: Simulate some time passing
+    )?;
+    assert_eq!(1, tree.table_count());
+
+    version_set_provider.prune(SeqNo::MAX);
+
+    assert!(
+        !path.join("tables").join("0").try_exists()?,
+        "table should have been deleted",
+    );
 
     Ok(())
 }

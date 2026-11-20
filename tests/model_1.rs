@@ -1,42 +1,51 @@
 // Found by model testing
 
-use lsm_tree::{get_tmp_folder, AbstractTree, Result, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, MemorySuperVersionSetProvider, Result,
+    SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
 #[test]
-fn model_1() -> Result<()> {
+fn tree_model_1() -> Result<()> {
     let folder = get_tmp_folder();
 
-    let path = folder.path();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
-    let tree = lsm_tree::Config::new(
-        path,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-    let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     let value = b"hellohello";
 
-    tree.insert(b"a", value, 0);
-    tree.flush_active_memtable(0)?;
+    tree.insert(b"a", value, seqno.next());
 
-    tree.insert(b"b", value, 1);
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
-    tree.remove(b"b", 2);
-    tree.flush_active_memtable(0)?;
+    tree.insert(b"b", value, seqno.next());
 
-    tree.insert(b"c", value, 3);
-    tree.flush_active_memtable(0)?;
-    tree.compact(compaction.clone(), 0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
+    tree.remove(b"b", seqno.next());
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
+    let snapshot_seqno = seqno.get();
+
+    tree.insert(b"c", value, seqno.next());
+
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
+
+    version_set_provider.compact(
+        &tree,
+        Arc::new(lsm_tree::compaction::Leveled::default()),
+        seqno.next(),
+        0,
+    )?;
 
     {
         log::info!(r#"Getting "b""#);
-        let seqno = 5;
-        assert!(!tree.contains_key(b"b", seqno)?);
+        assert!(!tree.contains_key(b"b", snapshot_seqno)?);
     }
 
     Ok(())

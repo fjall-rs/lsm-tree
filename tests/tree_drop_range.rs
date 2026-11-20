@@ -1,31 +1,45 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, AnyTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, AnyTree, Config, MemorySuperVersionSetProvider, Result, SeqNo,
+    SequenceNumberCounter,
+};
 use std::ops::Bound::{Excluded, Included, Unbounded};
+use std::ops::RangeBounds;
+use std::sync::Arc;
 
-fn populate_tables(tree: &AnyTree) -> lsm_tree::Result<()> {
+fn populate_tables(
+    tree: &AnyTree,
+    version_set_provider: &MemorySuperVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+) -> Result<()> {
     for key in 'a'..='e' {
-        tree.insert([key as u8], "", 0);
-        tree.flush_active_memtable(0)?;
+        tree.insert([key as u8], "", seqno.next());
+        version_set_provider.flush_active_memtable(tree, seqno.next(), 0)?;
     }
     Ok(())
 }
 
+fn drop_range<R: RangeBounds<&'static str>>(
+    tree: &AnyTree,
+    version_set_provider: &MemorySuperVersionSetProvider,
+    seqno: &SequenceNumberCounter,
+    range: R,
+) -> Result<()> {
+    version_set_provider.drop_range(tree, range, seqno.next(), 0)
+}
+
 #[test]
-fn tree_drop_range_basic() -> lsm_tree::Result<()> {
+fn tree_drop_range_basic() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
 
     assert_eq!(1, tree.l0_run_count());
     assert_eq!(5, tree.table_count());
 
-    tree.drop_range("a"..="c")?;
+    drop_range(&tree, &version_set_provider, &seqno, "a"..="c")?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -40,25 +54,21 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
+fn tree_drop_range_partial_table_overlap_kept() -> Result<()> {
     let folder = get_tmp_folder();
-
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
     for key in ['a', 'b', 'c', 'd', 'e'] {
-        tree.insert([key as u8], "", 0);
+        tree.insert([key as u8], "", seqno.next());
     }
-    tree.flush_active_memtable(0)?;
+    version_set_provider.flush_active_memtable(&tree, seqno.next(), 0)?;
 
     assert_eq!(1, tree.l0_run_count());
     assert_eq!(1, tree.table_count());
 
-    tree.drop_range("b".."d")?;
+    drop_range(&tree, &version_set_provider, &seqno, "b".."d")?;
 
     for key in ['a', 'b', 'c', 'd', 'e'] {
         assert!(tree.contains_key([key as u8], SeqNo::MAX)?);
@@ -71,19 +81,14 @@ fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_upper_exclusive() -> lsm_tree::Result<()> {
+fn tree_drop_range_upper_exclusive() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range("a".."d")?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(&tree, &version_set_provider, &seqno, "a".."d")?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -95,19 +100,19 @@ fn tree_drop_range_upper_exclusive() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_lower_exclusive() -> lsm_tree::Result<()> {
+fn tree_drop_range_lower_exclusive() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range::<&str, _>((Excluded("a"), Included("c")))?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(
+        &tree,
+        &version_set_provider,
+        &seqno,
+        (Excluded("a"), Included("c")),
+    )?;
 
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -118,19 +123,19 @@ fn tree_drop_range_lower_exclusive() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_unbounded_lower_inclusive_upper() -> lsm_tree::Result<()> {
+fn tree_drop_range_unbounded_lower_inclusive_upper() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range::<&str, _>((Unbounded, Included("c")))?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(
+        &tree,
+        &version_set_provider,
+        &seqno,
+        (Unbounded, Included("c")),
+    )?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -142,19 +147,19 @@ fn tree_drop_range_unbounded_lower_inclusive_upper() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_unbounded_lower_exclusive_upper() -> lsm_tree::Result<()> {
+fn tree_drop_range_unbounded_lower_exclusive_upper() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range::<&str, _>((Unbounded, Excluded("d")))?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(
+        &tree,
+        &version_set_provider,
+        &seqno,
+        (Unbounded, Excluded("d")),
+    )?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -165,19 +170,19 @@ fn tree_drop_range_unbounded_lower_exclusive_upper() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_exclusive_empty_interval() -> lsm_tree::Result<()> {
+fn tree_drop_range_exclusive_empty_interval() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range::<&str, _>((Excluded("b"), Excluded("b")))?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(
+        &tree,
+        &version_set_provider,
+        &seqno,
+        (Excluded("b"), Excluded("b")),
+    )?;
 
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert!(tree.contains_key("b", SeqNo::MAX)?);
@@ -187,17 +192,13 @@ fn tree_drop_range_exclusive_empty_interval() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_empty_tree() -> lsm_tree::Result<()> {
+fn tree_drop_range_empty_tree() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    tree.drop_range("a"..="c")?;
+    drop_range(&tree, &version_set_provider, &seqno, "a"..="c")?;
 
     assert_eq!(0, tree.l0_run_count());
     assert_eq!(0, tree.table_count());
@@ -206,19 +207,14 @@ fn tree_drop_range_empty_tree() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_unbounded_upper() -> lsm_tree::Result<()> {
+fn tree_drop_range_unbounded_upper() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range("c"..)?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(&tree, &version_set_provider, &seqno, "c"..)?;
 
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert!(tree.contains_key("b", SeqNo::MAX)?);
@@ -230,19 +226,14 @@ fn tree_drop_range_unbounded_upper() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
+fn tree_drop_range_clear_all() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
-
-    populate_tables(&tree)?;
-
-    tree.drop_range::<&str, _>(..)?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
+    drop_range(&tree, &version_set_provider, &seqno, ..)?;
 
     assert_eq!(0, tree.l0_run_count());
     assert_eq!(0, tree.table_count());
@@ -253,20 +244,16 @@ fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_inverted_bounds_is_noop() -> lsm_tree::Result<()> {
+fn tree_drop_range_inverted_bounds_is_noop() -> Result<()> {
     let folder = get_tmp_folder();
+    let seqno = SequenceNumberCounter::default();
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+    let tree = Config::new(&folder, version_set_provider.clone()).open()?;
 
-    let tree = Config::new(
-        &folder,
-        SequenceNumberCounter::default(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    populate_tables(&tree, &version_set_provider, &seqno)?;
 
-    populate_tables(&tree)?;
-
-    tree.drop_range("c".."a")?;
-    tree.drop_range("c"..="a")?;
+    drop_range(&tree, &version_set_provider, &seqno, "c".."a")?;
+    drop_range(&tree, &version_set_provider, &seqno, "c"..="a")?;
 
     // All keys remain because the range is treated as empty.
     for key in 'a'..='e' {
