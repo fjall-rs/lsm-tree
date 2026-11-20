@@ -195,17 +195,27 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
                     }
 
                     // NOTE: If next item is an actual value, and current value is weak tombstone,
-                    // drop the tombstone
+                    // they cancel each other out
                     let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
                         && head.key.value_type == ValueType::WeakTombstone;
+
+                    if drop_weak_tombstone {
+                        // IMPORTANT: Only the cancelled value is dropped, not the rest of the key:
+                        // a weak tombstone only cancels the newest value, so the key's next
+                        // version (e.g. an older weak tombstone, which still has to cancel a
+                        // value in a lower level) becomes its newest version
+                        if let Some(Ok(cancelled)) = self.inner.next() {
+                            if let Some(watcher) = &mut self.dropped_callback {
+                                watcher.on_dropped(&cancelled);
+                            }
+                        }
+
+                        continue;
+                    }
 
                     // NOTE: Next item is expired,
                     // so the tail of this user key is entirely expired, so drain it all
                     fail_iter!(self.drain_key(&head.key.user_key));
-
-                    if drop_weak_tombstone {
-                        continue;
-                    }
                 }
             } else if head.is_tombstone() && self.evict_tombstones {
                 continue;
@@ -525,6 +535,41 @@ mod tests {
 
         // NOTE: Weak tombstone is consumed because value is GC'ed
 
+        assert_eq!(
+            InternalValue::from_components(*b"b", *b"other", 999, ValueType::Value),
+            iter.next().unwrap()?,
+        );
+
+        iter_closed!(iter);
+
+        Ok(())
+    }
+
+    /// Insert, weak remove, insert, weak remove: the newest pair cancels out, but the older
+    /// weak tombstone is kept, it still has to cancel the first value in a lower level
+    /// (otherwise that value comes back)
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_weak_tombstone_cancel_keeps_older_versions() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let mut vec = stream![
+          "a", "", "W",
+          "a", "v2", "V",
+          "a", "", "W",
+        ];
+        vec.push(InternalValue::from_components(
+            "b",
+            "other",
+            999,
+            ValueType::Value,
+        ));
+
+        let older_weak_tombstone = vec.get(2).cloned().unwrap();
+
+        let iter = vec.iter().cloned().map(Ok);
+        let mut iter = CompactionStream::new(iter, 999);
+
+        assert_eq!(older_weak_tombstone, iter.next().unwrap()?);
         assert_eq!(
             InternalValue::from_components(*b"b", *b"other", 999, ValueType::Value),
             iter.next().unwrap()?,
