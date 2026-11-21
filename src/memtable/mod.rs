@@ -9,6 +9,7 @@ use crate::{
 };
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 
 pub use crate::tree::inner::MemtableId;
@@ -35,6 +36,16 @@ pub struct Memtable {
     pub(crate) highest_seqno: AtomicU64,
 
     pub(crate) requested_rotation: AtomicBool,
+}
+
+impl Drop for Memtable {
+    fn drop(&mut self) {
+        log::trace!(
+            "Dropping memtable {}, freeing ~{} bytes",
+            self.id(),
+            self.approximate_size.load(Relaxed),
+        );
+    }
 }
 
 impl Memtable {
