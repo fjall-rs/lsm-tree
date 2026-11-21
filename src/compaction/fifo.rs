@@ -97,10 +97,11 @@ impl CompactionStrategy for Strategy {
 
         assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
 
-        assert!(
-            !version.level_is_busy(0, state.hidden_set()),
-            "FIFO compaction never compacts",
-        );
+        // NOTE: FIFO never merges, but a previous drop hides its tables until it is committed,
+        // so wait for it instead of dropping (some of) the same tables again
+        if version.level_is_busy(0, state.hidden_set()) {
+            return Choice::DoNothing;
+        }
 
         // Account for both table file bytes and value-log (blob) bytes to enforce the true space limit.
         let db_size = first_level.size() + version.blob_files.on_disk_size();
@@ -350,6 +351,47 @@ mod tests {
         assert_eq!(0, tree.table_count());
 
         crate::time::set_unix_timestamp_for_test(None);
+
+        Ok(())
+    }
+
+    /// A drop hides its tables until it is committed, so a concurrent FIFO compaction
+    /// has to wait for it, instead of panicking (or dropping the same tables again)
+    #[test]
+    fn fifo_waits_for_uncommitted_drop() -> crate::Result<()> {
+        use crate::compaction::worker::CompactionOperation;
+
+        let dir = tempfile::tempdir()?;
+
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+
+        let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
+
+        for i in 0..4u8 {
+            tree.insert([b'k', i].as_slice(), "v", u64::from(i));
+            version_set_provider.flush_active_memtable(&tree, u64::from(i) + 1, 0)?;
+        }
+
+        let fifo = Arc::new(Strategy::new(1));
+
+        // Pick tables to drop, but do not commit yet
+        let first = tree.run_compaction(fifo.clone(), 0)?;
+        assert!(matches!(first.inner, CompactionOperation::Drop { .. }));
+
+        let second = tree.run_compaction(fifo.clone(), 0)?;
+        assert!(matches!(second.inner, CompactionOperation::Noop));
+
+        version_set_provider.register_compaction(first, 10)?;
+        version_set_provider.register_compaction(second, 11)?;
+        assert!(tree.table_count() < 4);
+
+        // After the commit, the tables are not hidden anymore
+        let crate::AnyTree::Standard(standard_tree) = &tree else {
+            unreachable!();
+        };
+        assert!(!standard_tree.is_compacting());
+
+        version_set_provider.compact(&tree, fifo, 12, 0)?;
 
         Ok(())
     }
