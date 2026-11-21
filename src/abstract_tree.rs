@@ -9,8 +9,8 @@ use crate::{
     table::Table,
     version::{SuperVersion, Version},
     vlog::BlobFile,
-    AnyTree, BlobTree, Config, EditRecord, Guard, InternalValue, KvPair, Memtable, MemtableId,
-    SeqNo, TableId, Tree, UserKey, UserValue, VersionEdit,
+    Config, EditRecord, Guard, InternalValue, KvPair, Memtable, MemtableId, SeqNo, TableId,
+    UserKey, UserValue, VersionEdit,
 };
 use std::{
     ops::RangeBounds,
@@ -64,7 +64,6 @@ impl FlushToTablesResult {
 }
 
 /// Generic Tree API
-#[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
     /// Debug method for tracing the MVCC history of a key.
     #[doc(hidden)]

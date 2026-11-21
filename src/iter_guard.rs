@@ -1,10 +1,8 @@
 use crate::{
     blob_tree::Guard as BlobGuard, tree::Guard as StandardGuard, KvPair, UserKey, UserValue,
 };
-use enum_dispatch::enum_dispatch;
 
 /// Guard to access key-value pairs
-#[enum_dispatch]
 pub trait IterGuard {
     /// Accesses the key-value pair if the predicate returns `true`.
     ///
@@ -54,11 +52,59 @@ pub trait IterGuard {
 }
 
 /// Generic iterator value
-#[enum_dispatch(IterGuard)]
 pub enum IterGuardImpl {
     /// Iterator value of a standard LSM-tree
     Standard(StandardGuard),
 
     /// Iterator value of a key-value separated tree
     Blob(BlobGuard),
+}
+
+impl From<StandardGuard> for IterGuardImpl {
+    fn from(guard: StandardGuard) -> Self {
+        Self::Standard(guard)
+    }
+}
+
+impl From<BlobGuard> for IterGuardImpl {
+    fn from(guard: BlobGuard) -> Self {
+        Self::Blob(guard)
+    }
+}
+
+/// Calls the same method on whichever guard type is inside
+macro_rules! dispatch {
+    ($self:expr, $guard:ident => $call:expr) => {
+        match $self {
+            IterGuardImpl::Standard($guard) => $call,
+            IterGuardImpl::Blob($guard) => $call,
+        }
+    };
+}
+
+// NOTE: Every method is forwarded, including the ones with a default implementation,
+// because the guards may override them
+impl IterGuard for IterGuardImpl {
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<(UserKey, Option<UserValue>)> {
+        dispatch!(self, g => g.into_inner_if(pred))
+    }
+
+    fn into_inner(self) -> crate::Result<KvPair> {
+        dispatch!(self, g => g.into_inner())
+    }
+
+    fn key(self) -> crate::Result<UserKey> {
+        dispatch!(self, g => g.key())
+    }
+
+    fn size(self) -> crate::Result<u32> {
+        dispatch!(self, g => g.size())
+    }
+
+    fn value(self) -> crate::Result<UserValue> {
+        dispatch!(self, g => g.value())
+    }
 }
