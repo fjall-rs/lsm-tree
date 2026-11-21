@@ -21,6 +21,23 @@ pub type UserValue = Slice;
 /// Stale items are lazily garbage-collected during compaction.
 pub type SeqNo = u64;
 
+/// A point-read record that does not reconstruct the user key.
+pub(crate) struct PointReadResult {
+    pub seqno: SeqNo,
+    pub value_type: ValueType,
+    pub value: UserValue,
+}
+
+impl From<InternalValue> for PointReadResult {
+    fn from(item: InternalValue) -> Self {
+        Self {
+            seqno: item.key.seqno,
+            value_type: item.key.value_type,
+            value: item.value,
+        }
+    }
+}
+
 /// Internal representation of KV pairs
 #[derive(Clone)]
 pub struct InternalValue {

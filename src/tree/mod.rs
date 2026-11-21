@@ -17,7 +17,7 @@ use crate::{
     memtable::Memtable,
     slice::Slice,
     table::Table,
-    value::InternalValue,
+    value::{InternalValue, PointReadResult},
     version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
     AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
@@ -647,9 +647,7 @@ impl AbstractTree for Tree {
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>> {
-        Ok(self
-            .get_internal_entry(key.as_ref(), seqno)?
-            .map(|x| x.value))
+        Ok(self.get_point_result(key.as_ref(), seqno)?.map(|x| x.value))
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
@@ -708,40 +706,66 @@ impl Tree {
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
+        Ok(
+            Self::get_entry_from_version_with(super_version, key, seqno, |item| item, Table::get)?
+                .and_then(ignore_tombstone_value),
+        )
+    }
+
+    pub(crate) fn get_point_result(
+        &self,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<PointReadResult>> {
+        let super_version = self.get_version_for_snapshot(seqno);
+        Self::get_point_result_from_version(&super_version, key, seqno)
+    }
+
+    pub(crate) fn get_point_result_from_version(
+        super_version: &SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<PointReadResult>> {
+        Ok(Self::get_entry_from_version_with(
+            super_version,
+            key,
+            seqno,
+            PointReadResult::from,
+            Table::get_value,
+        )?
+        .filter(|item| !item.value_type.is_tombstone()))
+    }
+
+    // Return the first visible record, including tombstones. Only the caller may
+    // turn a deletion into absence, after traversal has stopped.
+    fn get_entry_from_version_with<T>(
+        super_version: &SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+        from_memtable: impl FnOnce(InternalValue) -> T,
+        from_table: impl Fn(&Table, &[u8], SeqNo, u64) -> crate::Result<Option<T>>,
+    ) -> crate::Result<Option<T>> {
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
+            return Ok(Some(from_memtable(entry)));
         }
 
-        // Now look in sealed memtables
         if let Some(entry) =
             Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
         {
-            return Ok(ignore_tombstone_value(entry));
+            return Ok(Some(from_memtable(entry)));
         }
 
-        // Now look in tables... this may involve disk I/O
-        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
-    }
-
-    fn get_internal_entry_from_tables(
-        version: &Version,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> crate::Result<Option<InternalValue>> {
-        // NOTE: Create key hash for hash sharing
-        // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
-
-        for table in version
+        for table in super_version
+            .version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .filter_map(|run| run.get_for_key(key))
         {
-            if let Some(item) = table.get(key, seqno, key_hash)? {
-                return Ok(ignore_tombstone_value(item));
+            if let Some(item) = from_table(table, key, seqno, key_hash)? {
+                return Ok(Some(item));
             }
         }
-
         Ok(None)
     }
 

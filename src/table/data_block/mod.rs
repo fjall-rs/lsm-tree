@@ -16,6 +16,7 @@ use super::block::{
 use crate::key::InternalKey;
 use crate::table::block::hash_index::{MARKER_CONFLICT, MARKER_FREE};
 use crate::table::util::{compare_prefixed_slice, SliceIndexes};
+use crate::value::PointReadResult;
 use crate::{InternalValue, SeqNo, Slice, ValueType};
 use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -410,6 +411,23 @@ impl DataBlock {
     // TODO: handle seqno more nicely (make Key generic, so we can do binary search over (key, seqno))
     #[must_use]
     pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
+        self.find_point_record(needle, seqno)
+            .map(|item| item.materialize(&self.inner.data))
+    }
+
+    pub(crate) fn point_read_value(&self, needle: &[u8], seqno: SeqNo) -> Option<PointReadResult> {
+        self.find_point_record(needle, seqno)
+            .map(|item| PointReadResult {
+                seqno: item.seqno,
+                value_type: item.value_type,
+                value: item
+                    .value
+                    .as_ref()
+                    .map_or_else(Slice::empty, |v| self.inner.data.slice(v.0..v.1)),
+            })
+    }
+
+    fn find_point_record(&self, needle: &[u8], seqno: SeqNo) -> Option<DataBlockParsedItem> {
         let iter = if let Some(hash_index_reader) = self.get_hash_index_reader() {
             match hash_index_reader.get(needle) {
                 MARKER_FREE => {
@@ -465,7 +483,7 @@ impl DataBlock {
                 continue;
             }
 
-            return Some(item.materialize(&self.inner.data));
+            return Some(item);
         }
 
         None
@@ -561,6 +579,61 @@ mod tests {
         ValueType::{Tombstone, Value},
     };
     use test_log::test;
+
+    #[test]
+    fn key_free_point_reads_match_full_records() -> crate::Result<()> {
+        for restart in [1, 4, 16] {
+            for hash_ratio in [0.0, 0.75] {
+                let mut items = Vec::new();
+                for id in 0..32 {
+                    let key = format!("{}:{id:04}", "shared-prefix".repeat(16));
+                    for (seqno, kind, value) in [
+                        (3, crate::ValueType::WeakTombstone, &b""[..]),
+                        (2, crate::ValueType::Tombstone, &b""[..]),
+                        (1, crate::ValueType::Indirection, &b"handle"[..]),
+                        (0, Value, &b""[..]),
+                    ] {
+                        items.push(InternalValue::from_components(
+                            key.as_bytes(),
+                            value,
+                            seqno,
+                            kind,
+                        ));
+                    }
+                }
+                let bytes = DataBlock::encode_into_vec(&items, restart, hash_ratio)?;
+                let block = DataBlock::new(Block {
+                    data: bytes.into(),
+                    header: Header {
+                        block_type: BlockType::Data,
+                        checksum: Checksum::from_raw(0),
+                        data_length: 0,
+                        uncompressed_length: 0,
+                    },
+                });
+                for item in &items {
+                    for seqno in [0, 1, 2, 3, 4, SeqNo::MAX] {
+                        let full = block.point_read(&item.key.user_key, seqno);
+                        let light = block.point_read_value(&item.key.user_key, seqno);
+                        assert_eq!(full.is_some(), light.is_some());
+                        if let (Some(full), Some(light)) = (full, light) {
+                            assert_eq!(full.key.seqno, light.seqno);
+                            assert_eq!(full.key.value_type, light.value_type);
+                            assert_eq!(full.value, light.value);
+                        }
+                    }
+                }
+                assert!(block.point_read_value(b"absent", SeqNo::MAX).is_none());
+                let value = block
+                    .point_read_value(&items[0].key.user_key, 2)
+                    .unwrap()
+                    .value;
+                drop(block);
+                assert_eq!(value.as_ref(), b"handle");
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn data_block_ping_pong_fuzz_1() -> crate::Result<()> {
