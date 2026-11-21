@@ -136,6 +136,20 @@ impl Cache {
         );
     }
 
+    /// Evicts all cached blocks of a table.
+    ///
+    /// Used when a table is deleted, because its blocks can never be read again.
+    ///
+    /// This needs to visit every cache entry, because blocks are keyed by their offset.
+    pub(crate) fn remove_table_blocks(&self, id: GlobalTableId) {
+        let (tree_id, table_id) = (id.tree_id(), id.table_id());
+
+        self.data.retain(|key, _| {
+            let CacheKey(tag, key_tree_id, key_table_id, _) = key;
+            !(*tag == TAG_BLOCK && *key_tree_id == tree_id && *key_table_id == table_id)
+        });
+    }
+
     #[doc(hidden)]
     pub fn insert_blob(
         &self,
@@ -162,5 +176,62 @@ impl Cache {
             Item::Blob(blob) => blob,
             Item::Block(_) => unreachable!("invalid cache item"),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::table::block::{BlockType, Header};
+    use crate::vlog::ValueHandle;
+    use crate::Checksum;
+    use test_log::test;
+
+    fn block() -> Block {
+        Block {
+            header: Header {
+                block_type: BlockType::Data,
+                checksum: Checksum::from_raw(0),
+                data_length: 4,
+                uncompressed_length: 4,
+            },
+            data: b"data".into(),
+        }
+    }
+
+    #[test]
+    fn remove_table_blocks_keeps_other_entries() {
+        let cache = Cache::with_capacity_bytes(1_024 * 1_024);
+
+        let target = GlobalTableId::from((1, 7));
+        let same_tree_other_table = GlobalTableId::from((1, 8));
+        let other_tree_same_table = GlobalTableId::from((2, 7));
+
+        for offset in [0, 100] {
+            cache.insert_block(target, BlockOffset(offset), block());
+        }
+        cache.insert_block(same_tree_other_table, BlockOffset(0), block());
+        cache.insert_block(other_tree_same_table, BlockOffset(0), block());
+
+        // A blob whose (vlog id, blob file id, offset) equals the target block's key apart from the tag
+        let vhandle = ValueHandle {
+            blob_file_id: 7,
+            offset: 0,
+            on_disk_size: 4,
+        };
+        cache.insert_blob(1, &vhandle, b"blob".into());
+
+        cache.remove_table_blocks(target);
+
+        for offset in [0, 100] {
+            assert!(cache.get_block(target, BlockOffset(offset)).is_none());
+        }
+        assert!(cache
+            .get_block(same_tree_other_table, BlockOffset(0))
+            .is_some());
+        assert!(cache
+            .get_block(other_tree_same_table, BlockOffset(0))
+            .is_some());
+        assert!(cache.get_blob(1, &vhandle).is_some());
     }
 }
