@@ -17,7 +17,7 @@ fn blob_tree_fifo_limit() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
-    let compaction = Arc::new(lsm_tree::compaction::Fifo::new(10, None));
+    let compaction = Arc::new(lsm_tree::compaction::Fifo::new(10));
 
     for _ in 0..100 {
         tree.insert(nanoid::nanoid!(), "$", seqno.next());

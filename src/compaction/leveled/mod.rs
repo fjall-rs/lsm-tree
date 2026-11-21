@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 #[cfg(test)]
-mod test;
+mod tests;
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{

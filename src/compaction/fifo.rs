@@ -31,17 +31,33 @@ pub const NAME: &str = "FifoCompaction";
 #[derive(Clone)]
 pub struct Strategy {
     /// Data set size limit in bytes
-    pub limit: u64,
+    limit: u64,
 
     /// TTL in seconds, will be disabled if 0 or None
-    pub ttl_seconds: Option<u64>,
+    ttl_seconds: Option<u64>,
 }
 
 impl Strategy {
-    /// Configures a new `Fifo` compaction strategy
+    /// Configures a new `Fifo` compaction strategy, limiting the tree size to roughly `limit` bytes.
     #[must_use]
-    pub fn new(limit: u64, ttl_seconds: Option<u64>) -> Self {
-        Self { limit, ttl_seconds }
+    pub fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            ttl_seconds: None,
+        }
+    }
+
+    /// Sets the TTL in seconds.
+    ///
+    /// Tables that were created longer than the TTL ago are (lazily) dropped.
+    ///
+    /// A TTL of 0 disables it.
+    ///
+    /// Default = disabled
+    #[must_use]
+    pub fn with_ttl(mut self, seconds: u64) -> Self {
+        self.ttl_seconds = Some(seconds);
+        self
     }
 }
 
@@ -151,6 +167,7 @@ impl CompactionStrategy for Strategy {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::Strategy;
     use crate::{
@@ -166,7 +183,7 @@ mod tests {
 
         let tree = Config::new(dir.path(), version_set_provider.clone()).open()?;
 
-        let fifo = Arc::new(Strategy::new(1, None));
+        let fifo = Arc::new(Strategy::new(1));
         version_set_provider.compact(&tree, fifo, 3, 0)?;
 
         assert_eq!(0, tree.table_count());
@@ -194,7 +211,7 @@ mod tests {
 
         let before = tree.table_count();
 
-        let fifo = Arc::new(Strategy::new(u64::MAX, None));
+        let fifo = Arc::new(Strategy::new(u64::MAX));
         version_set_provider.compact(&tree, fifo, 3, 4)?;
 
         assert_eq!(before, tree.table_count());
@@ -223,7 +240,7 @@ mod tests {
         let before = tree.table_count();
 
         // Very small limit forces dropping oldest tables
-        let fifo = Arc::new(Strategy::new(1, None));
+        let fifo = Arc::new(Strategy::new(1));
         version_set_provider.compact(&tree, fifo, 3, 4)?;
 
         assert!(tree.table_count() < before);
@@ -253,7 +270,7 @@ mod tests {
 
         let before = tree.table_count();
 
-        let fifo = Arc::new(Strategy::new(1, None));
+        let fifo = Arc::new(Strategy::new(1));
         version_set_provider.compact(&tree, fifo, 3, 3)?;
 
         assert!(tree.table_count() < before);
@@ -288,7 +305,12 @@ mod tests {
 
         assert_eq!(2, tree.table_count());
 
-        version_set_provider.compact(&tree, Arc::new(Strategy::new(u64::MAX, Some(10))), 3, 2)?;
+        version_set_provider.compact(
+            &tree,
+            Arc::new(Strategy::new(u64::MAX).with_ttl(10)),
+            3,
+            2,
+        )?;
 
         assert_eq!(1, tree.table_count());
 
@@ -322,7 +344,7 @@ mod tests {
         crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(10_000_000)));
 
         // TTL=1s will mark both expired; very small limit ensures size-based collection path is also exercised.
-        let fifo = Arc::new(Strategy::new(1, Some(1)));
+        let fifo = Arc::new(Strategy::new(1).with_ttl(1));
         version_set_provider.compact(&tree, fifo, 3, 2)?;
 
         assert_eq!(0, tree.table_count());
