@@ -6,6 +6,7 @@ use super::meta::Metadata;
 use crate::{
     checksum::ChecksummedWriter,
     coding::Encode,
+    file::fsync_directory,
     time::unix_timestamp,
     vlog::{blob_file::header::BlobHeader, BlobFileId},
     Checksum, CompressionType, KeyRange, SeqNo, TreeId, UserKey,
@@ -222,6 +223,12 @@ impl Writer {
         let mut checksum = self.writer.into_inner()?;
         checksum.inner_mut().get_mut().sync_all()?;
         let checksum = checksum.checksum();
+
+        #[expect(
+            clippy::expect_used,
+            reason = "if there's no parent folder, something has gone horribly wrong"
+        )]
+        fsync_directory(self.path.parent().expect("should have folder"))?;
 
         Ok((metadata, checksum))
     }
