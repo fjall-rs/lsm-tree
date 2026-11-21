@@ -33,6 +33,10 @@ impl CompactionStrategy for Strategy {
         "MajorCompaction"
     }
 
+    fn table_target_size(&self) -> u64 {
+        self.target_size
+    }
+
     fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
         let table_ids: HashSet<_> = version.iter_tables().map(Table::id).collect();
 

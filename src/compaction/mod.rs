@@ -99,4 +99,12 @@ pub trait CompactionStrategy {
 
     /// Decides on what to do based on the current state of the LSM-tree's levels
     fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice;
+
+    /// Size of the tables a compaction with this strategy writes, in bytes.
+    ///
+    /// Also used for major compactions of a tree that uses this strategy.
+    fn table_target_size(&self) -> u64 {
+        /* 64 MiB */
+        64 * 1_024 * 1_024
+    }
 }

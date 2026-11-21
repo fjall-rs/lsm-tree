@@ -237,6 +237,10 @@ impl CompactionStrategy for Strategy {
         NAME
     }
 
+    fn table_target_size(&self) -> u64 {
+        self.target_size
+    }
+
     fn get_config(&self) -> Vec<crate::KvPair> {
         vec![
             (
