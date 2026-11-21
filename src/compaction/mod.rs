@@ -103,6 +103,7 @@ pub trait CompactionStrategy {
     /// Size of the tables a compaction with this strategy writes, in bytes.
     ///
     /// Also used for major compactions of a tree that uses this strategy.
+    #[doc(hidden)]
     fn table_target_size(&self) -> u64 {
         /* 64 MiB */
         64 * 1_024 * 1_024
