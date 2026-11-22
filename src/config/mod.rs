@@ -315,6 +315,11 @@ impl Config {
     /// Sets the table ID counter.
     ///
     /// Can be shared between trees, so table IDs are unique across them.
+    ///
+    /// # Note
+    ///
+    /// The tree only raises the counter above its live tables (on open and when hydrating),
+    /// so the owner of the counter must keep it above every ID ever handed out (e.g. by persisting it).
     #[must_use]
     #[doc(hidden)]
     pub fn with_table_id_counter(mut self, counter: SequenceNumberCounter) -> Self {
@@ -325,6 +330,11 @@ impl Config {
     /// Sets the blob file ID counter.
     ///
     /// Can be shared between trees, so blob file IDs are unique across them.
+    ///
+    /// # Note
+    ///
+    /// The tree only raises the counter above its live blob files (on open and when hydrating),
+    /// so the owner of the counter must keep it above every ID ever handed out (e.g. by persisting it).
     #[must_use]
     #[doc(hidden)]
     pub fn with_blob_file_id_counter(mut self, counter: SequenceNumberCounter) -> Self {

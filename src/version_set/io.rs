@@ -132,6 +132,7 @@ impl IoSuperVersionSetProvider {
 
         let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
         let compaction_result = tree.run_compaction(strategy, gc_watermark)?;
+
         self.register_compaction(persister, compaction_result, version_seqno)
     }
 
@@ -165,8 +166,8 @@ impl IoSuperVersionSetProvider {
         // NOTE: Everything up to the clear is gone, so it counts as flushed
         edits.push(EditRecord::SetFlushWatermark(version_seqno));
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
-
         persister.persist(&VersionEdit::new(edits))?;
+
         Ok(self.inner.clear(tree, version_seqno)?)
     }
 
@@ -190,8 +191,8 @@ impl IoSuperVersionSetProvider {
 
         let mut edits = std::mem::take(&mut result.version_edit);
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
-
         persister.persist(&edits)?;
+
         Ok(self.inner.register_compaction(result, version_seqno)?)
     }
 
@@ -850,6 +851,86 @@ mod tests {
 
             Ok(tree)
         }
+    }
+
+    /// Recovery must rebuild L0 with the same (optimized) runs as the live tree,
+    /// otherwise strategies that expect a disjoint L0 (FIFO) panic after a restart
+    #[test]
+    fn io_provider_recover_optimizes_runs() -> crate::Result<()> {
+        let mut t = RecoverableTree::new(None)?;
+
+        t.insert("a", 1);
+        t.flush(2)?;
+
+        t.insert("b", 3);
+        t.flush(4)?;
+        assert_eq!(1, t.tree.l0_run_count());
+
+        let recovered = t.recover()?;
+        assert_eq!(1, recovered.l0_run_count());
+
+        // NOTE: Used to panic with "L0 needs to be disjoint"
+        recovered.run_compaction(Arc::new(crate::compaction::Fifo::new(u64::MAX)), 0)?;
+
+        Ok(())
+    }
+
+    /// A compaction result that is committed after a clear must not bring back the cleared data,
+    /// neither in memory nor after recovery
+    #[test]
+    fn io_provider_compaction_after_clear() -> crate::Result<()> {
+        let mut t = RecoverableTree::new(None)?;
+
+        t.insert("a", 1);
+        t.flush(2)?;
+
+        t.insert("a", 3);
+        t.flush(4)?;
+        assert_eq!(2, t.tree.table_count());
+
+        // Run compaction, but commit it only after the clear
+        let result = t
+            .tree
+            .run_compaction(Arc::new(crate::compaction::Major::default()), 0)?;
+
+        let crate::compaction::worker::CompactionOperation::Merge { created_tables, .. } =
+            &result.inner
+        else {
+            panic!("expected merge, got {result:?}");
+        };
+
+        let created_table_ids = created_tables
+            .iter()
+            .map(|x| x.id().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(1, created_table_ids.len());
+
+        // Do clear before compaction is registered
+        t.provider.clear(&mut t.persister, &t.tree, 5)?;
+
+        t.provider
+            .register_compaction(&mut t.persister, result, 6)?;
+
+        assert_eq!(0, t.tree.table_count());
+        assert!(t.tree.get("a", SeqNo::MAX)?.is_none());
+
+        let recovered = t.recover()?;
+        assert_eq!(0, recovered.table_count());
+        assert!(recovered.get("a", SeqNo::MAX)?.is_none());
+
+        // NOTE: The discarded output table is deleted
+        // (the cleared input tables are still referenced by older versions)
+        let files = std::fs::read_dir(t.dir.path().join(crate::file::TABLES_FOLDER))?
+            .map(|x| x.map(|x| x.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        assert!(
+            created_table_ids.iter().all(|id| !files.contains(id)),
+            "discarded output tables {created_table_ids:?} still exist: {files:?}",
+        );
+
+        Ok(())
     }
 
     #[test]
