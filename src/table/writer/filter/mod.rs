@@ -16,8 +16,12 @@ use std::{fs::File, io::BufWriter};
 pub trait FilterWriter<W: std::io::Write> {
     // NOTE: We purposefully use a UserKey instead of &[u8]
     // so we can clone it without heap allocation, if needed
-    /// Registers a key in the block index.
-    fn register_key(&mut self, key: &UserKey) -> crate::Result<()>;
+    /// Adds the filter hashes of the next user key, in ascending key order.
+    ///
+    /// All hashes of one key land in the same partition. Returns `true` if
+    /// the partition was closed after this key, so the next key's hashes go
+    /// into a new one.
+    fn register(&mut self, key: &UserKey, hashes: &[u64]) -> crate::Result<bool>;
 
     /// Writes the filter to a file.
     ///

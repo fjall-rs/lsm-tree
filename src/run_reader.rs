@@ -18,6 +18,7 @@ pub struct RunReader {
 }
 
 impl RunReader {
+    #[cfg(test)]
     #[must_use]
     pub fn new<R: RangeBounds<UserKey> + Clone + Send + 'static>(
         run: Arc<Run<Table>>,

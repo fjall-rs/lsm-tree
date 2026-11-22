@@ -34,6 +34,8 @@ impl<'a> Iter<'a> {
         true
     }
 
+    // NOTE: Hot in point reads, which call it for every data block they search
+    #[inline]
     pub fn seek(&mut self, needle: &[u8]) -> bool {
         // Find the restart interval whose head key is the last one strictly below `needle`.
         // The decoder then performs a linear scan within that interval; we stop as soon as we

@@ -29,10 +29,10 @@ pub struct SuperVersion {
 pub struct SuperVersions(VecDeque<SuperVersion>);
 
 impl SuperVersions {
-    pub fn new(version: Version) -> Self {
+    pub fn new(version: Version, active_memtable: Memtable) -> Self {
         Self(
             vec![SuperVersion {
-                active_memtable: Arc::new(Memtable::new(0)),
+                active_memtable: Arc::new(active_memtable),
                 sealed_memtables: Arc::default(),
                 version,
                 seqno: 0,

@@ -399,7 +399,12 @@ impl AbstractTree for BlobTree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        // Ensure tables built during blob tree flush carry the configured extractor.
+        // This lets writers register prefixes and persist the extractor name in metadata
+        // for compatibility checks at read time.
+        .use_prefix_extractor(self.index.config.prefix_extractor.clone())
+        .use_whole_key_filtering(self.index.config.whole_key_filtering);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -490,6 +495,7 @@ impl AbstractTree for BlobTree {
                     self.index.config.descriptor_table.clone(),
                     pin_filter,
                     pin_index,
+                    self.index.config.prefix_extractor.as_ref(),
                     #[cfg(feature = "metrics")]
                     self.index.metrics.clone(),
                 )

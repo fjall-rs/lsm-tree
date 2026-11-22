@@ -4,10 +4,8 @@
 
 use super::FilterWriter;
 use crate::{
-    checksum::ChecksummedWriter,
-    config::BloomConstructionPolicy,
-    table::{filter::standard_bloom::Builder, Block},
-    CompressionType, UserKey,
+    checksum::ChecksummedWriter, config::BloomConstructionPolicy, table::Block, CompressionType,
+    UserKey,
 };
 use std::{fs::File, io::BufWriter};
 
@@ -44,9 +42,9 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         self
     }
 
-    fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
-        self.bloom_hash_buffer.push(Builder::get_hash(key));
-        Ok(())
+    fn register(&mut self, _: &UserKey, hashes: &[u64]) -> crate::Result<bool> {
+        self.bloom_hash_buffer.extend_from_slice(hashes);
+        Ok(false)
     }
 
     fn finish(

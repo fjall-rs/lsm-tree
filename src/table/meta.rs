@@ -50,6 +50,13 @@ pub struct ParsedMeta {
 
     pub data_block_compression: CompressionType,
     pub index_block_compression: CompressionType,
+
+    /// Name of the prefix extractor whose prefixes the filter holds
+    pub prefix_extractor_name: Option<String>,
+
+    /// Whether the filter holds whole-key hashes; if not, probing it with a
+    /// key's hash would skip tables that hold the key
+    pub whole_key_filtering: bool,
 }
 
 macro_rules! read_u8 {
@@ -95,9 +102,9 @@ impl ParsedMeta {
                 .expect("Table version should exist")
                 .value;
 
-            assert_eq!(
-                [3u8],
-                &*table_version,
+            // NOTE: Version 4 marks a filter without whole-key hashes
+            assert!(
+                matches!(&*table_version, [3 | 4]),
                 "unspported table version {}",
                 table_version[0],
             );
@@ -207,6 +214,18 @@ impl ParsedMeta {
             CompressionType::decode_from(&mut bytes)?
         };
 
+        let prefix_extractor_name = block
+            .point_read(b"prefix_extractor", SeqNo::MAX)
+            .map(|v| {
+                String::from_utf8(v.value.to_vec()).map_err(|e| crate::Error::Utf8(e.utf8_error()))
+            })
+            .transpose()?;
+
+        // NOTE: Only written with a prefix extractor; other tables hash whole keys
+        let whole_key_filtering = block
+            .point_read(b"whole_key_filtering", SeqNo::MAX)
+            .is_none_or(|v| v.value.first().copied().unwrap_or(1) != 0);
+
         Ok(Self {
             id,
             created_at,
@@ -221,6 +240,8 @@ impl ParsedMeta {
             weak_tombstone_reclaimable,
             data_block_compression,
             index_block_compression,
+            prefix_extractor_name,
+            whole_key_filtering,
         })
     }
 }

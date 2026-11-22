@@ -80,6 +80,12 @@ path = "benches/bloom.rs"
 required-features = []
 
 [[bench]]
+name = "prefix_filter"
+harness = false
+path = "benches/prefix_filter.rs"
+required-features = []
+
+[[bench]]
 name = "block"
 harness = false
 path = "benches/block.rs"

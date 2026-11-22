@@ -7,8 +7,7 @@ use crate::{
     checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
     table::{
-        block::Header as BlockHeader, filter::standard_bloom::Builder, Block, BlockHandle,
-        BlockOffset, IndexBlock, KeyedBlockHandle,
+        block::Header as BlockHeader, Block, BlockHandle, BlockOffset, IndexBlock, KeyedBlockHandle,
     },
     CompressionType, UserKey,
 };
@@ -160,8 +159,8 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         self
     }
 
-    fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
-        self.bloom_hash_buffer.push(Builder::get_hash(key));
+    fn register(&mut self, key: &UserKey, hashes: &[u64]) -> crate::Result<bool> {
+        self.bloom_hash_buffer.extend_from_slice(hashes);
 
         self.approx_filter_size = self
             .bloom_policy
@@ -171,9 +170,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
 
         if self.approx_filter_size >= self.partition_size as usize {
             self.spill_filter_partition(key)?;
+            return Ok(true);
         }
 
-        Ok(())
+        Ok(false)
     }
 
     fn finish(
@@ -192,6 +192,12 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
             )]
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
+        }
+
+        // Prefix-only filters register nothing for out-of-domain keys
+        if self.tli_handles.is_empty() {
+            log::trace!("Filter writer has no hashes - not building filter");
+            return Ok(0);
         }
 
         let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);

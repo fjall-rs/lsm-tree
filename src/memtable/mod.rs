@@ -2,12 +2,16 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+mod prefix_bloom;
+
 use crate::key::InternalKey;
 use crate::{
+    prefix::RangeProbe,
     value::{InternalValue, SeqNo, UserValue},
     ValueType,
 };
 use crossbeam_skiplist::SkipMap;
+use prefix_bloom::PrefixBloom;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 
@@ -35,6 +39,9 @@ pub struct Memtable {
     pub(crate) highest_seqno: AtomicU64,
 
     pub(crate) requested_rotation: AtomicBool,
+
+    /// Bloom filter over the prefixes of the keys, if configured
+    prefix_bloom: Option<PrefixBloom>,
 }
 
 impl Memtable {
@@ -64,7 +71,43 @@ impl Memtable {
             approximate_size: AtomicU64::default(),
             highest_seqno: AtomicU64::default(),
             requested_rotation: AtomicBool::default(),
+            prefix_bloom: None,
         }
+    }
+
+    /// Creates a memtable with the prefix bloom filter `config` asks for.
+    pub(crate) fn configured(
+        id: MemtableId,
+        config: &crate::Config,
+        #[cfg(feature = "metrics")] metrics: &std::sync::Arc<crate::Metrics>,
+    ) -> Self {
+        let prefix_bloom = config
+            .prefix_extractor
+            .as_ref()
+            .filter(|_| config.memtable_prefix_bloom_bytes > 0)
+            .map(|extractor| {
+                PrefixBloom::new(
+                    extractor.clone(),
+                    config.memtable_prefix_bloom_bytes,
+                    #[cfg(feature = "metrics")]
+                    metrics.clone(),
+                )
+            });
+
+        Self {
+            prefix_bloom,
+            ..Self::new(id)
+        }
+    }
+
+    /// Returns `true` if the prefix bloom filter shows that no key in the
+    /// range is in this memtable.
+    pub(crate) fn skips_range(&self, probe: &mut RangeProbe<'_>) -> bool {
+        self.prefix_bloom.as_ref().is_some_and(|bloom| {
+            probe
+                .hash(bloom.extractor())
+                .is_some_and(|hash| !bloom.may_contain(hash))
+        })
     }
 
     /// Creates an iterator over all items.
@@ -93,6 +136,19 @@ impl Memtable {
     pub fn get(&self, key: &[u8], seqno: SeqNo) -> Option<InternalValue> {
         if seqno == 0 {
             return None;
+        }
+
+        if let Some(bloom) = &self.prefix_bloom {
+            let prefix = crate::prefix::longest_prefix_len(bloom.extractor().as_ref(), key)
+                .and_then(|len| key.get(..len));
+
+            if let Some(prefix) = prefix {
+                let hash = crate::table::filter::standard_bloom::Builder::get_hash(prefix);
+
+                if !bloom.may_contain(hash) {
+                    return None;
+                }
+            }
         }
 
         // NOTE: This range start deserves some explanation...
@@ -157,6 +213,11 @@ impl Memtable {
             .approximate_size
             .fetch_add(item_size, std::sync::atomic::Ordering::AcqRel);
 
+        // NOTE: Before the insert publishes the key, see `PrefixBloom`
+        if let Some(bloom) = &self.prefix_bloom {
+            bloom.insert(&item.key.user_key);
+        }
+
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
         self.items.insert(key, item.value);
 
@@ -183,6 +244,7 @@ impl Memtable {
 mod tests {
     use super::*;
     use crate::ValueType;
+    use std::ops::Bound::{Excluded, Included};
     use test_log::test;
 
     #[test]
@@ -377,5 +439,56 @@ mod tests {
             )),
             memtable.get(b"abc", 50)
         );
+    }
+
+    fn bloom_memtable(bytes: usize) -> Memtable {
+        let config = crate::Config::new(
+            "unused",
+            crate::SequenceNumberCounter::default(),
+            crate::SequenceNumberCounter::default(),
+        )
+        .prefix_extractor(std::sync::Arc::new(
+            crate::prefix::FixedPrefixExtractor::new(3),
+        ))
+        .memtable_prefix_bloom_bytes(bytes);
+
+        Memtable::configured(
+            0,
+            &config,
+            #[cfg(feature = "metrics")]
+            &std::sync::Arc::default(),
+        )
+    }
+
+    fn value(key: &str) -> InternalValue {
+        InternalValue::from_components(key, "v", 0, ValueType::Value)
+    }
+
+    /// A key that bypassed the bloom stays hidden from reads its prefix rules
+    /// out, which shows reads consult the bloom
+    #[test]
+    fn prefix_bloom_rules_out_reads() {
+        let memtable = bloom_memtable(64);
+        memtable.insert(value("aaa1"));
+
+        let hidden = value("bbb1");
+        memtable.items.insert(hidden.key, hidden.value);
+
+        assert!(memtable.get(b"aaa1", SeqNo::MAX).is_some());
+        assert!(memtable.get(b"bbb1", SeqNo::MAX).is_none());
+
+        // Keys too short to have a prefix are always searched
+        memtable.items.insert(value("bb").key, value("bb").value);
+        assert!(memtable.get(b"bb", SeqNo::MAX).is_some());
+
+        assert!(!memtable.skips_range(&mut RangeProbe::new(Included(b"aaa"), Excluded(b"aab"))));
+        assert!(memtable.skips_range(&mut RangeProbe::new(Included(b"bbb"), Excluded(b"bbc"))));
+        assert!(!memtable.skips_range(&mut RangeProbe::new(Included(b"a"), Excluded(b"c"))));
+    }
+
+    #[test]
+    fn no_prefix_bloom_by_default() {
+        assert!(bloom_memtable(0).prefix_bloom.is_none());
+        assert!(Memtable::new(0).prefix_bloom.is_none());
     }
 }

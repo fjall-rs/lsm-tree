@@ -5,6 +5,7 @@
 mod filter;
 mod index;
 mod meta;
+mod prefix_hashes;
 
 use super::{
     block::Header as BlockHeader, filter::BloomConstructionPolicy, Block, BlockOffset, DataBlock,
@@ -92,6 +93,15 @@ pub struct Writer {
     linked_blob_files: Vec<LinkedFile>,
 
     initial_level: u8,
+
+    /// Hashes extracted prefixes into the filter, if a prefix extractor is set
+    prefix_hashes: Option<prefix_hashes::PrefixHashes>,
+
+    /// Whether the filter holds whole-key hashes when a prefix extractor is set
+    whole_key_filtering: bool,
+
+    /// Filter hashes of the current key
+    filter_hashes: Vec<u64>,
 }
 
 impl Writer {
@@ -140,6 +150,10 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+
+            prefix_hashes: None,
+            whole_key_filtering: true,
+            filter_hashes: Vec::new(),
         })
     }
 
@@ -233,6 +247,24 @@ impl Writer {
         self
     }
 
+    /// Sets the prefix extractor whose prefixes the filter indexes.
+    #[must_use]
+    pub fn use_prefix_extractor(
+        mut self,
+        extractor: Option<crate::prefix::SharedPrefixExtractor>,
+    ) -> Self {
+        self.prefix_hashes = extractor.map(prefix_hashes::PrefixHashes::new);
+        self
+    }
+
+    /// Controls whether the filter holds whole-key hashes when a prefix
+    /// extractor is set; see [`crate::Config::whole_key_filtering`].
+    #[must_use]
+    pub fn use_whole_key_filtering(mut self, enabled: bool) -> Self {
+        self.whole_key_filtering = enabled;
+        self
+    }
+
     /// Writes an item.
     ///
     /// # Note
@@ -266,15 +298,16 @@ impl Writer {
         // NOTE: Check if we visit a new key
         if Some(&user_key) != self.current_key.as_ref() {
             self.meta.key_count += 1;
-            self.current_key = Some(user_key.clone());
 
             // IMPORTANT: Do not buffer *every* item's key
             // because there may be multiple versions
             // of the same key
 
             if self.bloom_policy.is_active() {
-                self.filter_writer.register_key(&user_key)?;
+                self.register_filter_key(&user_key)?;
             }
+
+            self.current_key = Some(user_key.clone());
         }
 
         if self.meta.first_key.is_none() {
@@ -291,6 +324,39 @@ impl Writer {
 
         self.meta.lowest_seqno = self.meta.lowest_seqno.min(seqno);
         self.meta.highest_seqno = self.meta.highest_seqno.max(seqno);
+
+        Ok(())
+    }
+
+    /// Adds the filter hashes of a new user key: its whole-key hash, unless a
+    /// prefix extractor is set with `whole_key_filtering` off, and its new
+    /// prefix hashes.
+    ///
+    /// Must run before `current_key` moves on to `key`.
+    fn register_filter_key(&mut self, key: &UserKey) -> crate::Result<()> {
+        self.filter_hashes.clear();
+
+        let has_key_hash = self.whole_key_filtering || self.prefix_hashes.is_none();
+
+        if has_key_hash {
+            self.filter_hashes
+                .push(crate::table::filter::standard_bloom::Builder::get_hash(key));
+        }
+
+        if let Some(prefixes) = &mut self.prefix_hashes {
+            prefixes.push_new(
+                self.current_key.as_deref(),
+                key,
+                has_key_hash,
+                &mut self.filter_hashes,
+            );
+        }
+
+        if self.filter_writer.register(key, &self.filter_hashes)? {
+            if let Some(prefixes) = &mut self.prefix_hashes {
+                prefixes.start_partition();
+            }
+        }
 
         Ok(())
     }
@@ -407,8 +473,14 @@ impl Writer {
             }
         }
 
+        // A filter without whole-key hashes would make readers that predate
+        // `whole_key_filtering` skip tables holding the key, so such tables
+        // get a version those readers refuse to open.
+        let prefix_only_filter = self.prefix_hashes.is_some() && !self.whole_key_filtering;
+        let table_version: u8 = if prefix_only_filter { 4 } else { 3 };
+
         self.file_writer.start("table_version")?;
-        self.file_writer.write_all(&[0x3])?;
+        self.file_writer.write_all(&[table_version])?;
 
         // Write metadata
         self.file_writer.start("meta")?;
@@ -418,7 +490,7 @@ impl Writer {
                 InternalValue::from_components(key, value, 0, crate::ValueType::Value)
             }
 
-            let meta_items = [
+            let mut meta_items = vec![
                 meta(
                     "block_count#data",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
@@ -466,34 +538,51 @@ impl Writer {
                 meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
                 meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
-                meta(
-                    "restart_interval#data",
-                    &self.data_block_restart_interval.to_le_bytes(),
-                ),
-                meta(
-                    "restart_interval#index",
-                    &self.index_block_restart_interval.to_le_bytes(),
-                ),
-                meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
-                meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
-                meta("table_id", &self.table_id.to_le_bytes()),
-                meta("table_version", &[3u8]),
-                meta(
-                    "tombstone_count",
-                    &(self.meta.tombstone_count as u64).to_le_bytes(),
-                ),
-                meta("user_data_size", &self.meta.uncompressed_size.to_le_bytes()),
-                meta(
-                    "weak_tombstone_count",
-                    &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
-                ),
-                meta(
-                    "weak_tombstone_reclaimable",
-                    &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
-                ),
             ];
+            // Reads use the table's own extractor and whole-key setting, not
+            // the configured ones, which may have changed since
+            if let Some(prefixes) = &self.prefix_hashes {
+                meta_items.push(meta(
+                    "prefix_extractor",
+                    prefixes.extractor().name().as_bytes(),
+                ));
+                meta_items.push(meta(
+                    "whole_key_filtering",
+                    &[u8::from(self.whole_key_filtering)],
+                ));
+            }
+            meta_items.push(meta(
+                "restart_interval#data",
+                &self.data_block_restart_interval.to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "restart_interval#index",
+                &self.index_block_restart_interval.to_le_bytes(),
+            ));
+            meta_items.push(meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()));
+            meta_items.push(meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()));
+            meta_items.push(meta("table_id", &self.table_id.to_le_bytes()));
+            meta_items.push(meta("table_version", &[table_version]));
+            meta_items.push(meta(
+                "tombstone_count",
+                &(self.meta.tombstone_count as u64).to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "user_data_size",
+                &self.meta.uncompressed_size.to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "weak_tombstone_count",
+                &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "weak_tombstone_reclaimable",
+                &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
+            ));
 
-            // NOTE: Just to make sure the items are definitely sorted
+            // NOTE: The optional items make the order depend on which are present
+            meta_items.sort_by(|a, b| a.key.cmp(&b.key));
+
             #[cfg(debug_assertions)]
             {
                 let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);

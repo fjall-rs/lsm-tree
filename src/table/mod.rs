@@ -31,6 +31,7 @@ use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
     file_accessor::FileAccessor,
+    prefix::{RangeProbe, SharedPrefixExtractor},
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -44,7 +45,6 @@ use block_index::BlockIndexImpl;
 use inner::Inner;
 use iter::Iter;
 use std::{
-    borrow::Cow,
     fs::File,
     ops::{Bound, RangeBounds},
     path::PathBuf,
@@ -88,6 +88,70 @@ impl Table {
     #[must_use]
     pub fn global_seqno(&self) -> SeqNo {
         self.0.global_seqno
+    }
+
+    /// Loads the filter block, or the filter partition covering `key`, if any.
+    // NOTE: Point reads call this and the filter probe for every table they
+    // visit. The compiler does not inline them on its own (with LTO it did
+    // while each had a single caller); forcing it made point reads over 32
+    // tables ~1.7x faster
+    #[expect(clippy::inline_always, reason = "measured, see above")]
+    #[inline(always)]
+    fn load_filter_block_for_key(
+        &self,
+        key: &[u8],
+    ) -> crate::Result<Option<std::borrow::Cow<'_, FilterBlock>>> {
+        if let Some(block) = &self.pinned_filter_block {
+            return Ok(Some(std::borrow::Cow::Borrowed(block)));
+        }
+
+        if let Some(filter_idx) = &self.pinned_filter_index {
+            let mut iter = filter_idx.iter();
+            // NOTE: For filter block lookup, we use SeqNo::MAX to find the block
+            // that covers this key regardless of sequence number
+            let found = iter.seek(key, SeqNo::MAX);
+
+            let handle = if found {
+                iter.next()
+            } else {
+                // The key is beyond all TLI entries. Fall back to the last filter
+                // partition: since the key exceeds the table's range it was never
+                // inserted, so the Bloom check will correctly report "not present".
+                filter_idx.iter().next_back()
+            };
+
+            if let Some(filter_block_handle) = handle {
+                let filter_block_handle = filter_block_handle.materialize(filter_idx.as_slice());
+
+                let block = self.load_block(
+                    &filter_block_handle.into_inner(),
+                    BlockType::Filter,
+                    CompressionType::None,
+                )?;
+                let block = FilterBlock::new(block);
+
+                return Ok(Some(std::borrow::Cow::Owned(block)));
+            }
+            return Ok(None);
+        }
+
+        if let Some(_filter_tli_handle) = &self.regions.filter_tli {
+            // Unpinned filter TLI not supported yet
+            return Ok(None);
+        }
+
+        if let Some(filter_block_handle) = &self.regions.filter {
+            let block = self.load_block(
+                filter_block_handle,
+                BlockType::Filter,
+                CompressionType::None,
+            )?;
+            let block = FilterBlock::new(block);
+
+            return Ok(Some(std::borrow::Cow::Owned(block)));
+        }
+
+        Ok(None)
     }
 
     pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
@@ -226,6 +290,10 @@ impl Table {
         self.metadata.file_size
     }
 
+    /// Looks up `key` at or below `seqno`, returning the newest visible value if present.
+    ///
+    /// Consults the filter with `key_hash`, or with the hash of the key's
+    /// longest prefix if the table was written without whole-key hashes.
     pub fn get(
         &self,
         key: &[u8],
@@ -242,40 +310,24 @@ impl Table {
             return Ok(None);
         }
 
-        let filter_block = if let Some(block) = &self.pinned_filter_block {
-            Some(Cow::Borrowed(block))
-        } else if let Some(filter_idx) = &self.pinned_filter_index {
-            let mut iter = filter_idx.iter();
-            iter.seek(key, seqno);
+        if !self.metadata.whole_key_filtering {
+            let prefix_hash = self
+                .prefix_extractor
+                .as_deref()
+                .and_then(|x| crate::prefix::longest_prefix_len(x, key))
+                .and_then(|len| key.get(..len))
+                .map(filter::standard_bloom::Builder::get_hash);
 
-            if let Some(filter_block_handle) = iter.next() {
-                let filter_block_handle = filter_block_handle.materialize(filter_idx.as_slice());
-
-                let block = self.load_block(
-                    &filter_block_handle.into_inner(),
-                    BlockType::Filter,
-                    CompressionType::None, // NOTE: We never write a filter block with compression
-                )?;
-                let block = FilterBlock::new(block);
-
-                Some(Cow::Owned(block))
-            } else {
-                None
+            if let Some(hash) = prefix_hash {
+                if self.prefix_filter_excludes(key, hash)? {
+                    return Ok(None);
+                }
             }
-        } else if let Some(_filter_tli_handle) = &self.regions.filter_tli {
-            unimplemented!("unpinned filter TLI not supported");
-        } else if let Some(filter_block_handle) = &self.regions.filter {
-            let block = self.load_block(
-                filter_block_handle,
-                BlockType::Filter,
-                CompressionType::None, // NOTE: We never write a filter block with compression
-            )?;
-            let block = FilterBlock::new(block);
 
-            Some(Cow::Owned(block))
-        } else {
-            None
-        };
+            return self.point_read(key, seqno);
+        }
+
+        let filter_block = self.load_filter_block_for_key(key)?;
 
         if let Some(filter_block) = &filter_block {
             if !filter_block.maybe_contains_hash(key_hash)? {
@@ -308,6 +360,47 @@ impl Table {
                 }
             })
         }
+    }
+
+    /// Returns `true` if the filter, or its partition covering `seek_key`,
+    /// lacks the prefix hash `hash`.
+    fn prefix_filter_excludes(&self, seek_key: &[u8], hash: u64) -> crate::Result<bool> {
+        let Some(filter_block) = self.load_filter_block_for_key(seek_key)? else {
+            return Ok(false);
+        };
+
+        let excluded = !filter_block.maybe_contains_hash(hash)?;
+
+        #[cfg(feature = "metrics")]
+        {
+            use std::sync::atomic::Ordering::Relaxed;
+
+            self.metrics.prefix_filter_queries.fetch_add(1, Relaxed);
+
+            if excluded {
+                self.metrics
+                    .io_skipped_by_prefix_filter
+                    .fetch_add(1, Relaxed);
+            }
+        }
+
+        Ok(excluded)
+    }
+
+    /// Returns `true` if the prefix filter shows this table holds no key in
+    /// the probe's range.
+    pub(crate) fn skips_range(&self, probe: &mut RangeProbe<'_>) -> crate::Result<bool> {
+        let Some(extractor) = &self.prefix_extractor else {
+            return Ok(false);
+        };
+
+        let Some(hash) = probe.hash(extractor) else {
+            return Ok(false);
+        };
+
+        // No key in the range is below the seek key, so the range's first key
+        // in this table, which has the prefix, is in the partition covering it
+        self.prefix_filter_excludes(probe.seek_key(), hash)
     }
 
     // TODO: maybe we can skip Fuse costs of the user key
@@ -453,6 +546,7 @@ impl Table {
         descriptor_table: Option<Arc<DescriptorTable>>,
         pin_filter: bool,
         pin_index: bool,
+        prefix_extractor: Option<&SharedPrefixExtractor>,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
         use meta::ParsedMeta;
@@ -565,6 +659,19 @@ impl Table {
             None
         };
 
+        let prefix_extractor = metadata.prefix_extractor_name.as_deref().and_then(|name| {
+            let resolved = crate::prefix::resolve(name, prefix_extractor);
+
+            if resolved.is_none() {
+                log::warn!(
+                    "Table #{} was written with prefix extractor {name:?}, which is neither configured nor built in: reads ignore its prefix filter until compaction rewrites it",
+                    metadata.id,
+                );
+            }
+
+            resolved
+        });
+
         log::debug!(
             "Recovered table #{} from {}",
             metadata.id,
@@ -587,6 +694,8 @@ impl Table {
             pinned_filter_index,
 
             pinned_filter_block,
+
+            prefix_extractor,
 
             is_deleted: AtomicBool::default(),
 
@@ -611,15 +720,16 @@ impl Table {
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    /// Checks if a key range is (partially or fully) contained in this table.
-    pub(crate) fn check_key_range_overlap(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
-        self.metadata.key_range.overlaps_with_bounds(bounds)
-    }
-
     /// Returns the highest sequence number in the table.
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
         self.metadata.seqnos.1 + self.global_seqno()
+    }
+
+    /// Returns the minimum user key in this table's key range.
+    #[must_use]
+    pub fn min_key(&self) -> &UserKey {
+        self.metadata.key_range.min()
     }
 
     /// Returns the number of tombstone markers in the `Table`.

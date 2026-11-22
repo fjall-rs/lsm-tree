@@ -232,6 +232,7 @@ impl<'a> BlobIngestion<'a> {
                     index.config.descriptor_table.clone(),
                     false,
                     false,
+                    index.config.prefix_extractor.as_ref(),
                     #[cfg(feature = "metrics")]
                     index.metrics.clone(),
                 )

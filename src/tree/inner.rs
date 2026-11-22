@@ -83,20 +83,30 @@ impl TreeInner {
         );
         persist_version(&config.path, &version)?;
 
+        #[cfg(feature = "metrics")]
+        let metrics = Arc::new(Metrics::default());
+
+        let memtable = crate::Memtable::configured(
+            0,
+            &config,
+            #[cfg(feature = "metrics")]
+            &metrics,
+        );
+
         Ok(Self {
             id: get_next_tree_id(),
             memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_counter: SequenceNumberCounter::default(),
             config: Arc::new(config),
-            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version, memtable))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),
             compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]
-            metrics: Metrics::default().into(),
+            metrics,
         })
     }
 
