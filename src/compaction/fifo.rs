@@ -79,12 +79,12 @@ impl CompactionStrategy for Strategy {
             return Choice::DoNothing;
         }
 
-        assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
+        if version.level_is_busy(0, state.hidden_set()) {
+            return Choice::DoNothing;
+        }
 
-        assert!(
-            !version.level_is_busy(0, state.hidden_set()),
-            "FIFO compaction never compacts",
-        );
+        // TODO: remove; instead find overlaps and merge them together
+        assert!(first_level.is_disjoint(), "L0 must be disjoint");
 
         // Account for both table file bytes and value-log (blob) bytes to enforce the true space limit.
         let db_size = first_level.size() + version.blob_files.on_disk_size();
