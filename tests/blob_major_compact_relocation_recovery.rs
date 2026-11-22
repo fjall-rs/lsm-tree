@@ -90,7 +90,7 @@ fn blob_tree_major_compact_relocation_recovery() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let big_value = b"neptune!".repeat(4_096);
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     {
         let tree = lsm_tree::Config::new(path, version_set_provider.clone())

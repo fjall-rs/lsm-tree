@@ -11,7 +11,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     let path = folder.path();
 
     let seqno = SequenceNumberCounter::default();
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = lsm_tree::Config::new(path, version_set_provider.clone())
         .with_kv_separation(Some(

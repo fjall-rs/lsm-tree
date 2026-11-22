@@ -13,7 +13,7 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
 
         let seqno = SequenceNumberCounter::default();
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(path, version_set_provider.clone()).open()?;
 
@@ -42,7 +42,7 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
 
         let seqno = SequenceNumberCounter::default();
 
-        let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
         let tree = Config::new(path, version_set_provider.clone())
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
@@ -83,7 +83,7 @@ fn tree_filter_hit_rate_hit() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let version_set_provider = Arc::new(MemoryVersionSetProvider::default());
+    let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
 
     let tree = Config::new(path, version_set_provider.clone()).open()?;
 
