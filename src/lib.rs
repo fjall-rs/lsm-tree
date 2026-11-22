@@ -171,7 +171,7 @@ pub use {
 };
 
 pub use {
-    abstract_tree::AbstractTree,
+    abstract_tree::{AbstractTree, BatchItem},
     any_tree::AnyTree,
     blob_tree::BlobTree,
     cache::Cache,

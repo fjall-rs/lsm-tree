@@ -8,7 +8,7 @@ fn merger(c: &mut Criterion) {
         c.bench_function(&format!("Merge {num}"), |b| {
             let memtables = (0..num)
                 .map(|_| {
-                    let table = Memtable::default();
+                    let table = Memtable::new(0_u64);
 
                     for _ in 0..100 {
                         table.insert(InternalValue::from_components(
@@ -26,7 +26,7 @@ fn merger(c: &mut Criterion) {
             b.iter_with_large_drop(|| {
                 let iters = memtables
                     .iter()
-                    .map(|x| x.iter().map(Ok))
+                    .map(|x| x.iter().map(Ok::<_, lsm_tree::Error>))
                     .map(|x| Box::new(x) as BoxedIterator<'_>)
                     .collect();
 
@@ -43,7 +43,7 @@ fn mvcc_stream(c: &mut Criterion) {
         c.bench_function(&format!("MVCC stream {num} versions"), |b| {
             let memtables = (0..num)
                 .map(|_| {
-                    let table = Memtable::default();
+                    let table = Memtable::new(0_u64);
 
                     for key in 'a'..='z' {
                         table.insert(InternalValue::from_components(
@@ -61,7 +61,7 @@ fn mvcc_stream(c: &mut Criterion) {
             b.iter_with_large_drop(|| {
                 let iters = memtables
                     .iter()
-                    .map(|x| x.iter().map(Ok))
+                    .map(|x| x.iter().map(Ok::<_, lsm_tree::Error>))
                     .map(|x| Box::new(x) as BoxedIterator<'_>)
                     .collect();
 
