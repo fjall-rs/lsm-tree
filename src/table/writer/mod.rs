@@ -92,6 +92,8 @@ pub struct Writer {
     linked_blob_files: Vec<LinkedFile>,
 
     initial_level: u8,
+
+    pub(crate) fsync: bool,
 }
 
 impl Writer {
@@ -140,6 +142,8 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+
+            fsync: true,
         })
     }
 
@@ -230,6 +234,12 @@ impl Writer {
     pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self.filter_writer = self.filter_writer.set_filter_policy(bloom_policy);
+        self
+    }
+
+    #[must_use]
+    pub fn use_fsync(mut self, fsync: bool) -> Self {
+        self.fsync = fsync;
         self
     }
 
@@ -516,16 +526,17 @@ impl Writer {
         // Write fixed-size trailer
         // and flush & fsync the table file
         let mut checksum = self.file_writer.into_inner()?;
-        checksum.inner_mut().get_mut().sync_all()?;
+        if self.fsync {
+            checksum.inner_mut().get_mut().sync_all()?;
+
+            // IMPORTANT: fsync folder on Unix
+            #[expect(
+                clippy::expect_used,
+                reason = "if there's no parent folder, something has gone horribly wrong"
+            )]
+            fsync_directory(self.path.parent().expect("should have folder"))?;
+        }
         let checksum = checksum.checksum();
-
-        // IMPORTANT: fsync folder on Unix
-
-        #[expect(
-            clippy::expect_used,
-            reason = "if there's no parent folder, something has gone horribly wrong"
-        )]
-        fsync_directory(self.path.parent().expect("should have folder"))?;
 
         log::debug!(
             "Written {} items in {} blocks into new table file #{}, written {} MiB",

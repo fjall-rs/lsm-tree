@@ -52,7 +52,8 @@ impl<'a> BlobIngestion<'a> {
         .use_target_size(blob_file_size)
         .use_compression(crate::vlog::blob_file::writer::BlobCompression::Standard(
             kv.compression,
-        ));
+        ))
+        .use_fsync(tree.index.config.fsync);
 
         let separation_threshold = kv.separation_threshold;
 
@@ -258,6 +259,7 @@ impl<'a> BlobIngestion<'a> {
             },
             global_seqno,
             &self.tree.index.config.visible_seqno,
+            self.tree.index.config.fsync,
         )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).

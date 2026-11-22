@@ -92,7 +92,8 @@ impl<'a> Ingestion<'a> {
             tree.config
                 .index_block_restart_interval_policy
                 .get(INITIAL_CANONICAL_LEVEL),
-        );
+        )
+        .use_fsync(tree.config.fsync);
 
         if index_partitioning {
             writer = writer.use_partitioned_index();
@@ -322,6 +323,7 @@ impl<'a> Ingestion<'a> {
             },
             global_seqno,
             &self.tree.config.visible_seqno,
+            self.tree.config.fsync,
         )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).

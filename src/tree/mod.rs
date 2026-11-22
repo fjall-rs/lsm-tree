@@ -276,6 +276,7 @@ impl AbstractTree for Tree {
             },
             &config.seqno,
             &config.visible_seqno,
+            config.fsync,
         )
     }
 
@@ -388,7 +389,8 @@ impl AbstractTree for Tree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        .use_fsync(self.config.fsync);
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -480,6 +482,7 @@ impl AbstractTree for Tree {
             },
             &self.config.seqno,
             &self.config.visible_seqno,
+            self.config.fsync,
         )?;
 
         if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
@@ -1019,9 +1022,11 @@ impl Tree {
         let table_folder_path = path.join(TABLES_FOLDER);
         create_dir_all(&table_folder_path)?;
 
-        // IMPORTANT: fsync folders on Unix
-        fsync_directory(&table_folder_path)?;
-        fsync_directory(&path)?;
+        if config.fsync {
+            // IMPORTANT: fsync folders on Unix
+            fsync_directory(&table_folder_path)?;
+            fsync_directory(&path)?;
+        }
 
         let inner = TreeInner::create_new(config)?;
         Ok(Self(Arc::new(inner)))
@@ -1084,7 +1089,10 @@ impl Tree {
 
         if !table_base_folder.try_exists()? {
             std::fs::create_dir_all(&table_base_folder)?;
-            fsync_directory(&table_base_folder)?;
+
+            if config.fsync {
+                fsync_directory(&table_base_folder)?;
+            }
         }
 
         let mut orphaned_tables = vec![];
