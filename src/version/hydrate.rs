@@ -64,12 +64,15 @@ pub fn hydrate<T: AbstractTree>(raw: &RawVersionData, tree: &T) -> crate::Result
                         })
                         .collect::<crate::Result<Vec<_>>>()?;
 
-                    let run = Run::new(tables).ok_or(crate::Error::Unrecoverable)?;
-                    Ok(Arc::new(run))
+                    Run::new(tables).ok_or(crate::Error::Unrecoverable)
                 })
                 .collect::<crate::Result<Vec<_>>>()?;
 
-            Ok(Level::from_runs(runs))
+            // NOTE: Every AddTables edit is recovered as its own run, but the live version
+            // merges disjoint runs (see `Version::with_new_l0_run`), so do the same here
+            let runs = super::optimize::optimize_runs(runs);
+
+            Ok(Level::from_runs(runs.into_iter().map(Arc::new).collect()))
         })
         .collect::<crate::Result<Vec<_>>>()?;
 
