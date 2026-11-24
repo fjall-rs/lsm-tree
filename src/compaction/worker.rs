@@ -619,6 +619,12 @@ fn drop_tables(
     opts: &Options,
     ids_to_drop: &[TableId],
 ) -> crate::Result<NewCompactionResult> {
+    // NOTE: Dropping nothing would still persist an (empty) edit, and install a new version
+    if ids_to_drop.is_empty() {
+        log::trace!("No tables to drop");
+        return Ok(NewCompactionResult::empty());
+    }
+
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()

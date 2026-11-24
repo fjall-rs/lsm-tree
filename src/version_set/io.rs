@@ -1789,4 +1789,245 @@ mod tests {
 
         Ok(())
     }
+
+    /// Names of all files in a folder of the tree
+    fn list_files(t: &RecoverableTree, folder: &str) -> crate::Result<Vec<String>> {
+        let mut files = std::fs::read_dir(t.dir.path().join(folder))?
+            .map(|x| x.map(|x| x.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        files.sort();
+
+        Ok(files)
+    }
+
+    /// A drop range that drops nothing (empty range, or no table inside of it)
+    /// must not persist an edit, or install a new version
+    #[test]
+    fn io_provider_empty_drop_range_appends_no_edit() -> crate::Result<()> {
+        let mut t = RecoverableTree::new(None)?;
+
+        t.insert("b", 1);
+        t.insert("c", 2);
+        t.flush(3)?;
+
+        let manifest = std::fs::read_to_string(&t.manifest_path)?;
+        let version_id = t.tree.current_version().id();
+
+        // Empty range (start > end)
+        t.provider
+            .drop_range(&mut t.persister, &t.tree, "z".."a", 4, 0)?;
+
+        // Empty range (start > end, both included)
+        t.provider
+            .drop_range(&mut t.persister, &t.tree, "c"..="b", 5, 0)?;
+
+        // No table is fully contained in the range
+        t.provider
+            .drop_range(&mut t.persister, &t.tree, "x".."z", 6, 0)?;
+        t.provider
+            .drop_range(&mut t.persister, &t.tree, "b".."c", 7, 0)?;
+
+        assert_eq!(manifest, std::fs::read_to_string(&t.manifest_path)?);
+        assert_eq!(version_id, t.tree.current_version().id());
+        assert_eq!(1, t.tree.table_count());
+        assert!(t.tree.get("b", SeqNo::MAX)?.is_some());
+        assert!(t.tree.get("c", SeqNo::MAX)?.is_some());
+
+        Ok(())
+    }
+
+    /// A compaction of a blob tree that is committed after a clear is discarded,
+    /// which must delete the blob files it created as well (not only its tables)
+    #[test]
+    fn io_provider_blob_compaction_after_clear_deletes_new_blob_files() -> crate::Result<()> {
+        // NOTE: The filter replaces every value, which writes them into a new blob file
+        let mut t = RecoverableTree::with_filter(
+            Some(KvSeparationOptions::default().separation_threshold(1)),
+            Some(Arc::new(ReplaceEverythingFactory)),
+        )?;
+
+        t.tree.insert("a", "old", 0);
+        t.flush(1)?;
+
+        t.tree.insert("b", "old", 2);
+        t.flush(3)?;
+
+        // Run compaction, but commit it only after the clear
+        let result = t
+            .tree
+            .run_compaction(Arc::new(crate::compaction::Major::default()), 0)?;
+
+        let crate::compaction::worker::CompactionOperation::Merge {
+            created_tables,
+            created_blob_files,
+            ..
+        } = &result.inner
+        else {
+            panic!("expected merge, got {result:?}");
+        };
+
+        let created_table_ids = created_tables
+            .iter()
+            .map(|x| x.id().to_string())
+            .collect::<Vec<_>>();
+
+        let created_blob_file_ids = created_blob_files
+            .iter()
+            .map(|x| x.id().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(!created_table_ids.is_empty());
+        assert!(!created_blob_file_ids.is_empty());
+
+        // NOTE: The files exist until the result is discarded
+        let blob_files = list_files(&t, crate::file::BLOBS_FOLDER)?;
+        assert!(
+            created_blob_file_ids.iter().all(|id| blob_files.contains(id)),
+            "new blob files {created_blob_file_ids:?} should exist: {blob_files:?}",
+        );
+
+        t.provider.clear(&mut t.persister, &t.tree, 4)?;
+
+        let manifest = std::fs::read_to_string(&t.manifest_path)?;
+
+        t.provider
+            .register_compaction(&mut t.persister, result, 5)?;
+
+        // The stale result is not persisted
+        assert_eq!(manifest, std::fs::read_to_string(&t.manifest_path)?);
+
+        assert_eq!(0, t.tree.table_count());
+        assert_eq!(0, t.tree.blob_file_count());
+        assert!(t.tree.get("a", SeqNo::MAX)?.is_none());
+
+        let blob_files = list_files(&t, crate::file::BLOBS_FOLDER)?;
+        assert!(
+            created_blob_file_ids.iter().all(|id| !blob_files.contains(id)),
+            "discarded blob files {created_blob_file_ids:?} still exist: {blob_files:?}",
+        );
+
+        let tables = list_files(&t, crate::file::TABLES_FOLDER)?;
+        assert!(
+            created_table_ids.iter().all(|id| !tables.contains(id)),
+            "discarded output tables {created_table_ids:?} still exist: {tables:?}",
+        );
+
+        let recovered = t.recover()?;
+        assert_eq!(0, recovered.table_count());
+        assert_eq!(0, recovered.blob_file_count());
+
+        Ok(())
+    }
+
+    /// A trivial move that is committed after a clear must not be persisted or installed:
+    /// its tables do not exist anymore
+    #[test]
+    fn io_provider_move_after_clear() -> crate::Result<()> {
+        let mut t = RecoverableTree::new(None)?;
+
+        t.insert("a", 1);
+        t.flush(2)?;
+
+        // Run compaction, but commit it only after the clear
+        let result = t
+            .tree
+            .run_compaction(Arc::new(crate::compaction::MoveDown(0, 6)), 0)?;
+
+        assert!(
+            matches!(
+                result.inner,
+                crate::compaction::worker::CompactionOperation::Move { .. },
+            ),
+            "expected move, got {result:?}",
+        );
+
+        t.provider.clear(&mut t.persister, &t.tree, 3)?;
+
+        let manifest = std::fs::read_to_string(&t.manifest_path)?;
+        let version_id = t.tree.current_version().id();
+
+        t.provider
+            .register_compaction(&mut t.persister, result, 4)?;
+
+        assert_eq!(manifest, std::fs::read_to_string(&t.manifest_path)?);
+        assert_eq!(version_id, t.tree.current_version().id());
+        assert_eq!(0, t.tree.table_count());
+        assert!(t.tree.get("a", SeqNo::MAX)?.is_none());
+
+        // The tables are not hidden anymore
+        assert!(t
+            .tree
+            .inner()
+            .compaction_state
+            .lock()
+            .unwrap()
+            .hidden_set()
+            .is_empty());
+
+        let recovered = t.recover()?;
+        assert_eq!(0, recovered.table_count());
+        assert!(recovered.get("a", SeqNo::MAX)?.is_none());
+
+        Ok(())
+    }
+
+    /// A table drop (e.g. FIFO, drop range) that is committed after a clear must not be
+    /// persisted or installed: its tables do not exist anymore
+    #[test]
+    fn io_provider_drop_after_clear() -> crate::Result<()> {
+        let mut t = RecoverableTree::new(None)?;
+
+        t.insert("a", 1);
+        t.flush(2)?;
+
+        // Run compaction, but commit it only after the clear
+        //
+        // NOTE: Way over the limit, so the table is dropped
+        let result = t
+            .tree
+            .run_compaction(Arc::new(crate::compaction::Fifo::new(1)), 0)?;
+
+        assert!(
+            matches!(
+                result.inner,
+                crate::compaction::worker::CompactionOperation::Drop { .. },
+            ),
+            "expected drop, got {result:?}",
+        );
+
+        t.provider.clear(&mut t.persister, &t.tree, 3)?;
+
+        // New data after the clear must survive
+        t.insert("b", 4);
+        t.flush(5)?;
+
+        let manifest = std::fs::read_to_string(&t.manifest_path)?;
+        let version_id = t.tree.current_version().id();
+
+        t.provider
+            .register_compaction(&mut t.persister, result, 6)?;
+
+        assert_eq!(manifest, std::fs::read_to_string(&t.manifest_path)?);
+        assert_eq!(version_id, t.tree.current_version().id());
+        assert_eq!(1, t.tree.table_count());
+        assert!(t.tree.get("a", SeqNo::MAX)?.is_none());
+        assert!(t.tree.get("b", SeqNo::MAX)?.is_some());
+
+        assert!(t
+            .tree
+            .inner()
+            .compaction_state
+            .lock()
+            .unwrap()
+            .hidden_set()
+            .is_empty());
+
+        let recovered = t.recover()?;
+        assert_eq!(1, recovered.table_count());
+        assert!(recovered.get("a", SeqNo::MAX)?.is_none());
+        assert!(recovered.get("b", SeqNo::MAX)?.is_some());
+
+        Ok(())
+    }
 }
