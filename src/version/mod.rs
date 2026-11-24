@@ -455,7 +455,8 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 seqno: version_seqno,
-                flush_watermark: flush_watermark.or(self.flush_watermark),
+                // NOTE: The watermark never moves down (None < Some)
+                flush_watermark: flush_watermark.max(self.flush_watermark),
                 levels,
                 blob_files: value_log,
                 gc_stats,
