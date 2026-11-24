@@ -29,7 +29,7 @@ impl Default for BlobCompression {
 }
 
 /// Blob file writer
-pub struct Writer {
+pub(super) struct Writer {
     pub(crate) tree_id: TreeId,
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,

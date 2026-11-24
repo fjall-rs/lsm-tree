@@ -36,7 +36,7 @@ pub struct LinkedFile {
 }
 
 /// Serializes and compresses values into blocks and writes them to disk as a table
-pub struct Writer {
+pub(super) struct Writer {
     /// Table file path
     pub(crate) path: PathBuf,
 

@@ -25,7 +25,6 @@ pub use data_block::DataBlock;
 pub use id::{GlobalTableId, TableId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
 pub use scanner::Scanner;
-pub use writer::Writer;
 
 use crate::{
     cache::Cache,

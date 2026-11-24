@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use super::writer::Writer as TableWriter;
 use super::*;
 use crate::{
     config::BloomConstructionPolicy, table::filter::standard_bloom::Builder as BloomBuilder,
@@ -19,13 +20,13 @@ fn test_with_table(
     items: &[InternalValue],
     f: impl Fn(Table) -> crate::Result<()>,
     rotate_every: Option<usize>,
-    config_writer: Option<impl Fn(Writer) -> Writer>,
+    config_writer: Option<impl Fn(TableWriter) -> TableWriter>,
 ) -> crate::Result<()> {
     let dir = tempdir()?;
     let file = dir.path().join("table");
 
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?;
+        let mut writer = TableWriter::new(file.clone(), 0, 0)?;
 
         if let Some(f) = &config_writer {
             writer = f(writer);
@@ -193,7 +194,7 @@ fn test_with_table(
 
     // Test with partitioned indexes
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?.use_partitioned_index();
+        let mut writer = TableWriter::new(file.clone(), 0, 0)?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);
@@ -468,7 +469,7 @@ fn table_range_exclusive_bounds() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_data_block_size(1)),
+        Some(|x: TableWriter| x.use_data_block_size(1)),
     )
 }
 
@@ -670,7 +671,7 @@ fn table_range_multiple_data_blocks() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_data_block_size(1)),
+        Some(|x: TableWriter| x.use_data_block_size(1)),
     )
 }
 
@@ -706,7 +707,7 @@ fn table_point_read_partitioned_filter_smoke_test() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_partitioned_filter()),
+        Some(|x: TableWriter| x.use_partitioned_filter()),
     )
 }
 
@@ -794,7 +795,7 @@ fn table_partitioned_filter() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_partitioned_filter().use_meta_partition_size(3)),
+        Some(|x: TableWriter| x.use_partitioned_filter().use_meta_partition_size(3)),
     )
 }
 
@@ -839,7 +840,7 @@ fn table_zero_bpk() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0.0))),
+        Some(|x: TableWriter| x.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0.0))),
     )
 }
 
@@ -1206,7 +1207,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let data_block_size = 97;
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = TableWriter::new(file.clone(), 0, 0)
         .unwrap()
         .use_data_block_size(data_block_size);
 
@@ -1278,7 +1279,7 @@ fn table_partitioned_index() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = TableWriter::new(file.clone(), 0, 0)
         .unwrap()
         .use_partitioned_index()
         .use_data_block_size(5)
@@ -1388,7 +1389,7 @@ fn table_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)?
+    let mut writer = TableWriter::new(file.clone(), 0, 0)?
         .use_partitioned_filter()
         .use_data_block_size(1)
         .use_meta_partition_size(1);
@@ -1440,7 +1441,7 @@ fn table_return_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)?;
+    let mut writer = TableWriter::new(file.clone(), 0, 0)?;
 
     for item in items {
         writer.write(item)?;
