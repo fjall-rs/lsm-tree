@@ -12,12 +12,13 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 
 > [!NOTE]
 > This crate only provides a primitive LSM-tree, not a full storage engine.
-> Most importantly, it does not ship with a persistence (e.g. write-ahead log).
+> Most importantly, it does not ship with proper persistence (e.g. write-ahead log).
 > You probably want to use https://github.com/fjall-rs/fjall instead.
 
 ## About
 
-This is the most feature-rich LSM-tree implementation in Rust! It features:
+This is the most feature-rich LSM-tree implementation in Rust!
+It features:
 
 - Thread-safe `BTreeMap`-like API
 - Mostly [safe](./UNSAFE.md) & 100% stable Rust
@@ -35,7 +36,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Single deletion tombstones ("weak" deletion)
 - Optional compaction filters to run custom logic during compactions
 
-Keys are limited to 65536 bytes, values are limited to 2^32 bytes.
+Keys are limited to 65536 bytes, values are limited to 1 GiB.
 As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
 
 ## Sponsors

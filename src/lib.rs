@@ -28,7 +28,7 @@
 //! Because maintaining an efficient structure is deferred to the compaction process, writing to an LSMT
 //! is very fast (_O(1)_ complexity).
 //!
-//! Keys are limited to 65536 bytes, values are soft-limited to 1 GiB.
+//! Keys are limited to 65536 bytes, values are limited to 1 GiB.
 //! As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]

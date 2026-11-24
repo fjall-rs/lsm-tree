@@ -29,7 +29,7 @@ pub struct InternalValue {
 
     /// User-defined value - an arbitrary byte array
     ///
-    /// Supports up to 2^32 bytes
+    /// Supports up to 1 GiB.
     pub value: UserValue,
 }
 
@@ -45,9 +45,12 @@ impl InternalValue {
         assert!(!key.user_key.is_empty(), "key may not be empty");
         assert!(
             u32::try_from(value.len()).is_ok(),
-            "values can be 1 GiB bytes in length"
+            "1 GiB should fit in u32",
         );
-        assert!(value.len() <= 1_024 * 1_024 * 1_024);
+        assert!(
+            value.len() <= 1_024 * 1_024 * 1_024,
+            "values can be 1 GiB in length",
+        );
 
         Self { key, value }
     }
