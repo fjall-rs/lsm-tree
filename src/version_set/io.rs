@@ -189,6 +189,16 @@ impl IoSuperVersionSetProvider {
             return Ok(());
         }
 
+        // IMPORTANT: Check before persisting, otherwise the stale edit is replayed on recovery,
+        // and the dropped data comes back
+        if !self.inner.latest_version().can_register_compaction(&result) {
+            log::debug!(
+                "Not registering compaction, because some of its input tables do not exist anymore (e.g. cleared)",
+            );
+            result.discard();
+            return Ok(());
+        }
+
         let mut edits = std::mem::take(&mut result.version_edit);
         edits.push(EditRecord::SetVersionSeqno(version_seqno));
         persister.persist(&edits)?;
@@ -1187,6 +1197,67 @@ mod tests {
         Ok(())
     }
 
+    /// FIFO only drops tables, so its edit adds none, and recovery must drop them as well
+    #[test]
+    fn io_provider_fifo_drop_recovers() -> crate::Result<()> {
+        let mut t: RecoverableTree = RecoverableTree::new(None)?;
+
+        // Three disjoint flushes, so L0 is a single run
+        t.insert("a", 1);
+        t.flush(2)?;
+
+        t.insert("b", 3);
+        t.flush(4)?;
+
+        t.insert("c", 5);
+        t.flush(6)?;
+
+        assert_eq!(3, t.tree.table_count());
+        assert_eq!(1, t.tree.l0_run_count());
+
+        // NOTE: Just over the limit, so only the oldest table is dropped
+        let limit = t.tree.current_version().l0().size() - 1;
+
+        t.provider.compact(
+            &mut t.persister,
+            &t.tree,
+            Arc::new(crate::compaction::Fifo::new(limit)),
+            7,
+            0,
+        )?;
+
+        let last_edit = std::fs::read_to_string(&t.manifest_path)?
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_str::<VersionEdit>(line).unwrap())
+            .next_back()
+            .unwrap();
+
+        assert_eq!(
+            vec![
+                NormalizedRecord::drop_tables(vec![0]),
+                NormalizedRecord::set_version_seqno(7),
+            ],
+            last_edit.iter().map(normalize_record).collect::<Vec<_>>(),
+        );
+
+        let recovered = t.recover()?;
+
+        assert_eq!(
+            run_layout(&t.tree.current_version()),
+            run_layout(&recovered.current_version())
+        );
+
+        for tree in [&t.tree, &recovered] {
+            assert_eq!(2, tree.table_count());
+            assert!(tree.get("a", SeqNo::MAX)?.is_none());
+            assert!(tree.get("b", SeqNo::MAX)?.is_some());
+            assert!(tree.get("c", SeqNo::MAX)?.is_some());
+        }
+
+        Ok(())
+    }
+
     struct ReplaceEverything;
 
     impl crate::compaction::filter::CompactionFilter for ReplaceEverything {
@@ -1593,6 +1664,127 @@ mod tests {
                 ],
             ],
             normalize_edits(&edits),
+        );
+
+        Ok(())
+    }
+
+    /// Fails every edit, like a persister whose sync failed
+    struct FailingPersister;
+
+    impl Persister for FailingPersister {
+        type Error = crate::Error;
+
+        fn persist(&mut self, _: &VersionEdit) -> crate::Result<()> {
+            Err(crate::Error::Io(std::io::Error::other("sync failed")))
+        }
+    }
+
+    /// The parts of a super version a registration can change
+    fn super_version_state(
+        super_version: &SuperVersion,
+    ) -> (
+        crate::version::VersionId,
+        MemtableId,
+        Vec<MemtableId>,
+        Vec<Vec<Vec<u64>>>,
+    ) {
+        (
+            super_version.version.id(),
+            super_version.active_memtable.id,
+            super_version
+                .sealed_memtables
+                .iter()
+                .map(|mt| mt.id)
+                .collect(),
+            run_layout(&super_version.version),
+        )
+    }
+
+    /// A failed persist must not change the in-memory super version, and must keep the result's
+    /// files, because the edit may still be durable and get replayed on recovery
+    #[test]
+    fn io_provider_persist_error_keeps_state_and_files() -> crate::Result<()> {
+        let mut t = RecoverableTree::new(None)?;
+
+        let table_exists = |t: &RecoverableTree, id: crate::TableId| {
+            t.dir
+                .path()
+                .join(crate::file::TABLES_FOLDER)
+                .join(id.to_string())
+                .try_exists()
+        };
+
+        t.insert("a", 1);
+        t.flush(2)?;
+
+        t.insert("b", 3);
+        t.flush(4)?;
+
+        // Compaction
+        let result = t
+            .tree
+            .run_compaction(Arc::new(crate::compaction::Major::default()), 0)?;
+
+        let crate::compaction::worker::CompactionOperation::Merge { created_tables, .. } =
+            &result.inner
+        else {
+            panic!("expected merge, got {result:?}");
+        };
+
+        let output_table_ids = created_tables
+            .iter()
+            .map(crate::Table::id)
+            .collect::<Vec<_>>();
+
+        let before = super_version_state(&t.provider.latest_version());
+
+        assert_eq!(before, super_version_state(&t.provider.latest_version()));
+        assert!(t
+            .provider
+            .register_compaction(&mut FailingPersister, result, 5)
+            .is_err());
+
+        for id in output_table_ids {
+            assert!(table_exists(&t, id)?, "output table {id} was deleted");
+        }
+
+        assert!(t
+            .tree
+            .inner()
+            .compaction_state
+            .lock()
+            .unwrap()
+            .hidden_set()
+            .is_empty());
+
+        // Flush
+        t.insert("c", 6);
+        t.provider.rotate_active_memtable(&t.tree).unwrap();
+
+        let result = t.tree.flush(0)?.unwrap();
+
+        let output_table_ids = result
+            .tables
+            .iter()
+            .map(crate::Table::id)
+            .collect::<Vec<_>>();
+
+        let before = super_version_state(&t.provider.latest_version());
+
+        assert_eq!(before, super_version_state(&t.provider.latest_version()));
+        assert!(t
+            .provider
+            .register_flush(&mut FailingPersister, result, 7)
+            .is_err());
+
+        for id in output_table_ids {
+            assert!(table_exists(&t, id)?, "output table {id} was deleted");
+        }
+
+        assert_eq!(
+            Some(b"value".as_slice()),
+            t.tree.get("c", SeqNo::MAX)?.as_deref(),
         );
 
         Ok(())

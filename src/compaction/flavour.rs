@@ -312,6 +312,7 @@ impl CompactionFlavour for RelocatingCompaction {
 
         Ok(NewCompactionResult {
             version_edit: VersionEdit::new(version_edit),
+            hidden_tables: None,
             inner: crate::compaction::worker::CompactionOperation::Merge {
                 created_tables,
                 tables_to_delete,
@@ -479,6 +480,7 @@ impl CompactionFlavour for StandardCompaction {
 
         Ok(NewCompactionResult {
             version_edit: VersionEdit::new(version_edit),
+            hidden_tables: None,
             inner: crate::compaction::worker::CompactionOperation::Merge {
                 created_tables,
                 tables_to_delete,

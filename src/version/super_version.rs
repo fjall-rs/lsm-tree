@@ -56,11 +56,28 @@ impl DeletedFiles {
 }
 
 impl SuperVersion {
+    /// Returns `true` if all input tables of the compaction are still referenced in this version.
+    ///
+    /// See <https://github.com/fjall-rs/fjall/issues/287>
+    pub(crate) fn can_register_compaction(&self, result: &NewCompactionResult) -> bool {
+        result
+            .input_table_ids()
+            .all(|id| self.version.get_table(id).is_some())
+    }
+
     pub fn register_compaction(
         &self,
         result: NewCompactionResult,
         version_seqno: SeqNo,
-    ) -> (Self, DeletedFiles) {
+    ) -> Option<(Self, DeletedFiles)> {
+        if !self.can_register_compaction(&result) {
+            log::debug!(
+                "Not registering compaction, because some of its input tables do not exist anymore (e.g. cleared)",
+            );
+            result.discard();
+            return None;
+        }
+
         let mut copy = self.clone();
 
         let mut deleted = DeletedFiles::default();
@@ -126,7 +143,7 @@ impl SuperVersion {
             }
         }
 
-        (copy, deleted)
+        Some((copy, deleted))
     }
 
     /// Returns `true` if all memtables the flush processed are still sealed in this version.

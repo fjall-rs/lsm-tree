@@ -116,10 +116,13 @@ impl Inner {
             return Ok(());
         }
 
-        let (version, deleted) = self
+        let Some((version, deleted)) = self
             .0
             .latest_version()
-            .register_compaction(result, version_seqno);
+            .register_compaction(result, version_seqno)
+        else {
+            return Ok(());
+        };
 
         self.0.append_version(version);
 
@@ -263,24 +266,38 @@ impl MemorySuperVersionSetProvider {
     ///
     /// Returns the size of the dropped (active and sealed) memtables in bytes.
     pub fn clear(&self, tree: &impl AbstractTree, version_seqno: SeqNo) -> crate::Result<u64> {
-        Ok(self.inner.write().unwrap().clear(tree, version_seqno))
+        Ok(self
+            .inner
+            .write()
+            .expect("lock is poisoned")
+            .clear(tree, version_seqno))
     }
 
     pub fn register_compaction(
         &self,
-        result: NewCompactionResult,
+        mut result: NewCompactionResult,
         version_seqno: SeqNo,
     ) -> crate::Result<()> {
-        self.inner
+        // NOTE: Keep the input tables hidden until the result is installed
+        let hidden_tables = result.hidden_tables.take();
+
+        let commit_result = self
+            .inner
             .write()
-            .unwrap()
-            .register_compaction(result, version_seqno)
+            .expect("lock is poisoned")
+            .register_compaction(result, version_seqno);
+
+        // IMPORTANT: Show the tables only after releasing the write lock,
+        // because the lock order is compaction state -> version set
+        drop(hidden_tables);
+
+        commit_result
     }
 
     pub fn register_flush(&self, flush_result: FlushToTablesResult, seqno: SeqNo) -> u64 {
         self.inner
             .write()
-            .unwrap()
+            .expect("lock is poisoned")
             .register_flush(flush_result, seqno)
     }
 

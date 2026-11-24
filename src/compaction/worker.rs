@@ -8,7 +8,7 @@ use crate::{
     compaction::{
         filter::{Context, StreamFilterAdapter},
         flavour::{RelocatingCompaction, StandardCompaction},
-        state::CompactionState,
+        state::{CompactionState, HiddenTablesGuard},
         stream::CompactionStream,
         Choice,
     },
@@ -61,6 +61,10 @@ pub enum CompactionOperation {
 pub struct NewCompactionResult {
     pub inner: CompactionOperation,
     pub version_edit: VersionEdit,
+
+    /// Keeps the input tables hidden from other compactions until the result
+    /// is committed or discarded
+    pub(crate) hidden_tables: Option<HiddenTablesGuard>,
 }
 
 impl NewCompactionResult {
@@ -68,6 +72,40 @@ impl NewCompactionResult {
         Self {
             inner: CompactionOperation::Noop,
             version_edit: VersionEdit::empty(),
+            hidden_tables: None,
+        }
+    }
+
+    /// Returns the IDs of the tables the compaction consumes (merges, moves or drops).
+    pub(crate) fn input_table_ids(&self) -> impl Iterator<Item = TableId> + '_ {
+        let tables: &[Table] = match &self.inner {
+            CompactionOperation::Noop => &[],
+            CompactionOperation::Merge {
+                tables_to_delete, ..
+            } => tables_to_delete,
+            CompactionOperation::Move { tables, .. } | CompactionOperation::Drop { tables, .. } => {
+                tables
+            }
+        };
+
+        tables.iter().map(Table::id)
+    }
+
+    /// Deletes the tables and blob files the compaction created, without installing them.
+    pub(crate) fn discard(self) {
+        if let CompactionOperation::Merge {
+            created_tables,
+            created_blob_files,
+            ..
+        } = self.inner
+        {
+            for table in &created_tables {
+                table.mark_as_deleted();
+            }
+
+            for blob_file in &created_blob_files {
+                blob_file.mark_as_deleted();
+            }
         }
     }
 }
@@ -123,7 +161,7 @@ impl Options {
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<NewCompactionResult> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+    let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
     let latest_version = opts.config.version_set_provider.latest_version().version;
 
@@ -141,7 +179,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<NewCompactionResult> {
     match choice {
         Choice::Merge(payload) => merge_tables(compaction_state, &latest_version, opts, &payload),
         Choice::Move(payload) => Ok(move_tables(
-            &compaction_state,
+            &mut compaction_state,
             &latest_version,
             opts,
             &payload,
@@ -208,7 +246,7 @@ fn create_compaction_stream<'a>(
 
 #[allow(clippy::significant_drop_tightening)]
 fn move_tables(
-    compaction_state: &MutexGuard<'_, CompactionState>,
+    compaction_state: &mut MutexGuard<'_, CompactionState>,
     version: &Version,
     opts: &Options,
     payload: &CompactionPayload,
@@ -245,6 +283,12 @@ fn move_tables(
         return NewCompactionResult::empty();
     };
 
+    let hidden_tables = HiddenTablesGuard::hide(
+        compaction_state,
+        &opts.compaction_state,
+        table_ids.iter().copied(),
+    );
+
     NewCompactionResult {
         inner: CompactionOperation::Move {
             dst_lvl: payload.dest_level as usize,
@@ -254,6 +298,7 @@ fn move_tables(
             dst_lvl: payload.dest_level as usize,
             tables: table_ids,
         }]),
+        hidden_tables: Some(hidden_tables),
     }
 }
 
@@ -336,24 +381,6 @@ fn pick_blob_files_to_rewrite(
     }
 
     Ok(linked_blob_files.into_iter().cloned().collect::<Vec<_>>())
-}
-
-fn hidden_guard<T>(
-    payload: &CompactionPayload,
-    opts: &Options,
-    f: impl FnOnce() -> crate::Result<T>,
-) -> crate::Result<T> {
-    f().inspect_err(|e| {
-        log::error!("Compaction failed: {e:?}");
-
-        // IMPORTANT: We need to show tables again on error
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
-
-        compaction_state
-            .hidden_set_mut()
-            .show(payload.table_ids.iter().copied());
-    })
 }
 
 #[expect(clippy::too_many_lines)]
@@ -500,36 +527,43 @@ fn merge_tables(
 
     log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
 
-    {
-        compaction_state
-            .hidden_set_mut()
-            .hide(payload.table_ids.iter().copied());
-    }
+    // NOTE: Shows the tables again when dropped, so on error, or after the result is committed
+    //
+    // IMPORTANT: Has to be declared before re-locking the compaction state below,
+    // so that on an early return the lock is dropped first
+    let hidden_tables = HiddenTablesGuard::hide(
+        &mut compaction_state,
+        &opts.compaction_state,
+        payload.table_ids.iter().copied(),
+    );
 
     // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
     drop(compaction_state);
 
-    hidden_guard(payload, opts, || {
-        for (idx, item) in merge_iter.enumerate() {
-            let item = item?;
+    for (idx, item) in merge_iter.enumerate() {
+        let item = item.inspect_err(|e| log::error!("Compaction failed: {e:?}"))?;
 
-            compactor.write(item)?;
+        compactor
+            .write(item)
+            .inspect_err(|e| log::error!("Compaction failed: {e:?}"))?;
 
-            if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
-                log::debug!("Stopping amidst compaction because of stop signal");
-                return Ok(());
-            }
+        if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
+            log::debug!("Stopping amidst compaction because of stop signal");
+
+            // IMPORTANT: The merge is incomplete, so its output must not be installed,
+            // otherwise the input tables are replaced by a truncated copy (data loss)
+            //
+            // NOTE: Dropping the hidden tables guard shows the input tables again
+            return Ok(NewCompactionResult::empty());
         }
-
-        Ok(())
-    })?;
+    }
 
     if let Some(filter) = compaction_filter {
         filter.finish();
     }
 
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+    let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
     // TODO: check synchronize this with VersionSetProvider
     let version = opts.config.version_set_provider.latest_version().version;
@@ -550,10 +584,6 @@ fn merge_tables(
             payload.table_ids,
         );
 
-        compaction_state
-            .hidden_set_mut()
-            .show(payload.table_ids.iter().copied());
-
         return Ok(NewCompactionResult::empty());
     }
 
@@ -563,33 +593,20 @@ fn merge_tables(
         .map(BlobFileWriter::finish)
         .transpose()
         .inspect_err(|e| {
-            // NOTE: We cannot use hidden_guard here because we already locked the compaction state
-
             log::error!("Compaction failed while finishing filter blob writer: {e:?}");
-
-            compaction_state
-                .hidden_set_mut()
-                .show(payload.table_ids.iter().copied());
         })?
         .unwrap_or_default();
 
-    let result = compactor
+    let mut result = compactor
         .finish(&version, opts, payload, blob_frag_map, extra_blob_files)
         .inspect_err(|e| {
-            // NOTE: We cannot use hidden_guard here because we already locked the compaction state
-
             log::error!("Compaction failed: {e:?}");
-
-            compaction_state
-                .hidden_set_mut()
-                .show(payload.table_ids.iter().copied());
         })?;
 
-    compaction_state
-        .hidden_set_mut()
-        .show(payload.table_ids.iter().copied());
-
     drop(compaction_state);
+
+    // NOTE: The tables stay hidden until the result is committed
+    result.hidden_tables = Some(hidden_tables);
 
     log::trace!("Compaction successful");
 
@@ -597,7 +614,7 @@ fn merge_tables(
 }
 
 fn drop_tables(
-    compaction_state: MutexGuard<'_, CompactionState>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
     version: &Version,
     opts: &Options,
     ids_to_drop: &[TableId],
@@ -682,6 +699,12 @@ fn drop_tables(
         ));
     }
 
+    let hidden_tables = HiddenTablesGuard::hide(
+        &mut compaction_state,
+        &opts.compaction_state,
+        ids_to_drop.iter().copied(),
+    );
+
     Ok(NewCompactionResult {
         inner: CompactionOperation::Drop {
             tables,
@@ -689,6 +712,7 @@ fn drop_tables(
             blob_files_to_drop,
         },
         version_edit: VersionEdit::new(version_edit),
+        hidden_tables: Some(hidden_tables),
     })
 }
 
@@ -903,12 +927,7 @@ mod tests {
         assert_eq!(3, tree.approximate_len());
         assert_eq!(0, tree.sealed_memtable_count());
 
-        version_set_provider.compact(
-            &tree,
-            Arc::new(crate::compaction::Fifo::new(1, None)),
-            6,
-            3,
-        )?;
+        version_set_provider.compact(&tree, Arc::new(crate::compaction::Fifo::new(1)), 6, 3)?;
 
         assert_eq!(0, tree.table_count());
 
@@ -1141,6 +1160,85 @@ mod tests {
         )?;
 
         assert_eq!(0, tree.table_count());
+
+        Ok(())
+    }
+
+    struct StoppingFilter(crate::stop_signal::StopSignal);
+
+    impl CompactionFilter for StoppingFilter {
+        fn filter_item(
+            &mut self,
+            _: ItemAccessor<'_>,
+            _: &FilterContext,
+        ) -> crate::Result<Verdict> {
+            self.0.send();
+            Ok(Verdict::Keep)
+        }
+    }
+
+    #[derive(Default)]
+    struct StoppingFactory(Mutex<Option<crate::stop_signal::StopSignal>>);
+
+    impl Factory for StoppingFactory {
+        fn name(&self) -> &'static str {
+            "stopping"
+        }
+
+        #[expect(clippy::expect_used)]
+        fn make_filter(&self, _: &FilterContext) -> Box<dyn CompactionFilter> {
+            let stop_signal = self.0.lock().expect("lock is poisoned").clone();
+            Box::new(StoppingFilter(stop_signal.expect("should be set")))
+        }
+    }
+
+    /// A merge that is interrupted by the stop signal is incomplete,
+    /// so it must not replace its input tables
+    #[test]
+    #[expect(clippy::expect_used)]
+    fn compaction_stop_signal_amidst_merge_keeps_data() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let version_set_provider = Arc::new(MemorySuperVersionSetProvider::default());
+        let factory = Arc::new(StoppingFactory::default());
+
+        let tree = crate::Config::new(&folder, version_set_provider.clone())
+            .with_compaction_filter_factory(Some(factory.clone()))
+            .open()?;
+
+        for (seqno, key) in (0..).zip(["a", "b", "c"]) {
+            tree.insert(key, "v", seqno);
+            version_set_provider.flush_active_memtable(&tree, seqno + 1, 0)?;
+        }
+
+        assert_eq!(3, tree.table_count());
+        assert_eq!(3, tree.len(crate::SeqNo::MAX, None)?);
+
+        let AnyTree::Standard(inner) = &tree else {
+            unreachable!();
+        };
+
+        // NOTE: The filter sends the stop signal on the first item
+        *factory.0.lock().expect("lock is poisoned") = Some(inner.stop_signal.clone());
+
+        let strategy = Arc::new(crate::compaction::major::Strategy::new(u64::MAX));
+        let result = tree.run_compaction(strategy, 0)?;
+
+        assert!(
+            matches!(result.inner, super::CompactionOperation::Noop),
+            "interrupted merge returned a result: {result:?}",
+        );
+
+        version_set_provider.register_compaction(result, 10)?;
+
+        assert_eq!(3, tree.table_count());
+        assert_eq!(3, tree.len(crate::SeqNo::MAX, None)?);
+
+        for key in ["a", "b", "c"] {
+            assert!(tree.get(key, crate::SeqNo::MAX)?.is_some());
+        }
+
+        // The input tables must be shown again
+        assert!(!inner.is_compacting());
 
         Ok(())
     }
