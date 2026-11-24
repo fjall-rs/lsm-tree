@@ -1,4 +1,4 @@
-// Copyright (c) 2024-present, fjall-rs
+// Copyright (c) 2026-present, fjall-rs
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
@@ -1883,7 +1883,9 @@ mod tests {
         // NOTE: The files exist until the result is discarded
         let blob_files = list_files(&t, crate::file::BLOBS_FOLDER)?;
         assert!(
-            created_blob_file_ids.iter().all(|id| blob_files.contains(id)),
+            created_blob_file_ids
+                .iter()
+                .all(|id| blob_files.contains(id)),
             "new blob files {created_blob_file_ids:?} should exist: {blob_files:?}",
         );
 
@@ -1903,7 +1905,9 @@ mod tests {
 
         let blob_files = list_files(&t, crate::file::BLOBS_FOLDER)?;
         assert!(
-            created_blob_file_ids.iter().all(|id| !blob_files.contains(id)),
+            created_blob_file_ids
+                .iter()
+                .all(|id| !blob_files.contains(id)),
             "discarded blob files {created_blob_file_ids:?} still exist: {blob_files:?}",
         );
 
