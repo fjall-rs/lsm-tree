@@ -460,7 +460,7 @@ impl AbstractTree for Tree {
             return Ok(());
         }
 
-        version_lock.upgrade_version(
+        version_lock.upgrade_version_keeping_contents(
             &self.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -551,23 +551,17 @@ impl AbstractTree for Tree {
     fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
-        let super_version = version_history_lock.latest_version();
+        let yanked_memtable = version_history_lock.latest_version().active_memtable;
 
-        if super_version.active_memtable.is_empty() {
+        if yanked_memtable.is_empty() {
             return None;
         }
 
-        let yanked_memtable = super_version.active_memtable;
-
-        let mut copy = version_history_lock.latest_version();
-        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
-        copy.sealed_memtables =
-            Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
-
         // Rotate does not modify the memtable so it cannot break snapshots
-        copy.seqno = super_version.seqno;
-
-        version_history_lock.replace_latest_version(copy);
+        version_history_lock.seal_active_memtable(
+            &Arc::new(Memtable::new(self.memtable_id_counter.next())),
+            self.config.visible_seqno.get(),
+        );
 
         log::trace!(
             "rotate: added memtable id={} to sealed memtables",
