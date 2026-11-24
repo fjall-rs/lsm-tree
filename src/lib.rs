@@ -7,30 +7,29 @@
 //! ##### NOTE
 //!
 //! > This crate only provides a primitive LSM-tree, not a full storage engine.
+//! > Most importantly, it does not ship with proper persistence (e.g. write-ahead log).
 //! > You probably want to use <https://crates.io/crates/fjall> instead.
-//! > For example, it does not ship with a write-ahead log, so writes are not
-//! > persisted until manually flushing the memtable.
 //!
 //! ##### About
 //!
 //! This crate exports a `Tree` that supports a subset of the `BTreeMap` API.
 //!
-//! LSM-trees are an alternative to B-trees to persist a sorted list of items (e.g. a database table)
+//! LSM-trees (LSMTs) are an alternative to B-trees to persist an ordered list of items (e.g. a database table)
 //! on disk and perform fast lookup queries.
-//! Instead of updating a disk-based data structure in-place,
-//! deltas (inserts and deletes) are added into an in-memory write buffer (`Memtable`).
+//! Instead of updating a disk-based data structure in-place, deltas (inserts and deletes) are added
+//! into an in-memory write buffer (`Memtable`).
 //! Data is then flushed to disk-resident table files when the write buffer reaches some threshold.
 //!
 //! Amassing many tables on disk will degrade read performance and waste disk space, so tables
-//! can be periodically merged into larger tables in a process called `Compaction`.
+//! can be periodically merged in a process called `Compaction`.
 //! Different compaction strategies have different advantages and drawbacks, and should be chosen based
 //! on the workload characteristics.
 //!
 //! Because maintaining an efficient structure is deferred to the compaction process, writing to an LSMT
 //! is very fast (_O(1)_ complexity).
 //!
-//! Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
-//! engine, larger keys and values have a bigger performance impact.
+//! Keys are limited to 65536 bytes, values are soft-limited to 1 GiB.
+//! As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
