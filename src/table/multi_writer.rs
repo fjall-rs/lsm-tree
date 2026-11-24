@@ -4,8 +4,9 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, file::fsync_directory, table::writer::LinkedFile,
+    value::InternalValue, vlog::BlobFileId, Checksum, CompressionType, HashMap,
+    SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -236,7 +237,7 @@ impl MultiWriter {
         Ok(())
     }
 
-    /// Finishes the last table, making sure all data is written durably
+    /// Finishes the last table, making sure all data (and the folder) is written durably
     ///
     /// Returns the metadata of created tables
     pub fn finish(mut self) -> crate::Result<Vec<(TableId, Checksum)>> {
@@ -251,6 +252,11 @@ impl MultiWriter {
 
         if let Some((table_id, checksum)) = self.writer.finish()? {
             self.results.push((table_id, checksum));
+        }
+
+        // Fsync directory once
+        if !self.results.is_empty() {
+            fsync_directory(&self.base_path)?;
         }
 
         Ok(self.results)

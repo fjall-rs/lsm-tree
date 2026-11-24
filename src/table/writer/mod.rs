@@ -13,7 +13,6 @@ use super::{
 use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
-    file::fsync_directory,
     table::{
         writer::{
             filter::{FilterWriter, FullFilterWriter},
@@ -369,7 +368,7 @@ impl Writer {
 
     // TODO: split meta writing into new function
     #[expect(clippy::too_many_lines)]
-    /// Finishes the table, making sure all data is written durably
+    /// Finishes the table, making sure all of the file's data is written durably.
     pub fn finish(mut self) -> crate::Result<Option<(TableId, Checksum)>> {
         use std::io::Write;
 
@@ -521,14 +520,6 @@ impl Writer {
         let mut checksum = self.file_writer.into_inner()?;
         checksum.inner_mut().get_mut().sync_all()?;
         let checksum = checksum.checksum();
-
-        // IMPORTANT: fsync folder on Unix
-
-        #[expect(
-            clippy::expect_used,
-            reason = "if there's no parent folder, something has gone horribly wrong"
-        )]
-        fsync_directory(self.path.parent().expect("should have folder"))?;
 
         log::debug!(
             "Written {} items in {} blocks into new table file #{}, written {} MiB",

@@ -6,7 +6,6 @@ use super::meta::Metadata;
 use crate::{
     checksum::ChecksummedWriter,
     coding::Encode,
-    file::fsync_directory,
     time::unix_timestamp,
     vlog::{blob_file::header::BlobHeader, BlobFileId},
     Checksum, CompressionType, KeyRange, SeqNo, TreeId, UserKey,
@@ -105,6 +104,7 @@ impl Writer {
         self.blob_file_id
     }
 
+    #[expect(clippy::assert_is_empty)]
     pub(crate) fn write_raw(
         &mut self,
         key: &[u8],
@@ -223,12 +223,6 @@ impl Writer {
         let mut checksum = self.writer.into_inner()?;
         checksum.inner_mut().get_mut().sync_all()?;
         let checksum = checksum.checksum();
-
-        #[expect(
-            clippy::expect_used,
-            reason = "if there's no parent folder, something has gone horribly wrong"
-        )]
-        fsync_directory(self.path.parent().expect("should have folder"))?;
 
         Ok((metadata, checksum))
     }

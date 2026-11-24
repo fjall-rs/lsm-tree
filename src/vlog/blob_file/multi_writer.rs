@@ -4,6 +4,7 @@
 
 use super::writer::Writer;
 use crate::{
+    file::fsync_directory,
     file_accessor::FileAccessor,
     vlog::{
         blob_file::{writer::BlobCompression, Inner as BlobFileInner},
@@ -215,6 +216,12 @@ impl MultiWriter {
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
         let blob_file = Self::consume_writer(self.active_writer, self.descriptor_table.clone())?;
         self.results.extend(blob_file);
+
+        // Fsync directory once
+        if !self.results.is_empty() {
+            fsync_directory(&self.folder)?;
+        }
+
         Ok(self.results)
     }
 }
