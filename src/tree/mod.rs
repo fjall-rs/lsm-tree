@@ -430,7 +430,6 @@ impl AbstractTree for Tree {
         Ok(Some((tables, None)))
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn register_tables(
         &self,
         tables: &[Table],
@@ -445,46 +444,55 @@ impl AbstractTree for Tree {
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
 
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut _compaction_state = self.compaction_state.lock().expect("lock is poisoned");
-        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let mut version_lock = self.version_history.write().expect("lock is poisoned");
+        // NOTE: Dropping the last reference to a version frees its memtable,
+        // so the removed versions are dropped after both locks are released
+        let freed = {
+            #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+            let mut _compaction_state = self.compaction_state.lock().expect("lock is poisoned");
+            #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+            let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
-        // NOTE: Check for race condition
-        // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
-        if sealed_memtables_to_delete
-            .iter()
-            .any(|id| !version_lock.latest_version().sealed_memtables.contains(id))
-        {
-            log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
-            return Ok(());
-        }
+            // NOTE: Check for race condition
+            // Fixes: https://github.com/fjall-rs/fjall/issues/287#issuecomment-4938188362
+            if sealed_memtables_to_delete
+                .iter()
+                .any(|id| !version_lock.latest_version().sealed_memtables.contains(id))
+            {
+                log::debug!("Not registering tables because flush task processed some sealed memtables which do not exist (anymore)");
+                return Ok(());
+            }
 
-        version_lock.upgrade_version(
-            &self.config.path,
-            |current| {
-                let mut copy = current.clone();
+            version_lock.upgrade_version(
+                &self.config.path,
+                |current| {
+                    let mut copy = current.clone();
 
-                copy.version = copy.version.with_new_l0_run(
-                    tables,
-                    blob_files,
-                    frag_map.filter(|x| !x.is_empty()),
-                );
+                    copy.version = copy.version.with_new_l0_run(
+                        tables,
+                        blob_files,
+                        frag_map.filter(|x| !x.is_empty()),
+                    );
 
-                for &table_id in sealed_memtables_to_delete {
-                    log::trace!("releasing sealed memtable #{table_id}");
-                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
-                }
+                    for &table_id in sealed_memtables_to_delete {
+                        log::trace!("releasing sealed memtable #{table_id}");
+                        copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
+                    }
 
-                Ok(copy)
-            },
-            &self.config.seqno,
-            &self.config.visible_seqno,
-        )?;
+                    Ok(copy)
+                },
+                &self.config.seqno,
+                &self.config.visible_seqno,
+            )?;
 
-        if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
-            log::warn!("Version GC failed: {e:?}");
-        }
+            version_lock
+                .maintenance(&self.config.path, gc_watermark)
+                .unwrap_or_else(|e| {
+                    log::warn!("Version GC failed: {e:?}");
+                    Vec::new()
+                })
+        };
+
+        drop(freed);
 
         Ok(())
     }
