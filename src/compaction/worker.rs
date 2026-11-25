@@ -223,7 +223,7 @@ fn move_tables(
         return Ok(());
     }
 
-    version_history_lock.upgrade_version(
+    version_history_lock.upgrade_version_keeping_contents(
         &opts.config.path,
         |current| {
             let mut copy = current.clone();

@@ -120,6 +120,29 @@ impl SuperVersions {
         self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
     }
 
+    /// Like `upgrade_version`, but for changes that keep the tree's contents,
+    /// such as a flush or compaction.
+    ///
+    /// The version is only published if every earlier seqno already is, so a
+    /// write still being applied can't become visible with it. Otherwise
+    /// snapshots read it once a later write is published.
+    pub(crate) fn upgrade_version_keeping_contents<
+        F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>,
+    >(
+        &mut self,
+        tree_path: &Path,
+        f: F,
+        seqno: &SequenceNumberCounter,
+        visible_seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()> {
+        let seqno = seqno.next();
+        self.install_version(tree_path, f, seqno)?;
+
+        visible_seqno.compare_exchange(seqno, seqno + 1);
+
+        Ok(())
+    }
+
     /// Like `upgrade_version`, but takes an already-allocated sequence number.
     ///
     /// This is useful when the seqno must be coordinated with other operations
@@ -133,6 +156,19 @@ impl SuperVersions {
         seqno: SeqNo,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
+        self.install_version(tree_path, f, seqno)?;
+
+        visible_seqno.fetch_max(seqno + 1);
+
+        Ok(())
+    }
+
+    fn install_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
+        &mut self,
+        tree_path: &Path,
+        f: F,
+        seqno: SeqNo,
+    ) -> crate::Result<()> {
         let mut next_version = f(&self.latest_version())?;
         next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
@@ -140,9 +176,25 @@ impl SuperVersions {
         persist_version(tree_path, &next_version.version)?;
         self.append_version(next_version);
 
-        visible_seqno.fetch_max(seqno + 1);
-
         Ok(())
+    }
+
+    /// Seals each version's active memtable, replacing it with `memtable`.
+    ///
+    /// Writes go to the latest version, which may not be published yet, so the
+    /// new memtable has to be read from the published version and all after it.
+    /// Older versions are only read by snapshots that can't see its writes.
+    pub(crate) fn seal_active_memtable(&mut self, memtable: &Arc<Memtable>, visible_seqno: SeqNo) {
+        let published = self
+            .0
+            .iter()
+            .rposition(|version| version.seqno < visible_seqno)
+            .unwrap_or_default();
+
+        for version in self.0.iter_mut().skip(published) {
+            let sealed = std::mem::replace(&mut version.active_memtable, memtable.clone());
+            version.sealed_memtables = Arc::new(version.sealed_memtables.add(sealed));
+        }
     }
 
     pub fn append_version(&mut self, version: SuperVersion) {
@@ -357,5 +409,50 @@ mod tests {
         assert_eq!(history.len(), 1);
 
         Ok(())
+    }
+
+    #[test]
+    fn super_version_seal_active_memtable_from_published() {
+        let active = Arc::new(Memtable::new(0));
+        let cleared = Arc::new(Memtable::new(1));
+
+        let super_version = |seqno, active_memtable: &Arc<Memtable>| SuperVersion {
+            active_memtable: active_memtable.clone(),
+            sealed_memtables: Arc::default(),
+            version: Version::new(0, crate::TreeType::Standard),
+            seqno,
+        };
+
+        let mut history = SuperVersions(
+            vec![
+                super_version(0, &active),
+                super_version(1, &active),
+                super_version(2, &cleared),
+            ]
+            .into(),
+        );
+
+        // NOTE: Version 1 is the published one, version 2 is not published yet
+        let memtable = Arc::new(Memtable::new(2));
+        history.seal_active_memtable(&memtable, 2);
+
+        let mut versions = history.0.iter();
+
+        assert!(versions.next().is_some_and(|oldest| {
+            Arc::ptr_eq(&oldest.active_memtable, &active)
+                && oldest.sealed_memtables.iter().next().is_none()
+        }));
+
+        for (super_version, sealed) in versions.zip([0, 1]) {
+            assert!(Arc::ptr_eq(&super_version.active_memtable, &memtable));
+            assert_eq!(
+                vec![sealed],
+                super_version
+                    .sealed_memtables
+                    .iter()
+                    .map(|memtable| memtable.id)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

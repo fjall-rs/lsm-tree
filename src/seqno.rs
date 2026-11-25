@@ -83,6 +83,13 @@ impl SequenceNumberCounter {
     pub fn fetch_max(&self, seqno: SeqNo) {
         self.0.fetch_max(seqno, AcqRel);
     }
+
+    /// Sets the sequence number to `new` if it is still `current`, returning whether it was.
+    pub(crate) fn compare_exchange(&self, current: SeqNo, new: SeqNo) -> bool {
+        self.0
+            .compare_exchange(current, new, AcqRel, Acquire)
+            .is_ok()
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +101,15 @@ mod tests {
         let counter = super::SequenceNumberCounter::default();
         counter.set(0x7FFF_FFFF_FFFF_FFFF);
         let _ = counter.next();
+    }
+
+    #[test]
+    fn compare_exchange() {
+        let counter = super::SequenceNumberCounter::new(5);
+        assert!(!counter.compare_exchange(4, 6));
+        assert_eq!(5, counter.get());
+        assert!(counter.compare_exchange(5, 6));
+        assert_eq!(6, counter.get());
     }
 
     #[test]

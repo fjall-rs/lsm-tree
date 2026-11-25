@@ -285,7 +285,7 @@ impl CompactionFlavour for RelocatingCompaction {
             }
         }
 
-        super_version.upgrade_version(
+        super_version.upgrade_version_keeping_contents(
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -415,7 +415,7 @@ impl CompactionFlavour for StandardCompaction {
             }
         }
 
-        super_version.upgrade_version(
+        super_version.upgrade_version_keeping_contents(
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();
