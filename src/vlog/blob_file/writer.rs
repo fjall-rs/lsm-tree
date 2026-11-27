@@ -147,7 +147,7 @@ impl Writer {
         let value = match &self.blob_compression {
             #[cfg(feature = "lz4")]
             BlobCompression::Standard(CompressionType::Lz4) => {
-                std::borrow::Cow::Owned(lz4_flex::compress(value))
+                std::borrow::Cow::Owned(lz4rip::compress(value))
             }
 
             _ => std::borrow::Cow::Borrowed(value),

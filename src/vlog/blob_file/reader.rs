@@ -88,8 +88,13 @@ impl<'a> Reader<'a> {
                 #[warn(unsafe_code)]
                 let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
-                    .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
+                // The builder is not zeroed: the value must fill all of it.
+                let compression = self.blob_file.0.meta.compression;
+                let len = lz4rip::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
+                if len != builder.len() {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 builder.freeze().into()
             }

@@ -60,7 +60,7 @@ As is normal with any kind of storage engine, larger keys and values have a bigg
 
 ### lz4
 
-Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeitz/lz4_flex).
+Allows using `LZ4` compression, powered by [`lz4rip`](https://github.com/paddor/lz4rip).
 
 *Disabled by default.*
 

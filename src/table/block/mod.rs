@@ -61,7 +61,7 @@ impl Block {
             CompressionType::None => data,
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => &lz4_flex::compress(data),
+            CompressionType::Lz4 => &lz4rip::compress(data),
         };
 
         #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
@@ -110,8 +110,12 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
+                // The builder is not zeroed: the block must fill all of it.
+                let len = lz4rip::decompress_into(&raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(compression))?;
+                if len != builder.len() {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 builder.freeze().into()
             }
@@ -171,8 +175,12 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                lz4_flex::decompress_into(raw_data, &mut builder)
+                // The builder is not zeroed: the block must fill all of it.
+                let len = lz4rip::decompress_into(raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(compression))?;
+                if len != builder.len() {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 builder.freeze().into()
             }
